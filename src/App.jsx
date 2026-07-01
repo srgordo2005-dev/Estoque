@@ -22,17 +22,20 @@ async function uploadPhoto(b64,path){try{const res=await fetch(b64);const blob=a
 let wQ=[],wT=null;
 function syncSheet(url,action,payload){if(!url)return;wQ.push({action,payload});clearTimeout(wT);wT=setTimeout(()=>{if(!wQ.length)return;const b=[...wQ];wQ=[];fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch:b}),mode:"no-cors"}).catch(()=>{})},1500);}
 async function importMachinesFromSheet(url,onProgress){
-  let all=[],page=0,hasMore=true;
-  while(hasMore&&page<20){
-    const r=await fetch(`${url}?action=getMachines&page=${page}&limit=500`);
-    const d=await r.json();const machines=d.machines||[];
-    all=[...all,...machines];hasMore=d.hasMore||false;page++;
-    if(onProgress)onProgress(all.length,d.total||all.length);
-    if(!d.hasMore&&machines.length<500)break;
-  }
-  return all;
+  if(onProgress)onProgress(0,0);
+  const r=await fetch(`${url}?action=getMachines`);
+  const d=await r.json();
+  if(d.error)throw new Error(d.error);
+  const machines=d.machines||[];
+  if(onProgress)onProgress(machines.length,machines.length);
+  return machines;
 }
-async function importHashesFromSheet(url){const r=await fetch(`${url}?action=getHashes`);const d=await r.json();return d.hashes||[];}
+async function importHashesFromSheet(url){
+  const r=await fetch(`${url}?action=getHashes`);
+  const d=await r.json();
+  if(d.error)throw new Error(d.error);
+  return d.hashes||[];
+}
 async function importFromSheet(url){const r=await fetch(url+"?action=getMachines");const d=await r.json();return d.machines||[];}
 const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{const img=new Image();img.onload=()=>{const M=720,r=Math.min(M/img.width,M/img.height,1),c=document.createElement("canvas");c.width=img.width*r;c.height=img.height*r;c.getContext("2d").drawImage(img,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.65))};img.src=e.target.result};rd.readAsDataURL(f)});
 
