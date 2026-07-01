@@ -21,11 +21,23 @@ const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 async function uploadPhoto(b64,path){try{const res=await fetch(b64);const blob=await res.blob();const enc=encodeURIComponent(path);const r=await fetch(`${ST}?name=${enc}`,{method:"POST",headers:{"Content-Type":"image/jpeg"},body:blob});const d=await r.json();if(d.downloadTokens)return`${ST}/${enc}?alt=media&token=${d.downloadTokens}`;return null}catch{return null}}
 let wQ=[],wT=null;
 function syncSheet(url,action,payload){if(!url)return;wQ.push({action,payload});clearTimeout(wT);wT=setTimeout(()=>{if(!wQ.length)return;const b=[...wQ];wQ=[];fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch:b}),mode:"no-cors"}).catch(()=>{})},1500);}
+async function importMachinesFromSheet(url,onProgress){
+  let all=[],page=0,hasMore=true;
+  while(hasMore&&page<20){
+    const r=await fetch(`${url}?action=getMachines&page=${page}&limit=500`);
+    const d=await r.json();const machines=d.machines||[];
+    all=[...all,...machines];hasMore=d.hasMore||false;page++;
+    if(onProgress)onProgress(all.length,d.total||all.length);
+    if(!d.hasMore&&machines.length<500)break;
+  }
+  return all;
+}
+async function importHashesFromSheet(url){const r=await fetch(`${url}?action=getHashes`);const d=await r.json();return d.hashes||[];}
 async function importFromSheet(url){const r=await fetch(url+"?action=getMachines");const d=await r.json();return d.machines||[];}
 const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{const img=new Image();img.onload=()=>{const M=720,r=Math.min(M/img.width,M/img.height,1),c=document.createElement("canvas");c.width=img.width*r;c.height=img.height*r;c.getContext("2d").drawImage(img,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.65))};img.src=e.target.result};rd.readAsDataURL(f)});
 
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
-const DEF_MODELS=[{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
+const DEF_MODELS=[{m:"E9 Pro",th:3680},{m:"E9 Pro+",th:3880},{m:"KS5",th:21},{m:"KS5L",th:14},{m:"KS3",th:8},{m:"S19JPRO+",th:120},{m:"S19KPRO",th:77},{m:"S21XP",th:270},{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
 const SIT_OPTS=["STOCK","BOA","AGUARD. REVISÃO","REVISAR","ENTRADA OFICINA","LIGADA","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","CASTANHAO"];
 const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","IRREPARAVEL"];
 const SIT_C={"STOCK":"#d97706","BOA":"#16a34a","AGUARD. REVISÃO":"#2563eb","REVISAR":"#dc2626","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#dc2626","CASTANHAO":"#92400e"};
@@ -70,7 +82,7 @@ function PhotoCapture({label,photoKey,onChange,folder="photos",required}){
   const[src,setSrc]=useState(null),[up,setUp]=useState(false);const ref=useRef();
   useEffect(()=>{if(!photoKey){setSrc(null);return}if(photoKey.startsWith("http")||photoKey.startsWith("data:"))setSrc(photoKey);else setSrc(localStorage.getItem("ph:"+photoKey))},[photoKey]);
   const pick=async f=>{setUp(true);const b64=await compress(f);setSrc(b64);const url=await uploadPhoto(b64,`${folder}/${uid()}.jpg`);onChange(url||b64);setUp(false)};
-  return<div style={{marginBottom:14}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>{label}{required&&<span style={{color:C.red}}> *</span>}</div>}{up&&<div style={{color:C.amber,fontSize:12,marginBottom:6}}>⏳ Enviando...</div>}{src?<div style={{position:"relative"}}><img src={src} alt="" style={{width:"100%",borderRadius:10,maxHeight:220,objectFit:"cover"}}/><button onClick={()=>{setSrc(null);onChange(null)}} style={{position:"absolute",top:6,right:6,background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>✕</button></div>:<button onClick={()=>ref.current.click()} style={{width:"100%",background:"#080e17",border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:20,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>📷 {required?"(Obrigatória)":"Foto"}</button>}<input ref={ref} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&pick(e.target.files[0])}/></div>;
+  return<div style={{marginBottom:14}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>{label}{required&&<span style={{color:C.red}}> *</span>}</div>}{up&&<div style={{color:C.amber,fontSize:12,marginBottom:6}}>⏳ Enviando...</div>}{src?<div style={{position:"relative"}}><img src={src} alt="" style={{width:"100%",borderRadius:10,maxHeight:220,objectFit:"cover"}}/><button onClick={()=>{setSrc(null);onChange(null)}} style={{position:"absolute",top:6,right:6,background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>✕</button></div>:<div style={{display:"flex",gap:8}}><button onClick={()=>ref.current.click()} style={{flex:1,background:"#080e17",border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>📷 {required?"(Obrigatória)":"Foto"}</button><button onClick={async()=>{try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(t=>t.startsWith("image/"));if(type){const blob=await item.getType(type);const file=new File([blob],"paste.jpg",{type});await pick(file);return}}alert("Nenhuma imagem no clipboard")}catch{alert("Copie uma imagem (print screen) e toque Colar")}}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.blue,borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}} title="Colar print">📋 Colar</button></div>}<input ref={ref} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&pick(e.target.files[0])}/></div>;
 }
 function PhotoView({photoKey,style}){
   const[src,setSrc]=useState(null);
@@ -97,7 +109,7 @@ function copyReport(user,repairs,tests,date){const txt=generateReport(user,repai
 /* ═══ APP ROOT ══════════════════════════════════════════════════ */
 export default function App(){
   const[user,setUser]=useState(null);
-  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[]});
+  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||"");
   const lastMeta=useRef({});
@@ -105,9 +117,9 @@ export default function App(){
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
   const allModels=useCallback(()=>[...DEF_MODELS,...data.customModels].sort((a,b)=>a.m.localeCompare(b.m)),[data.customModels]);
   const gTH=useCallback(m=>{const f=[...DEF_MODELS,...data.customModels].find(x=>x.m===m);return f?.th||0},[data.customModels]);
-  const loadAll=useCallback(async()=>{const[e,m,h,r,t,f,a,cm]=await Promise.all([fbList("employees"),fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels")]);setData({employees:e.length?e:data.employees,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm})},[]);
+  const loadAll=useCallback(async()=>{const[e,m,h,r,t,f,a,cm,p]=await Promise.all([fbList("employees"),fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets")]);setData({employees:e.length?e:data.employees,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p})},[]);
 
-  useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const adm={code:"00",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const[m,h,r,t,f,a,cm]=await Promise.all([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels")]);setData(d=>({...d,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm}));setLoading(false)})()},[]);
+  useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const adm={code:"00",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const[m,h,r,t,f,a,cm,p]=await Promise.all([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets")]);setData(d=>({...d,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p}));setLoading(false)})()},[]);
   useEffect(()=>{const poll=async()=>{try{const r=await fetch(`${FB}/_meta?pageSize=20`);const d=await r.json();const docs=d.documents||[];let changed=false;docs.forEach(doc=>{const id=doc.name.split("/").pop();const ts=doc.fields?.ts?.integerValue;if(ts&&lastMeta.current[id]!==ts){lastMeta.current[id]=ts;changed=true}});if(changed){setSyncing(true);await loadAll();setSyncing(false)}}catch{}};const iv=setInterval(poll,15000);return()=>clearInterval(iv)},[loadAll]);
 
   const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH};
@@ -127,7 +139,7 @@ export default function App(){
     ...(p.repairs&&!isAdmin?[{id:"conserto",icon:"🔧",label:"Conserto"}]:[]),
     ...(p.testing&&!isAdmin?[{id:"teste",icon:"🧪",label:"Teste"}]:[]),
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
-    ...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"},{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
+    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"},{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:680,margin:"0 auto"}}>
@@ -257,7 +269,7 @@ function AdminSummary({data}){
 function MacPage({ctx}){
   const{data,setModal}=ctx;
   const[search,setSearch]=useState(""),[fSit,setFSit]=useState("all"),[fType,setFType]=useState("all");
-  const filtered=data.machines.filter(m=>{const ms=(m.sn||"").toLowerCase().includes(search.toLowerCase())||m.model?.toLowerCase().includes(search.toLowerCase());return ms&&(fSit==="all"||m.situacao===fSit)&&(fType==="all"||(fType==="complete"&&m.type==="complete")||(fType==="shell"&&m.type==="shell"))});
+  const filtered=data.machines.filter(m=>{const ms=(m.sn||"").toLowerCase().includes(search.toLowerCase())||m.model?.toLowerCase().includes(search.toLowerCase());const typOk=fType==="all"||(fType==="complete"&&m.type==="complete")||(fType==="shell"&&m.type==="shell")||(fType==="nosn"&&!m.sn);return ms&&(fSit==="all"||m.situacao===fSit)&&typOk});const sitCounts={};[...SIT_OPTS].forEach(s=>sitCounts[s]=data.machines.filter(m=>m.situacao===s).length);
   const openAdd=()=>setModal(<Modal title="Adicionar" onClose={()=>setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openDetail=m=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>);
   return<div>
@@ -586,7 +598,7 @@ function TeamPage({ctx,canSeeEmp}){
       const gT=data.repairs.filter(r=>r.employeeId===e._id&&r.date===today&&r.type==="already_good").length;
       const tT=data.tests.filter(t=>t.employeeId===e._id&&t.date===today).length;
       const fdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===e._id).length;
-      return<Card key={e._id} onClick={()=>openProfile(e)}>
+      return<Card key={e._id}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:44,height:44,borderRadius:"50%",background:"#1a2d42",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,color:C.accent,fontSize:18,flexShrink:0}}>{e.name[0]}</div>
           <div style={{flex:1}}>
@@ -655,14 +667,100 @@ function CfgPage({ctx}){
   const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
   const saveWh=()=>{localStorage.setItem("webhookUrl",url);setWebhookUrl(url);alert("✓ Webhook salvo!")};
   const testWh=async()=>{try{const r=await fetch(url+"?action=test");const d=await r.json();setTestRes(d.status==="ok"?"✓ Conectado! "+d.time:"✗ "+JSON.stringify(d))}catch(e){setTestRes("✗ Falha: "+e.message)}};
-  const doImport=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);try{const machines=await importFromSheet(url);if(!machines.length){setImportRes("Nenhuma máquina.");setImporting(false);return}const writes=machines.map(m=>{const id=uid();return{c:"machines",id,d:{...m,_id:undefined,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));mutate("machines",existing=>[...existing,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");setImportRes(`✓ ${machines.length} máquinas importadas!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false)};
+  const[importProg,setImportProg]=useState("");
+const doImportMachines=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);setImportProg("Buscando...");try{const machines=await importMachinesFromSheet(url,(cur,total)=>setImportProg(`${cur}/${total} recebidas...`));if(!machines.length){setImportRes("Nenhuma máquina.");setImporting(false);return}setImportProg(`Salvando ${machines.length}...`);const writes=machines.map(m=>{const id=uid();return{c:"machines",id,d:{...m,_id:undefined,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500){await fbBatch(writes.slice(i,i+500));setImportProg(`${Math.min(i+500,writes.length)}/${writes.length} salvas...`)}mutate("machines",existing=>[...existing,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");setImportRes(`✓ ${machines.length} máquinas importadas!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false);setImportProg("")};
+const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);try{const hashes=await importHashesFromSheet(url);if(!hashes.length){setImportRes("Nenhuma HASH na aba REPARO DE HASH.");setImporting(false);return}const writes=hashes.map(h=>{const id=uid();let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id,d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));mutate("hashes",existing=>[...existing,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("hashes");setImportRes(`✓ ${hashes.length} HASHs importadas!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false)};
   const addModel=async()=>{if(!newModel.trim()||!newTH)return;const id=uid();const d={m:newModel.trim(),th:Number(newTH)};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}]);setNewModel("");setNewTH("")};
   const delModel=async m=>{await fbDel("customModels",m._id);mutate("customModels",arr=>arr.filter(x=>x._id!==m._id))};
   return<div>
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
     <Card style={{marginBottom:14}}><SL>GOOGLE SHEETS WEBHOOK</SL><Inp value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..."/>{testRes&&<Alrt type={testRes.startsWith("✓")?"ok":"err"}>{testRes}</Alrt>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={testWh} style={{flex:1}}>🔗 Testar</Btn><Btn onClick={saveWh} style={{flex:1}}>💾 Salvar</Btn></div></Card>
-    <Card style={{marginBottom:14}}><SL>IMPORTAR PLANILHA EXISTENTE</SL>{importRes&&<Alrt type={importRes.startsWith("✓")?"ok":"err"}>{importRes}</Alrt>}<Btn v="b" onClick={doImport} disabled={importing} style={{width:"100%",justifyContent:"center"}}>{importing?"⏳ Importando...":"📥 Importar do Google Sheets"}</Btn></Card>
+    <Card style={{marginBottom:14}}><SL>IMPORTAR PLANILHA EXISTENTE</SL>{importRes&&<Alrt type={importRes.startsWith("✓")?"ok":"err"}>{importRes}</Alrt>}{importProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {importProg}</div>}<div style={{display:"flex",gap:8}}><Btn v="b" onClick={doImportMachines} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"📥 Máquinas"}</Btn><Btn v="p" onClick={doImportHashes} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"⚡ HASHs (REPARO)"}</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS</SL>{data.customModels.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
     <Card><div style={{fontWeight:800,color:C.blue,marginBottom:10}}>📖 Como configurar</div>{[["1","Abra sua planilha no Google Sheets"],["2","Extensões → Apps Script"],["3","Cole o código do arquivo hashstock-apps-script.js"],["4","Implantar → App da Web → Qualquer pessoa"],["5","Copie a URL e cole acima"]].map(([n,t])=><div key={n} style={{display:"flex",gap:10,marginBottom:8}}><div style={{width:22,height:22,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,flexShrink:0,color:"#fff"}}>{n}</div><div style={{fontSize:13,paddingTop:2}}>{t}</div></div>)}</Card>
+  </div>;
+}
+
+function PalletsPage({ctx}){
+  const{data,mutate,setModal,user}=ctx;const pallets=data.pallets||[];
+  const openAdd=()=>setModal(<Modal title="Novo Palete" onClose={()=>setModal(null)}><AddPalletForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+  const openDetail=p=>setModal(<Modal title={`📦 ${p.name}`} onClose={()=>setModal(null)}><PalletDetail ctx={ctx} pallet={p}/></Modal>);
+  return<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div><div style={{fontWeight:900,fontSize:18}}>Paletes</div><div style={{color:C.muted,fontSize:12}}>{pallets.length} paletes · {pallets.reduce((s,p)=>(p.machinesSN?.length||0)+s,0)} máquinas</div></div><Btn onClick={openAdd}>+ Palete</Btn></div>
+    {pallets.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>📦</div><div>Nenhum palete criado</div><div style={{fontSize:12,marginTop:8}}>Agrupe máquinas por palete ou localização</div></div>
+      :pallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:800,fontSize:15}}>📦 {p.name}</div>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:11,marginTop:2}}>{p.notes}</div>}</div><Tag color={C.blue}>{p.machinesSN?.length||0} máq.</Tag></div>
+        {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:C.card2||"#111f2d",borderRadius:6,padding:"2px 6px",fontSize:10}}>{m.sn?.slice(0,12)} <SP s={m.situacao}/></span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
+      </Card>})}
+  </div>;
+}
+function AddPalletForm({ctx,onClose}){
+  const{mutate,user}=ctx;const[name,setName]=useState(""),[location,setLocation]=useState(""),[notes,setNotes]=useState("");
+  const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),location,notes,machinesSN:[],...audit(user),createdAt:TODAY()};await fbSet("pallets",id,d);mutate("pallets",p=>[...p,{...d,_id:id}]);await markChanged("pallets");onClose()};
+  return<div><Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Palete 01, Lote A..." autoFocus/><Inp label="Localização" value={location} onChange={e=>setLocation(e.target.value)} placeholder="Ex: Galpão 2, Prateleira B3..."/><Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Opcional..."/><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div></div>;
+}
+function PalletDetail({ctx,pallet}){
+  const{data,mutate,setModal,user}=ctx;const[p,setP]=useState(pallet),[input,setInput]=useState(""),[scanning,setScanning]=useState(false),[log,setLog]=useState([]);
+  const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
+  const addSN=async(snRaw)=>{
+    const sn=snRaw.toUpperCase().trim();if(!sn)return;
+    if((p.machinesSN||[]).includes(sn)){setLog(l=>[{sn,status:"dup",msg:"Já está no palete"},...l]);setInput("");return}
+    const newSNs=[...(p.machinesSN||[]),sn];const upd={...p,machinesSN:newSNs,...audit(user)};
+    setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets");
+    const ex=data.machines.find(m=>m.sn===sn);
+    if(!ex){const id=uid();const d={sn,model:"M30S",th:86,type:"complete",situacao:"STOCK",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",...audit(user),addedAt:TODAY(),destino:""};await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);await markChanged("machines");setLog(l=>[{sn,status:"new",msg:"Nova — adicionada ao estoque"},...l])}
+    else setLog(l=>[{sn,status:"ok",msg:`${ex.model} · ${ex.situacao}`},...l]);
+    setInput("");
+  };
+  const remSN=async(sn)=>{const newSNs=(p.machinesSN||[]).filter(s=>s!==sn);const upd={...p,machinesSN:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets")};
+  const del=async()=>{mutate("pallets",arr=>arr.filter(x=>x._id!==p._id));await fbDel("pallets",p._id);await markChanged("pallets");setModal(null)};
+  return<div>
+    <div style={{background:"#111f2d",borderRadius:12,padding:12,marginBottom:12}}>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}<div style={{fontWeight:700,marginTop:4}}>{p.machinesSN?.length||0} máquinas no palete</div></div>
+    <SL>Adicionar Máquinas</SL>
+    <SNInput value={input} onChange={setInput} placeholder="SN da máquina..." onEnter={()=>addSN(input)}/>
+    {scanning&&<BarcodeScanner onScan={v=>{addSN(v)}} onClose={()=>setScanning(false)}/>}
+    <Btn v="b" onClick={()=>setScanning(true)} style={{width:"100%",marginBottom:10}}>📷 Bipar em Lote</Btn>
+    {log.length>0&&<div style={{background:"#111f2d",borderRadius:10,padding:10,marginBottom:10,maxHeight:100,overflow:"auto"}}>{log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:C.text,padding:"2px 0"}}>{l.status==="new"?"🆕":l.status==="dup"?"⚠️":"✓"} {l.sn} — {l.msg}</div>)}</div>}
+    <SL>Máquinas ({macs.length})</SL>
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Bipe ou digite acima.</div>
+      :macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn}</div><div style={{fontSize:10,color:C.muted}}>{m.model} · <SP s={m.situacao}/></div></div><button onClick={()=>remSN(m.sn)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div>)}
+    <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Palete</Btn>
+  </div>;
+}
+
+function EmpHistory({ctx,emp}){
+  const{data}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
+  const allR=data.repairs.filter(r=>r.employeeId===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id);
+  const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
+  const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
+  const totalR=allR.filter(r=>r.type!=="already_good").length,totalG=allR.filter(r=>r.type==="already_good").length;
+  return<div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+      {[[totalR,"Consertos",C.accent],[allT.length,"Testes",C.blue],[data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:"#111f2d",borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
+    </div>
+    {totalG>0&&<div style={{color:C.green,fontSize:12,textAlign:"center",marginBottom:10}}>✅ {totalG} "já estavam boas"</div>}
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="Data" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
+    {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
+      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:C.blue}><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div>{r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}<div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></Card>)}
+      {dayT.map(t=>{const stC=t.status==="pending"?C.blue:t.overallResult==="good"?C.green:C.red;return<Card key={t._id} accent={stC}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></Card>})}
+    </>}
+    <SL mt={12}>Histórico por Dia</SL>
+    {Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,cursor:"pointer"}}><span style={{color:d===dateFilter?C.accent:C.text}}>{fmtDate(d)}</span><Tag color={C.accent} small>{byDate[d]}</Tag></div>)}
+  </div>;
+}
+
+function EmpEdit({ctx,emp,onClose}){
+  const{data,mutate}=ctx;const[e,setE]=useState({...emp});
+  const setPerm=(k,v)=>setE(p=>({...p,permissions:{...p.permissions,[k]:v}}));
+  const save=async()=>{mutate("employees",arr=>arr.map(x=>x._id===e._id?e:x));await fbSet("employees",e._id,e);await markChanged("employees");onClose()};
+  const del=async()=>{if(!confirm("Remover "+e.name+"?"))return;mutate("employees",arr=>arr.filter(x=>x._id!==e._id));await fbDel("employees",e._id);await markChanged("employees");onClose()};
+  return<div>
+    <Inp label="Nome" value={e.name} onChange={ev=>setE(p=>({...p,name:ev.target.value}))}/>
+    <Inp label="Código" value={e.code} onChange={ev=>setE(p=>({...p,code:ev.target.value.slice(0,2)}))} maxLength={2}/>
+    <SL mt={8}>Permissões</SL>
+    {PERMS.map(({key,label})=><div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{label}</span><button onClick={()=>setPerm(key,!e.permissions?.[key])} style={{background:e.permissions?.[key]?C.green+"22":"#1a2d42",color:e.permissions?.[key]?C.green:C.muted,border:`1px solid ${e.permissions?.[key]?C.green:C.border}`,borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{e.permissions?.[key]?"ON":"OFF"}</button></div>)}
+    <SL mt={12}>Pode Ver Histórico de</SL>
+    {data.employees.filter(x=>x._id!==e._id).map(x=>{const allowed=(e.allowedEmployees||[]).includes(x._id);return<div key={x._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{x.name} #{x.code}</span><button onClick={()=>{const list=e.allowedEmployees||[];setE(p=>({...p,allowedEmployees:allowed?list.filter(id=>id!==x._id):[...list,x._id]}))}} style={{background:allowed?C.blue+"22":"#1a2d42",color:allowed?C.blue:C.muted,border:`1px solid ${allowed?C.blue:C.border}`,borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{allowed?"ON":"OFF"}</button></div>})}
+    <div style={{display:"flex",gap:8,marginTop:16}}><Btn v="d" onClick={del} style={{flex:1}}>🗑 Remover</Btn><Btn v="g" onClick={save} style={{flex:2}}>💾 Salvar</Btn></div>
   </div>;
 }
