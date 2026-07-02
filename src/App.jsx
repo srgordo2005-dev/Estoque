@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
 /* ═══ FIREBASE ═══════════════════════════════════════════════════ */
-const PID="estoque-11264";
+const PID="hashstock-prod";
 const FB=`https://firestore.googleapis.com/v1/projects/${PID}/databases/(default)/documents`;
-const BUCKET="estoque-11264.firebasestorage.app";
+const BUCKET="hashstock-prod.firebasestorage.app";
 const ST=`https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(BUCKET)}/o`;
 
 function toFS(o){const f={};for(const[k,v]of Object.entries(o)){if(v===null||v===undefined)f[k]={nullValue:null};else if(typeof v==="boolean")f[k]={booleanValue:v};else if(typeof v==="number")f[k]=Number.isInteger(v)?{integerValue:String(v)}:{doubleValue:v};else if(typeof v==="string")f[k]={stringValue:v};else if(Array.isArray(v))f[k]={arrayValue:{values:v.map(i=>typeof i==="object"&&i?{mapValue:{fields:toFS(i)}}:typeof i==="number"?{integerValue:String(i)}:{stringValue:String(i??"")})}};else if(typeof v==="object")f[k]={mapValue:{fields:toFS(v)}}}return f;}
@@ -141,10 +141,12 @@ export default function App(){
   const loadAll=useCallback(async()=>{const _res=await Promise.allSettled([fbList("employees"),fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);
     const[e,m,h,r,t,f,a,cm,p,cl]=_res.map(x=>x.status==="fulfilled"?x.value:[]);
     // BLINDAGEM: never overwrite existing data with empty array
+    if(m.length)localStorage.setItem("hs_machines",JSON.stringify(m));
+    if(h.length)localStorage.setItem("hs_hashes",JSON.stringify(h));
     setData(prev=>({
       employees:e.length?e:prev.employees,
-      machines:m.length?m:prev.machines,
-      hashes:h.length?h:prev.hashes,
+      machines:m.length?m:(prev.machines.length?prev.machines:JSON.parse(localStorage.getItem("hs_machines")||"[]")),
+      hashes:h.length?h:(prev.hashes.length?prev.hashes:JSON.parse(localStorage.getItem("hs_hashes")||"[]")),
       repairs:r.length?r:prev.repairs,
       tests:t.length?t:prev.tests,
       feedbacks:f.length?f:prev.feedbacks,
@@ -156,8 +158,12 @@ export default function App(){
 
   useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const adm={code:"00",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const _boot=await Promise.allSettled([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);
       const[m,h,r,t,f,a,cm,p,cl]=_boot.map(x=>x.status==="fulfilled"?x.value:[]);
-      setData(d=>({...d,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p,clients:cl}));setLoading(false)})()},[]);
-  useEffect(()=>{const poll=async()=>{try{const r=await fetch(`${FB}/_meta?pageSize=20`);const d=await r.json();const docs=d.documents||[];let changed=false;docs.forEach(doc=>{const id=doc.name.split("/").pop();const ts=doc.fields?.ts?.integerValue;if(ts&&lastMeta.current[id]!==ts){lastMeta.current[id]=ts;changed=true}});if(changed){setSyncing(true);await loadAll();setSyncing(false)}}catch{}};const iv=setInterval(poll,15000);return()=>clearInterval(iv)},[loadAll]);
+      const newData={...data,machines:m.length?m:JSON.parse(localStorage.getItem("hs_machines")||"[]"),hashes:h.length?h:JSON.parse(localStorage.getItem("hs_hashes")||"[]"),repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p,clients:cl};
+      setData(d=>({...d,...newData}));
+      if(m.length)localStorage.setItem("hs_machines",JSON.stringify(m));
+      if(h.length)localStorage.setItem("hs_hashes",JSON.stringify(h));
+      setLoading(false)})()},[]);
+  useEffect(()=>{const poll=async()=>{try{const r=await fetch(`${FB}/_meta?pageSize=20`);const d=await r.json();const docs=d.documents||[];let changed=false;docs.forEach(doc=>{const id=doc.name.split("/").pop();const ts=doc.fields?.ts?.integerValue;if(ts&&lastMeta.current[id]!==ts){lastMeta.current[id]=ts;changed=true}});if(changed){setSyncing(true);await loadAll();setSyncing(false)}}catch{}};const iv=setInterval(poll,300000);return()=>clearInterval(iv)},[loadAll]); // Poll every 5 min to save Firebase quota
 
   const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH};
   if(loading)return<Splash/>;
