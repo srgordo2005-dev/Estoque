@@ -23,6 +23,12 @@ async function fbBatch(writes){
 }
 const markChanged=k=>fbSet("_meta",k,{ts:Date.now()});
 const stamp=()=>new Date().toISOString();
+async function hashPwd(pwd){
+  const enc=new TextEncoder();
+  const data=enc.encode(pwd+"hs2026salt");
+  const buf=await crypto.subtle.digest("SHA-256",data);
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
 const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 
 /* ═══ STORAGE ════════════════════════════════════════════════════ */
@@ -156,7 +162,7 @@ export default function App(){
       clients:cl.length?cl:prev.clients,
     }))},[]);
 
-  useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const adm={code:"00",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const _boot=await Promise.allSettled([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);
+  useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const pwHash=await hashPwd("018");const adm={code:"019",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true,passwordHash:pwHash};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const _boot=await Promise.allSettled([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);
       const[m,h,r,t,f,a,cm,p,cl]=_boot.map(x=>x.status==="fulfilled"?x.value:[]);
       // Don't spread old data - use functional update to preserve employees already set
       if(m.length)localStorage.setItem("hs_machines",JSON.stringify(m));
@@ -233,10 +239,58 @@ const Splash=()=><div style={{background:C.bg,minHeight:"100vh",display:"flex",a
 
 /* ═══ LOGIN ═════════════════════════════════════════════════════ */
 function LoginPage({employees,onLogin}){
-  const[pin,setPin]=useState(""),[err,setErr]=useState("");
-  const go=()=>{const e=employees.find(x=>x.code===pin.trim());if(e)onLogin(e);else setErr("Código inválido")};
-  return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}><div style={{width:"100%",maxWidth:320,textAlign:"center"}}><div style={{fontSize:56}}>⛏️</div><div style={{fontWeight:900,fontSize:24,color:C.accent,marginTop:8}}>HashStock</div><div style={{color:C.muted,fontSize:12,marginBottom:28}}>Sistema de Gestão</div><div style={{background:C.card,borderRadius:16,padding:24}}><div style={{color:C.subtle,fontSize:10,fontWeight:800,letterSpacing:1,marginBottom:10}}>CÓDIGO DE ACESSO</div><input value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} maxLength={2} placeholder="00" style={{...inp,fontSize:42,textAlign:"center",letterSpacing:16,fontWeight:900,marginBottom:14,padding:"14px 0"}}/>{err&&<div style={{color:C.red,fontSize:13,marginBottom:10}}>{err}</div>}<Btn onClick={go} style={{width:"100%",justifyContent:"center"}}>Entrar</Btn></div></div></div>;
+  const[usr,setUsr]=useState(""),[pwd,setPwd]=useState(""),[err,setErr]=useState(""),[busy,setBusy]=useState(false),[showPwd,setShowPwd]=useState(false);
+  const go=async()=>{
+    if(!usr.trim()||!pwd.trim()){setErr("Preencha usuário e senha");return}
+    setBusy(true);setErr("");
+    const hash=await hashPwd(pwd);
+    // Find employee by code or name
+    const emp=employees.find(e=>(e.code===usr.trim()||e.name.toLowerCase()===usr.trim().toLowerCase()));
+    if(!emp){setErr("Usuário não encontrado");setBusy(false);return}
+    // Check password - allow code "00" with pwd "00" as initial admin access if no password set
+    if(emp.passwordHash===hash){
+      onLogin(emp);
+    } else if(!emp.passwordHash){
+      setErr("Sem senha cadastrada. Peça ao Admin para definir sua senha.");
+    } else {
+      setErr("Senha incorreta");
+    }
+    setBusy(false);
+  };
+  const saveNewPwd=async()=>{
+    if(newPwd.length<4){setErr("Mínimo 4 caracteres");return}
+    if(newPwd!==newPwd2){setErr("Senhas não conferem");return}
+    setBusy(true);
+    const hash=await hashPwd(newPwd);
+    const upd={...pEmp,passwordHash:hash};
+    await fbSet("employees",pEmp._id,upd);
+    onLogin(upd);
+    setBusy(false);
+  };
+  return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{width:"100%",maxWidth:360,textAlign:"center"}}>
+      <div style={{fontSize:56,marginBottom:6}}>⛏️</div>
+      <div style={{fontWeight:900,fontSize:24,color:C.accent,marginBottom:4}}>HashStock</div>
+      <div style={{color:C.muted,fontSize:12,marginBottom:28}}>Sistema de Gestão</div>
+      <div style={{background:C.card,borderRadius:20,padding:28,border:`1px solid ${C.border}`,textAlign:"left"}}>
+        <>
+          <div style={{color:C.subtle,fontSize:11,fontWeight:800,letterSpacing:1,marginBottom:16,textAlign:"center",textTransform:"uppercase"}}>🔐 Acesso Seguro</div>
+          <Inp label="Usuário (nome ou código)" value={usr} onChange={e=>setUsr(e.target.value)} placeholder="Ex: João ou 01" autoFocus/>
+          <div style={{marginBottom:12}}>
+            <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:5,letterSpacing:1,textTransform:"uppercase"}}>Senha</div>
+            <div style={{display:"flex",gap:8}}>
+              <input type={showPwd?"text":"password"} value={pwd} onChange={e=>setPwd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="••••••" style={{...inp,flex:1}}/>
+              <button onClick={()=>setShowPwd(s=>!s)} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:"0 14px",cursor:"pointer",color:C.muted,fontSize:16}}>{showPwd?"🙈":"👁️"}</button>
+            </div>
+          </div>
+          {err&&<div style={{color:C.red,fontSize:12,marginBottom:12,textAlign:"center"}}>⚠️ {err}</div>}
+          <Btn onClick={go} disabled={busy} style={{width:"100%",padding:"13px",fontSize:14}}>{busy?"...":"→ Entrar"}</Btn>
+          <div style={{color:C.muted,fontSize:10,textAlign:"center",marginTop:12}}>Acesso Admin: usuário 019 / senha 018</div>
+      </div>
+    </div>
+  </div>;
 }
+
 
 /* ═══ CAMERA MODAL ══════════════════════════════════════════════ */
 function CamModal({ctx,onClose}){
@@ -823,10 +877,33 @@ function EmpProfile({ctx,emp}){
 }
 
 function AddEmpForm({ctx,onClose}){
-  const{data,mutate}=ctx;const[f,setF]=useState({name:"",code:"",permissions:{repairs:true,testing:false,machines:false,hashes:false,admin:false},allowedEmployees:[]});
-  const set=(k,v)=>setF(p=>({...p,[k]:v}));const setPerm=(k,v)=>setF(p=>({...p,permissions:{...p.permissions,[k]:v}}));
-  const save=async()=>{if(!f.name.trim()||!f.code.trim())return;if(data.employees.find(e=>e.code===f.code)){alert("Código já existe");return}const id=uid();const d={...f,code:f.code.padStart(2,"0"),role:"technician"};await fbSet("employees",id,d);mutate("employees",e=>[...e,{...d,_id:id}]);await markChanged("employees");onClose()};
-  return<div><Inp label="NOME" value={f.name} onChange={e=>set("name",e.target.value)} placeholder="Ex: João Silva"/><Inp label="CÓDIGO (2 dígitos)" value={f.code} onChange={e=>set("code",e.target.value.slice(0,2))} placeholder="01" maxLength={2}/><SL mt={8}>PERMISSÕES</SL>{PERMS.map(({key,label})=><div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{label}</span><button onClick={()=>setPerm(key,!f.permissions[key])} style={{background:f.permissions[key]?C.green:"#1a2d42",border:"none",color:"#fff",borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{f.permissions[key]?"ON":"OFF"}</button></div>)}<div style={{display:"flex",gap:8,marginTop:16}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} style={{flex:1}}>Salvar</Btn></div></div>;
+  const{data,mutate}=ctx;
+  const[name,setName]=useState(""),[code,setCode]=useState(""),[pwd,setPwd]=useState(""),[perms,setPerms]=useState({repairs:true,testing:false,machines:false,hashes:false,admin:false});
+  const toggle=(k)=>setPerms(p=>({...p,[k]:!p[k]}));
+  const save=async()=>{
+    if(!name.trim()||!code.trim())return alert("Preencha nome e código");
+    if(!pwd||pwd.length<4)return alert("Senha deve ter mínimo 4 caracteres");
+    if(data.employees.find(e=>e.code===code))return alert("Código já existe");
+    const hash=await hashPwd(pwd);
+    const id=uid();
+    const d={name:name.trim(),code,role:"technician",permissions:perms,allowedEmployees:[],passwordHash:hash};
+    await fbSet("employees",id,d);mutate("employees",e=>[...e,{...d,_id:id}]);
+    await markChanged("employees");onClose();
+  };
+  return<div>
+    <Inp label="Nome Completo" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: João Silva" autoFocus/>
+    <Inp label="Código" value={code} onChange={e=>setCode(e.target.value.slice(0,3))} placeholder="001" maxLength={3}/>
+    <Inp label="Senha (você define)" type="password" value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="Mínimo 4 caracteres"/>
+    <SL mt={8}>Permissões</SL>
+    {PERMS.map(({key,label})=><div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+      <span style={{fontSize:13}}>{label}</span>
+      <button onClick={()=>toggle(key)} style={{background:perms[key]?C.green+"22":"#1a2d42",color:perms[key]?C.green:C.muted,border:`1px solid ${perms[key]?C.green:C.border}`,borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{perms[key]?"ON":"OFF"}</button>
+    </div>)}
+    <div style={{display:"flex",gap:8,marginTop:16}}>
+      <Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
+      <Btn onClick={save} style={{flex:1}}>💾 Criar Funcionário</Btn>
+    </div>
+  </div>;
 }
 
 /* ═══ CONFIG ════════════════════════════════════════════════════ */
@@ -1024,6 +1101,7 @@ function EmpHistory({ctx,emp}){
 function EmpEdit({ctx,emp,onClose}){
   const{data,mutate}=ctx;const[e,setE]=useState({...emp});
   const setPerm=(k,v)=>setE(p=>({...p,permissions:{...p.permissions,[k]:v}}));
+  const resetPwd=async()=>{const np=prompt("Nova senha para "+e.name+" (mín 4 chars):");if(!np||np.length<4){alert("Senha muito curta");return}const hash=await hashPwd(np);const upd={...e,passwordHash:hash};setE(upd);mutate("employees",arr=>arr.map(x=>x._id===e._id?upd:x));await fbSet("employees",e._id,upd);await markChanged("employees");alert("✓ Senha redefinida!")};
   const save=async()=>{mutate("employees",arr=>arr.map(x=>x._id===e._id?e:x));await fbSet("employees",e._id,e);await markChanged("employees");onClose()};
   const del=async()=>{if(!confirm("Remover "+e.name+"?"))return;mutate("employees",arr=>arr.filter(x=>x._id!==e._id));await fbDel("employees",e._id);await markChanged("employees");onClose()};
   return<div>
