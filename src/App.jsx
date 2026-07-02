@@ -1020,9 +1020,10 @@ function ClientDetail({ctx,client}){
         :<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}><div style={{fontWeight:900,fontSize:16}}>👤 {c.name}</div><button onClick={()=>setEditName(true)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✏️</button></div>}
       {c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}
       {c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}
-      <div style={{marginTop:10,display:"flex",gap:8"}}>
+      <div style={{marginTop:10,display:"flex",gap:8}}}>
         <div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:18}}>{c.machinesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>Máquinas</div></div>
         <div style={{background:C.red+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.red,fontSize:18}}>{macs.filter(m=>["SAIDA","VENDIDA","EXPORTADA"].includes(m.situacao)).length}</div><div style={{fontSize:10,color:C.muted}}>Saídas</div></div>
+      </div>
       </div>
     </div>
 
