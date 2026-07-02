@@ -382,8 +382,8 @@ function FilterBar({filters,active,onToggle,counts,label}){
 }
 
 function MacPage({ctx}){
-  const{data,setModal}=ctx;
-  const[search,setSearch]=useState(""),[fSit,setFSit]=useState("all"),[fType,setFType]=useState("all");
+  const{data,setModal,user}=ctx;
+  const[search,setSearch]=useState(""),[activeFilters,setActiveFilters]=useState({}),[selected,setSelected]=useState(new Set()),[selMode,setSelMode]=useState(false);
   const toggleFilter=id=>setActiveFilters(f=>({...f,[id]:!f[id]}));
   const filtered=data.machines.filter(m=>{
     const ms=(m.sn||"").toLowerCase().includes(search.toLowerCase())||m.model?.toLowerCase().includes(search.toLowerCase());
