@@ -261,10 +261,30 @@ export default function App(){
 
   useEffect(()=>{(async()=>{
     setLoading(true);
+    const cachedEmps=JSON.parse(localStorage.getItem("hs_employees")||"[]");
     try{
-      const emps=await fbList("employees");
-      if(emps.length===0){const id=uid();const pwHash=await hashPwd("018");const adm={code:"019",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true,passwordHash:pwHash};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}
-      else setCol("employees",emps);
+      let emps=[];
+      let empsFailed=false;
+      try{emps=await fbList("employees")}catch(e){empsFailed=true;console.error("Falha ao carregar funcionários:",e)}
+      if(empsFailed){
+        // Falha na leitura: NUNCA recriar admin nem apagar a lista — usa o
+        // cache local (se existir) e avisa o Admin, sem mexer no Firebase.
+        setCol("employees",cachedEmps);
+        setDataWarnings(w=>[{msg:"⚠️ Não consegui carregar a lista de funcionários do Firebase agora. Mostrando a última cópia salva neste aparelho ("+cachedEmps.length+" pessoas). Recarregue a página em instantes.",at:stamp()},...w]);
+      }else if(emps.length===0&&cachedEmps.length>0){
+        // Veio vazio mas já tínhamos gente cadastrada antes — provável leitura
+        // incompleta, NÃO cria admin novo. Usa o cache e avisa.
+        setCol("employees",cachedEmps);
+        setDataWarnings(w=>[{msg:"⚠️ Leitura de funcionários voltou vazia, mas já existiam "+cachedEmps.length+" cadastrados. Mantendo a cópia salva por segurança — nada foi apagado.",at:stamp()},...w]);
+      }else if(emps.length===0){
+        // Realmente não existe ninguém cadastrado ainda (primeira vez) — cria o admin padrão
+        const id=uid();const pwHash=await hashPwd("018");const adm={code:"019",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true,passwordHash:pwHash};
+        await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}]);
+        localStorage.setItem("hs_employees",JSON.stringify([{...adm,_id:id}]));
+      }else{
+        setCol("employees",emps);
+        localStorage.setItem("hs_employees",JSON.stringify(emps));
+      }
       const{out,errs}=await fetchAllCollections();
       const cachedM=JSON.parse(localStorage.getItem("hs_machines")||"[]");
       const cachedH=JSON.parse(localStorage.getItem("hs_hashes")||"[]");
@@ -288,11 +308,14 @@ export default function App(){
       if(warnings.length)setDataWarnings(w=>[...warnings.map(m=>({msg:m,at:stamp()})),...w].slice(0,20));
     }catch(e){
       console.error("Erro crítico no boot:",e);
-      setDataWarnings(w=>[{msg:"⚠️ Falha ao carregar dados iniciais: "+e.message,at:stamp()},...w]);
+      setCol("employees",cachedEmps);
+      setDataWarnings(w=>[{msg:"⚠️ Falha ao carregar dados iniciais: "+e.message+". Usando última cópia salva.",at:stamp()},...w]);
     }
     setLoading(false);
   })()},[]);
   useEffect(()=>{const poll=async()=>{try{const r=await fetch(`${FB}/_meta?pageSize=20`);const d=await r.json();const docs=d.documents||[];let changed=false;docs.forEach(doc=>{const id=doc.name.split("/").pop();const ts=doc.fields?.ts?.integerValue;if(ts&&lastMeta.current[id]!==ts){lastMeta.current[id]=ts;changed=true}});if(changed){setSyncing(true);await loadAll();setSyncing(false)}}catch{}};const iv=setInterval(poll,300000);return()=>clearInterval(iv)},[loadAll]); // Poll every 5 min to save Firebase quota
+
+  useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
   const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,dataWarnings};
   if(loading)return<Splash/>;
