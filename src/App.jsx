@@ -244,27 +244,11 @@ function LoginPage({employees,onLogin}){
     if(!usr.trim()||!pwd.trim()){setErr("Preencha usuário e senha");return}
     setBusy(true);setErr("");
     const hash=await hashPwd(pwd);
-    // Find employee by code or name
     const emp=employees.find(e=>(e.code===usr.trim()||e.name.toLowerCase()===usr.trim().toLowerCase()));
     if(!emp){setErr("Usuário não encontrado");setBusy(false);return}
-    // Check password - allow code "00" with pwd "00" as initial admin access if no password set
-    if(emp.passwordHash===hash){
-      onLogin(emp);
-    } else if(!emp.passwordHash){
-      setErr("Sem senha cadastrada. Peça ao Admin para definir sua senha.");
-    } else {
-      setErr("Senha incorreta");
-    }
-    setBusy(false);
-  };
-  const saveNewPwd=async()=>{
-    if(newPwd.length<4){setErr("Mínimo 4 caracteres");return}
-    if(newPwd!==newPwd2){setErr("Senhas não conferem");return}
-    setBusy(true);
-    const hash=await hashPwd(newPwd);
-    const upd={...pEmp,passwordHash:hash};
-    await fbSet("employees",pEmp._id,upd);
-    onLogin(upd);
+    if(emp.passwordHash===hash){onLogin(emp);}
+    else if(!emp.passwordHash){setErr("Sem senha. Peça ao Admin para cadastrar sua senha.");}
+    else{setErr("Senha incorreta");}
     setBusy(false);
   };
   return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
@@ -273,23 +257,23 @@ function LoginPage({employees,onLogin}){
       <div style={{fontWeight:900,fontSize:24,color:C.accent,marginBottom:4}}>HashStock</div>
       <div style={{color:C.muted,fontSize:12,marginBottom:28}}>Sistema de Gestão</div>
       <div style={{background:C.card,borderRadius:20,padding:28,border:`1px solid ${C.border}`,textAlign:"left"}}>
-        <>
-          <div style={{color:C.subtle,fontSize:11,fontWeight:800,letterSpacing:1,marginBottom:16,textAlign:"center",textTransform:"uppercase"}}>🔐 Acesso Seguro</div>
-          <Inp label="Usuário (nome ou código)" value={usr} onChange={e=>setUsr(e.target.value)} placeholder="Ex: João ou 01" autoFocus/>
-          <div style={{marginBottom:12}}>
-            <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:5,letterSpacing:1,textTransform:"uppercase"}}>Senha</div>
-            <div style={{display:"flex",gap:8}}>
-              <input type={showPwd?"text":"password"} value={pwd} onChange={e=>setPwd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="••••••" style={{...inp,flex:1}}/>
-              <button onClick={()=>setShowPwd(s=>!s)} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:"0 14px",cursor:"pointer",color:C.muted,fontSize:16}}>{showPwd?"🙈":"👁️"}</button>
-            </div>
+        <div style={{color:C.subtle,fontSize:11,fontWeight:800,letterSpacing:1,marginBottom:16,textAlign:"center",textTransform:"uppercase"}}>🔐 Acesso Seguro</div>
+        <Inp label="Usuário (nome ou código)" value={usr} onChange={e=>setUsr(e.target.value)} placeholder="Ex: João ou 019" autoFocus/>
+        <div style={{marginBottom:12}}>
+          <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:5,letterSpacing:1,textTransform:"uppercase"}}>Senha</div>
+          <div style={{display:"flex",gap:8}}>
+            <input type={showPwd?"text":"password"} value={pwd} onChange={e=>setPwd(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()} placeholder="••••••" style={{...inp,flex:1}}/>
+            <button onClick={()=>setShowPwd(s=>!s)} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:"0 14px",cursor:"pointer",color:C.muted,fontSize:16}}>{showPwd?"🙈":"👁️"}</button>
           </div>
-          {err&&<div style={{color:C.red,fontSize:12,marginBottom:12,textAlign:"center"}}>⚠️ {err}</div>}
-          <Btn onClick={go} disabled={busy} style={{width:"100%",padding:"13px",fontSize:14}}>{busy?"...":"→ Entrar"}</Btn>
-          <div style={{color:C.muted,fontSize:10,textAlign:"center",marginTop:12}}>Acesso Admin: usuário 019 / senha 018</div>
+        </div>
+        {err&&<div style={{color:C.red,fontSize:12,marginBottom:12,textAlign:"center"}}>⚠️ {err}</div>}
+        <Btn onClick={go} disabled={busy} style={{width:"100%",padding:"13px",fontSize:14}}>{busy?"...":"→ Entrar"}</Btn>
+        <div style={{color:C.muted,fontSize:10,textAlign:"center",marginTop:12}}>Admin: usuário 019 / senha 018</div>
       </div>
     </div>
   </div>;
 }
+
 
 
 /* ═══ CAMERA MODAL ══════════════════════════════════════════════ */
