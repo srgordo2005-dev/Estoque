@@ -46,9 +46,9 @@ const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{cons
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
 const DEF_MODELS=[{m:"E9 Pro",th:3680},{m:"E9 Pro+",th:3880},{m:"KS5",th:21},{m:"KS5L",th:14},{m:"KS3",th:8},{m:"S19JPRO+",th:120},{m:"S19KPRO",th:77},{m:"S21XP",th:270},{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
 const SIT_OPTS=["STOCK","BOA","AGUARD. REVISÃO","REVISAR","ENTRADA OFICINA","LIGADA","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","CASTANHAO"];
-const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","IRREPARAVEL"];
+const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","SAIDA","IRREPARAVEL"];
 const SIT_C={"STOCK":"#d97706","BOA":"#16a34a","AGUARD. REVISÃO":"#2563eb","REVISAR":"#dc2626","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#dc2626","CASTANHAO":"#92400e"};
-const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",IRREPARAVEL:"#374151"};
+const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",SAIDA:"#ea580c",IRREPARAVEL:"#374151"};
 const TODAY=()=>new Date().toISOString().split("T")[0];
 const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"—";
 const fmtTS=s=>s?new Date(s).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
@@ -116,7 +116,7 @@ function copyReport(user,repairs,tests,date){const txt=generateReport(user,repai
 /* ═══ APP ROOT ══════════════════════════════════════════════════ */
 export default function App(){
   const[user,setUser]=useState(null);
-  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[]});
+  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||"");
   const lastMeta=useRef({});
@@ -124,9 +124,9 @@ export default function App(){
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
   const allModels=useCallback(()=>[...DEF_MODELS,...data.customModels].sort((a,b)=>a.m.localeCompare(b.m)),[data.customModels]);
   const gTH=useCallback(m=>{const f=[...DEF_MODELS,...data.customModels].find(x=>x.m===m);return f?.th||0},[data.customModels]);
-  const loadAll=useCallback(async()=>{const[e,m,h,r,t,f,a,cm,p]=await Promise.all([fbList("employees"),fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets")]);setData({employees:e.length?e:data.employees,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p})},[]);
+  const loadAll=useCallback(async()=>{const[e,m,h,r,t,f,a,cm,p,cl]=await Promise.all([fbList("employees"),fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);setData({employees:e.length?e:data.employees,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p,clients:cl})},[]);
 
-  useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const adm={code:"00",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const[m,h,r,t,f,a,cm,p]=await Promise.all([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets")]);setData(d=>({...d,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p}));setLoading(false)})()},[]);
+  useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const adm={code:"00",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const[m,h,r,t,f,a,cm,p,cl]=await Promise.all([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);setData(d=>({...d,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p,clients:cl}));setLoading(false)})()},[]);
   useEffect(()=>{const poll=async()=>{try{const r=await fetch(`${FB}/_meta?pageSize=20`);const d=await r.json();const docs=d.documents||[];let changed=false;docs.forEach(doc=>{const id=doc.name.split("/").pop();const ts=doc.fields?.ts?.integerValue;if(ts&&lastMeta.current[id]!==ts){lastMeta.current[id]=ts;changed=true}});if(changed){setSyncing(true);await loadAll();setSyncing(false)}}catch{}};const iv=setInterval(poll,15000);return()=>clearInterval(iv)},[loadAll]);
 
   const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH};
@@ -146,7 +146,7 @@ export default function App(){
     ...(p.repairs&&!isAdmin?[{id:"conserto",icon:"🔧",label:"Conserto"}]:[]),
     ...(p.testing&&!isAdmin?[{id:"teste",icon:"🧪",label:"Teste"}]:[]),
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
-    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"},{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
+    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"},{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:680,margin:"0 auto"}}>
@@ -306,14 +306,14 @@ function BatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH}=ctx;const models=allModels();
   const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[pending,setPending]=useState([]),[input,setInput]=useState(""),[saving,setSaving]=useState(false);
   const addSN=()=>{const s=input.toUpperCase().trim();if(!s||pending.includes(s))return;setPending(p=>[...p,s]);setInput("")};
-  const saveAll=async()=>{if(!pending.length)return;setSaving(true);const writes=pending.map(sn=>{const id=uid();return{c:"machines",id,d:{sn,model,th:Number(th),type,situacao:sit,hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",ref:user.code,...audit(user),addedAt:TODAY(),destino:""}}});await fbBatch(writes);mutate("machines",m=>[...m,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");setSaving(false);onClose()};
+  const saveAll=async()=>{if(!pending.length)return;setSaving(true);const writes=pending.map(sn=>{const id=uid();return{c:"machines",id,d:{sn,model,th:Number(th),type,situacao:sit,hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",ref:user.code,location:location||"",...audit(user),addedAt:TODAY(),destino:""}}});await fbBatch(writes);mutate("machines",m=>[...m,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");setSaving(false);onClose()};
   return<div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/></div><div style={{display:"flex",gap:8}}><Sel label="TIPO" value={type} onChange={e=>setType(e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div><div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><SL>BIPE OU ESCANEIE → ENTER</SL><SNInput value={input} onChange={setInput} placeholder="SN..." autoFocus onEnter={addSN}/><div style={{maxHeight:160,overflow:"auto"}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{s}</span><button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button></div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
 }
 
 function BatchNoSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH}=ctx;const models=allModels();
   const[itemType,setItemType]=useState("machine"),[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[sit,setSit]=useState("STOCK"),[qty,setQty]=useState("10"),[saving,setSaving]=useState(false),[prog,setProg]=useState(0);
-  const save=async()=>{const n=parseInt(qty);if(!n||n<1||n>1000)return;setSaving(true);const isHash=itemType==="hash";const writes=Array.from({length:n},()=>{const id=uid();const d=isHash?{sn:"",model,status:"REPARO",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()}:{sn:"",model,th:Number(th),type:itemType==="shell"?"shell":"complete",situacao:sit,hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",ref:user.code,...audit(user),addedAt:TODAY(),destino:""};return{c:isHash?"hashes":"machines",id,d}});for(let i=0;i<writes.length;i+=500){await fbBatch(writes.slice(i,i+500));setProg(Math.min(i+500,writes.length))}mutate(isHash?"hashes":"machines",arr=>[...arr,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged(isHash?"hashes":"machines");setSaving(false);onClose()};
+  const save=async()=>{const n=parseInt(qty);if(!n||n<1||n>1000)return;setSaving(true);const isHash=itemType==="hash";const writes=Array.from({length:n},()=>{const id=uid();const d=isHash?{sn:"",model,status:"REPARO",machineSN:"",slot:-1,location:location||"",...audit(user),addedAt:TODAY()}:{sn:"",model,th:Number(th),type:itemType==="shell"?"shell":"complete",situacao:sit,hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",ref:user.code,location:location||"",...audit(user),addedAt:TODAY(),destino:""};return{c:isHash?"hashes":"machines",id,d}});for(let i=0;i<writes.length;i+=500){await fbBatch(writes.slice(i,i+500));setProg(Math.min(i+500,writes.length))}mutate(isHash?"hashes":"machines",arr=>[...arr,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged(isHash?"hashes":"machines");setSaving(false);onClose()};
   return<div><SL>TIPO</SL><div style={{display:"flex",gap:8,marginBottom:14}}>{[["machine","🖥️ Máq."],["shell","📦 Carc."],["hash","⚡ HASH"]].map(([v,l])=><button key={v} onClick={()=>setItemType(v)} style={{flex:1,background:itemType===v?C.accent:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}</div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div>{itemType!=="hash"&&<Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/>}</div>{itemType!=="hash"&&<Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>}<Inp label="QUANTIDADE" type="number" value={qty} onChange={e=>setQty(e.target.value)} placeholder="Ex: 300"/>{saving&&<div style={{background:"#0c2a0f",borderRadius:8,padding:10,marginBottom:12}}><div style={{color:C.green,fontWeight:700,marginBottom:4}}>Salvando {prog}/{qty}...</div><div style={{background:"#1a2d42",borderRadius:4,height:6}}><div style={{background:C.green,borderRadius:4,height:6,width:`${(prog/parseInt(qty||1))*100}%`,transition:"width .3s"}}/></div></div>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"📦 Criar "+qty}</Btn></div></div>;
 }
 
@@ -341,8 +341,25 @@ function MachineDetail({ctx,machine}){
   history.sort((a,b)=>a.date<b.date?-1:1);
   return<div>
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}><SP s={m.situacao}/>{m.type==="shell"&&<Tag color="#475569">CARCAÇA</Tag>}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}><div><div style={{color:C.muted,fontSize:10}}>MODELO</div><div style={{fontWeight:700}}>{m.model}</div></div><div><div style={{color:C.muted,fontSize:10}}>T/H</div><div style={{fontWeight:700}}>{m.th}</div></div></div><By by={m._byName} at={m._at}/></div>
-    <SL>SITUAÇÃO</SL><div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>{SIT_OPTS.map(s=><button key={s} onClick={()=>upd("situacao",s)} style={{background:m.situacao===s?SIT_C[s]:"#080e17",color:"#fff",border:`1px solid ${SIT_C[s]||C.border}`,borderRadius:6,padding:"5px 9px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{s}</button>)}</div>
-    {m.type==="complete"&&<>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:48}}>HASH {i}</span><input value={m[`hashSN${i}`]||""} onChange={e=>upd(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"6px 8px"}}/><select value={m[`hash${i}`]||"OFF"} onChange={e=>upd(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"6px 8px",fontSize:11}}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><div key={k}><div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4}}>{l}</div><select value={m[k]||"OFF"} onChange={e=>upd(k,e.target.value)} style={{...inp,padding:"7px 8px",fontSize:12}}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}</div></>}
+    <SL>SITUAÇÃO</SL><div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>{SIT_OPTS.map(s=><button key={s} onClick={async()=>{
+      const exitSits=["SAIDA","EXPORTADA","VENDIDA"];
+      if(exitSits.includes(s)&&!exitSits.includes(m.situacao)){
+        const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
+        if(mHashes.length>0){
+          const ok=window.confirm(`${mHashes.length} HASH(s) nesta máquina vão para SAIDA junto com ela.\nElas sairão do estoque ativo.\nContinuar?`);
+          if(!ok)return;
+          for(const h of mHashes){
+            const u={...h,machineSN:m.sn,slot:h.slot,status:"SAIDA",location:`${s} com máq. ${m.sn} em ${TODAY()}`,...audit(user)};
+            mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));
+            await fbSet("hashes",h._id,u);
+          }
+          await markChanged("hashes");
+        }
+      }
+      await upd("situacao",s);
+    }} style={{background:m.situacao===s?(SIT_C[s]||"#1a2d42"):"#080e17",color:m.situacao===s?"#fff":C.text,border:`1px solid ${m.situacao===s?(SIT_C[s]||C.accent):C.border}`,borderRadius:8,padding:"6px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{s}</button>)}</div>
+    {m.type==="complete"&&<>{[0,1,2].map(i=>{const slotSN=m[`hashSN${i}`]||"";const slotHash=slotSN?data.hashes.find(h=>h.sn===slotSN):null;return<div key={i} style={{marginBottom:8}}><div style={{display:"flex",gap:8,marginBottom:4,alignItems:"center"}}><span style={{color:C.subtle,fontSize:10,width:52,flexShrink:0,fontWeight:800}}>SLOT {i+1}</span><input value={slotSN} onChange={e=>upd(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN da HASH" style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}/><select value={m[`hash${i}`]||"OFF"} onChange={e=>upd(`hash${i}`,e.target.value)} style={{...inp,width:78,padding:"7px 6px",fontSize:10}}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>{slotHash&&<button onClick={()=>setModal(<Modal title={`⚡ ${slotHash.sn}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={slotHash}/></Modal>)} style={{background:HST_C[slotHash.status]+"15",border:`1px solid ${HST_C[slotHash.status]}44`,borderRadius:8,padding:"6px 12px",cursor:"pointer",width:"100%",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",marginLeft:60}}><span style={{fontSize:11,color:HST_C[slotHash.status],fontWeight:700}}>⚡ {slotHash.model} — {slotHash.sn?.slice(0,14)}</span><span style={{fontSize:10,color:C.muted}}>ver detalhes →</span></button>}</div>})}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><div key={k}><div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,textTransform:"uppercase"}}>{l}</div><select value={m[k]||"OFF"} onChange={e=>upd(k,e.target.value)} style={{...inp,padding:"7px 8px",fontSize:12}}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}</div></>
     <SNInput label="SN (editar)" value={m.sn||""} onChange={v=>upd("sn",v)} placeholder="Digite o SN" err=""/>
     {history.length>0&&<><SL mt={12}>📋 HISTÓRICO</SL>{history.map((ev,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}><div style={{fontWeight:700}}>{ev.text}</div><div style={{color:C.muted,fontSize:10}}>{fmtTS(ev.date)}</div>{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:80}}/>}</div>)}</>}
     <Btn v="d" onClick={async()=>{mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)}} style={{width:"100%",marginTop:12}}>🗑 Remover</Btn>
@@ -381,7 +398,7 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
 }
 
 function HashDetail({ctx,hash}){
-  const{data,mutate,setModal,user}=ctx;const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false);
+  const{data,mutate,setModal,user}=ctx;const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
   const upd=async(k,v)=>{const u={...h,[k]:v,...audit(user)};setH(u);mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes")};
   const history=[];
   data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${emp?.name||"?"} (já estava boa)`:`Consertada por ${emp?.name||"?"}${obs}`,notes:r.notes,photoKey:r.photoKey})});
@@ -390,7 +407,22 @@ function HashDetail({ctx,hash}){
   history.sort((a,b)=>a.date<b.date?-1:1);
   const mac=data.machines.find(m=>m.sn===h.machineSN);
   return<div>
-    <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><HP s={h.status}/><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10,fontSize:12}}><div><div style={{color:C.muted,fontSize:10}}>MODELO</div><div style={{fontWeight:700}}>{h.model}</div></div><div><div style={{color:C.muted,fontSize:10}}>MÁQUINA</div><div style={{fontWeight:700,color:mac?C.accent:C.muted}}>{mac?`Slot${h.slot>=0?h.slot+1:"?"}→${mac.sn?.slice(0,10)}…`:"Solta"}</div></div></div><By by={h._byName} at={h._at}/></div>
+    <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
+      <HP s={h.status}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10,fontSize:12}}>
+        <div><div style={{color:C.muted,fontSize:10}}>MODELO</div><div style={{fontWeight:700}}>{h.model}</div></div>
+        <div><div style={{color:C.muted,fontSize:10}}>LOCALIZAÇÃO</div>
+          {mac?<button onClick={()=>setModal(<Modal title={`🖥️ ${mac.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={mac}/></Modal>)} style={{background:"none",border:"none",color:C.green,fontWeight:700,fontSize:12,cursor:"pointer",padding:0,textAlign:"left"}}>🖥️ Slot{h.slot>=0?h.slot+1:"?"} → {mac.sn?.slice(0,10)} ↗</button>
+          :<div style={{color:C.muted,fontSize:11}}>
+            {editLoc?<div style={{display:"flex",gap:4}}><input value={locVal} onChange={e=>setLocVal(e.target.value.toUpperCase())} style={{...inp,fontSize:11,padding:"4px 8px",flex:1}} placeholder="Ex: PRATELEIRA 1"/><button onClick={async()=>{await upd("location",locVal);setEditLoc(false)}} style={{background:C.green,border:"none",borderRadius:6,color:"#fff",padding:"4px 8px",cursor:"pointer",fontWeight:700}}>✓</button></div>
+            :<button onClick={()=>{setEditLoc(true);setLocVal(h.location||"")}} style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:6,color:h.location?C.text:C.muted,padding:"3px 8px",cursor:"pointer",fontSize:11,width:"100%",textAlign:"left"}}>{h.location||"⊕ Definir local..."}</button>}
+          </div>}
+        </div>
+      </div>
+      {mac&&<div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap"}}><SP s={mac.situacao}/><span style={{fontSize:11,color:C.muted}}>{mac.model} · {mac.th}TH</span></div>}
+      {(data.pallets||[]).filter(pl=>(pl.machinesSN||[]).includes(h.sn)).map(pl=><div key={pl._id} style={{fontSize:11,color:C.blue,marginTop:4}}>📦 {pl.name}{pl.location?` — ${pl.location}`:""}</div>)}
+      <By by={h._byName} at={h._at}/>
+    </div>
     <SL>STATUS</SL><div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>{["ON","OFF","TESTAR","REPARO","STOCK"].map(s=><button key={s} onClick={()=>upd("status",s)} style={{background:h.status===s?HST_C[s]:"#080e17",color:"#fff",border:`1px solid ${HST_C[s]}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}}>{s}</button>)}</div>
     <SNInput label="SN (editar)" value={h.sn||""} onChange={v=>upd("sn",v)} placeholder="Digite o SN" err=""/>
     {!confirmIrrep?<Btn v="d" onClick={()=>setConfirmIrrep(true)} style={{width:"100%",marginBottom:12}}>💀 Marcar como Irreparável</Btn>:<div style={{background:"#1a0a0a",border:`1px solid ${C.red}`,borderRadius:10,padding:14,marginBottom:12}}><div style={{fontWeight:800,color:C.red,marginBottom:8}}>⚠️ Confirmar Irreparável?</div><div style={{fontSize:12,color:C.text,marginBottom:12}}>Marcada para retirada de peças.</div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>setConfirmIrrep(false)} style={{flex:1}}>Cancelar</Btn><Btn v="d" onClick={async()=>{await upd("status","IRREPARAVEL");setConfirmIrrep(false)}} style={{flex:1}}>Confirmar</Btn></div></div>}
@@ -707,31 +739,136 @@ function AddPalletForm({ctx,onClose}){
   return<div><Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Palete 01, Lote A..." autoFocus/><Inp label="Localização" value={location} onChange={e=>setLocation(e.target.value)} placeholder="Ex: Galpão 2, Prateleira B3..."/><Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Opcional..."/><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div></div>;
 }
 function PalletDetail({ctx,pallet}){
-  const{data,mutate,setModal,user}=ctx;const[p,setP]=useState(pallet),[input,setInput]=useState(""),[scanning,setScanning]=useState(false),[log,setLog]=useState([]);
+  const{data,mutate,setModal,user,allModels}=ctx;const models=allModels();
+  const[p,setP]=useState(pallet),[input,setInput]=useState(""),[scanning,setScanning]=useState(false),[log,setLog]=useState([]),[mode,setMode]=useState("list"),[uploading,setUploading]=useState(false),[uploadProg,setUploadProg]=useState("");
+  const fileRef=useRef();
   const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
-  const addSN=async(snRaw)=>{
-    const sn=snRaw.toUpperCase().trim();if(!sn)return;
-    if((p.machinesSN||[]).includes(sn)){setLog(l=>[{sn,status:"dup",msg:"Já está no palete"},...l]);setInput("");return}
-    const newSNs=[...(p.machinesSN||[]),sn];const upd={...p,machinesSN:newSNs,...audit(user)};
-    setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets");
-    const ex=data.machines.find(m=>m.sn===sn);
-    if(!ex){const id=uid();const d={sn,model:"M30S",th:86,type:"complete",situacao:"STOCK",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",...audit(user),addedAt:TODAY(),destino:""};await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);await markChanged("machines");setLog(l=>[{sn,status:"new",msg:"Nova — adicionada ao estoque"},...l])}
-    else setLog(l=>[{sn,status:"ok",msg:`${ex.model} · ${ex.situacao}`},...l]);
-    setInput("");
+
+  const addSN=async(snRaw,allMachines,allPallet)=>{
+    const sn=snRaw.toUpperCase().trim();if(!sn)return null;
+    const curSNs=allPallet||p.machinesSN||[];
+    if(curSNs.includes(sn))return{sn,status:"dup",msg:"Já está no palete"};
+    const ex=(allMachines||data.machines).find(m=>m.sn===sn);
+    if(!ex){
+      const id=uid();
+      const d={sn,model:models[0]?.m||"M30S",th:models[0]?.th||86,type:"complete",situacao:"STOCK",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",...audit(user),addedAt:TODAY(),destino:""};
+      await fbSet("machines",id,d);
+      mutate("machines",m=>[...m,{...d,_id:id}]);
+      await markChanged("machines");
+      return{sn,status:"new",msg:"🆕 Nova — criada no estoque"};
+    }
+    return{sn,status:"ok",msg:`✓ ${ex.model} · ${ex.situacao}`};
   };
+
+  const doAddSingle=async()=>{
+    const res=await addSN(input);if(!res)return;
+    const newSNs=[...(p.machinesSN||[]),res.sn];
+    const upd={...p,machinesSN:newSNs,...audit(user)};
+    setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
+    await fbSet("pallets",p._id,upd);await markChanged("pallets");
+    setLog(l=>[res,...l]);setInput("");
+  };
+
+  const uploadSheet=async(file)=>{
+    setUploading(true);setUploadProg("Lendo planilha...");setLog([]);
+    try{
+      const text=await file.text();
+      // Parse CSV or TSV — get first column (SN)
+      const lines=text.split(/
+?
+/).filter(l=>l.trim());
+      const sns=[];
+      for(const line of lines){
+        const cols=line.split(/[,;	]/);
+        const sn=(cols[0]||"").replace(/['"]/g,"").toUpperCase().trim();
+        if(sn&&sn!=="SN"&&sn!=="SN/MAC"&&sn.length>5)sns.push(sn);
+      }
+      if(!sns.length){setUploadProg("Nenhum SN encontrado na planilha.");setUploading(false);return;}
+      setUploadProg(`${sns.length} SNs encontrados. Processando...`);
+      const newResults=[];const curSNs=[...(p.machinesSN||[])];
+      for(let i=0;i<sns.length;i++){
+        const sn=sns[i];
+        if(curSNs.includes(sn)){newResults.push({sn,status:"dup",msg:"Já no palete"});continue;}
+        const res=await addSN(sn,data.machines,curSNs);
+        if(res){newResults.push(res);curSNs.push(res.sn);}
+        if(i%10===0)setUploadProg(`${i+1}/${sns.length} processados...`);
+      }
+      // Save all new SNs at once
+      const upd={...p,machinesSN:curSNs,...audit(user)};
+      setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
+      await fbSet("pallets",p._id,upd);await markChanged("pallets");
+      setLog(newResults);
+      const novas=newResults.filter(r=>r.status==="new").length;
+      const exist=newResults.filter(r=>r.status==="ok").length;
+      const dups=newResults.filter(r=>r.status==="dup").length;
+      setUploadProg(`✓ Concluído! ${novas} novas · ${exist} existentes · ${dups} duplicadas`);
+    }catch(e){setUploadProg("Erro: "+e.message);}
+    setUploading(false);
+  };
+
+  const exportSheet=()=>{
+    const rows=["SN,Modelo,Situação,T/H"];
+    macs.forEach(m=>rows.push(`${m.sn||""},${m.model||""},${m.situacao||""},${m.th||""}`));
+    const blob=new Blob([rows.join("
+")],{type:"text/csv"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+    a.download=`palete-${p.name.replace(/\s/g,"-")}.csv`;a.click();
+  };
+
   const remSN=async(sn)=>{const newSNs=(p.machinesSN||[]).filter(s=>s!==sn);const upd={...p,machinesSN:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets")};
-  const del=async()=>{mutate("pallets",arr=>arr.filter(x=>x._id!==p._id));await fbDel("pallets",p._id);await markChanged("pallets");setModal(null)};
+  const del=async()=>{if(!confirm("Remover palete?"))return;mutate("pallets",arr=>arr.filter(x=>x._id!==p._id));await fbDel("pallets",p._id);await markChanged("pallets");setModal(null)};
+
   return<div>
-    <div style={{background:"#111f2d",borderRadius:12,padding:12,marginBottom:12}}>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}<div style={{fontWeight:700,marginTop:4}}>{p.machinesSN?.length||0} máquinas no palete</div></div>
+    <div style={{background:"#111f2d",borderRadius:12,padding:12,marginBottom:12}}>
+      {p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}
+      {p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}
+      <div style={{fontWeight:700,marginTop:4,color:C.accent}}>{p.machinesSN?.length||0} máquinas</div>
+    </div>
+
     <SL>Adicionar Máquinas</SL>
-    <SNInput value={input} onChange={setInput} placeholder="SN da máquina..." onEnter={()=>addSN(input)}/>
-    {scanning&&<BarcodeScanner onScan={v=>{addSN(v)}} onClose={()=>setScanning(false)}/>}
-    <Btn v="b" onClick={()=>setScanning(true)} style={{width:"100%",marginBottom:10}}>📷 Bipar em Lote</Btn>
-    {log.length>0&&<div style={{background:"#111f2d",borderRadius:10,padding:10,marginBottom:10,maxHeight:100,overflow:"auto"}}>{log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:C.text,padding:"2px 0"}}>{l.status==="new"?"🆕":l.status==="dup"?"⚠️":"✓"} {l.sn} — {l.msg}</div>)}</div>}
-    <SL>Máquinas ({macs.length})</SL>
-    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Bipe ou digite acima.</div>
-      :macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn}</div><div style={{fontSize:10,color:C.muted}}>{m.model} · <SP s={m.situacao}/></div></div><button onClick={()=>remSN(m.sn)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div>)}
-    <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Palete</Btn>
+    <div style={{display:"flex",gap:6,marginBottom:12}}>
+      {[["single","✍️ Manual"],["scan","📷 Câmera"],["upload","📄 Planilha"]].map(([id,l])=>
+        <button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 4px",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>
+      )}
+    </div>
+
+    {mode==="single"&&<>
+      <SNInput value={input} onChange={setInput} placeholder="SN da máquina..." onEnter={doAddSingle}/>
+      <Btn onClick={doAddSingle} style={{width:"100%",marginBottom:10}}>+ Adicionar</Btn>
+    </>}
+
+    {mode==="scan"&&<>
+      {scanning&&<BarcodeScanner onScan={async v=>{const res=await addSN(v);if(!res)return;const newSNs=[...(p.machinesSN||[]),res.sn];const upd={...p,machinesSN:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets");setLog(l=>[res,...l])}} onClose={()=>setScanning(false)}/>}
+      <Btn v="b" onClick={()=>setScanning(true)} style={{width:"100%",marginBottom:10}}>📷 Iniciar Câmera Contínua</Btn>
+      <div style={{color:C.muted,fontSize:11,textAlign:"center",marginBottom:10}}>Cada SN bipado é adicionado automaticamente</div>
+    </>}
+
+    {mode==="upload"&&<>
+      <div style={{background:"#111f2d",borderRadius:10,padding:14,marginBottom:10}}>
+        <div style={{color:C.text,fontSize:13,fontWeight:700,marginBottom:6}}>📄 Subir Planilha CSV</div>
+        <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Formato: 1ª coluna = SN das máquinas (com ou sem cabeçalho)<br/>Máquinas existentes: associa ao palete<br/>Máquinas novas: cria no estoque e associa</div>
+        <input ref={fileRef} type="file" accept=".csv,.txt,.tsv" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadSheet(e.target.files[0])}/>
+        <Btn onClick={()=>fileRef.current.click()} disabled={uploading} style={{width:"100%",marginBottom:8}}>{uploading?"⏳ Processando...":"📂 Escolher Arquivo CSV"}</Btn>
+        {macs.length>0&&<Btn v="s" onClick={exportSheet} style={{width:"100%",fontSize:12}}>⬇️ Exportar Planilha deste Palete</Btn>}
+        {uploadProg&&<div style={{color:uploadProg.startsWith("✓")?C.green:C.blue,fontSize:12,marginTop:8,fontWeight:700}}>{uploadProg}</div>}
+      </div>
+    </>}
+
+    {log.length>0&&<div style={{background:"#111f2d",borderRadius:10,padding:10,marginBottom:12,maxHeight:130,overflow:"auto"}}>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4}}>LOG ({log.length})</div>
+      {log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:C.blue,padding:"2px 0",borderBottom:`1px solid ${C.border}`}}>{l.sn} — {l.msg}</div>)}
+    </div>}
+
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+      <SL style={{margin:0}}>Máquinas ({macs.length})</SL>
+      {macs.length>0&&<button onClick={exportSheet} style={{background:"none",border:"none",color:C.blue,fontSize:11,cursor:"pointer",fontWeight:700}}>⬇️ Exportar CSV</button>}
+    </div>
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:16}}>Nenhuma máquina. Use os modos acima.</div>
+      :macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+        <div><div style={{fontWeight:700,fontSize:12,color:C.text}}>{m.sn}</div><div style={{fontSize:10,color:C.muted}}>{m.model} · <SP s={m.situacao}/></div></div>
+        <button onClick={()=>remSN(m.sn)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:"4px 8px"}}>✕</button>
+      </div>)}
+    <Btn v="d" onClick={del} style={{width:"100%",marginTop:16}}>🗑 Remover Palete</Btn>
   </div>;
 }
 
@@ -769,5 +906,169 @@ function EmpEdit({ctx,emp,onClose}){
     <SL mt={12}>Pode Ver Histórico de</SL>
     {data.employees.filter(x=>x._id!==e._id).map(x=>{const allowed=(e.allowedEmployees||[]).includes(x._id);return<div key={x._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{x.name} #{x.code}</span><button onClick={()=>{const list=e.allowedEmployees||[];setE(p=>({...p,allowedEmployees:allowed?list.filter(id=>id!==x._id):[...list,x._id]}))}} style={{background:allowed?C.blue+"22":"#1a2d42",color:allowed?C.blue:C.muted,border:`1px solid ${allowed?C.blue:C.border}`,borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{allowed?"ON":"OFF"}</button></div>})}
     <div style={{display:"flex",gap:8,marginTop:16}}><Btn v="d" onClick={del} style={{flex:1}}>🗑 Remover</Btn><Btn v="g" onClick={save} style={{flex:2}}>💾 Salvar</Btn></div>
+  </div>;
+}
+
+/* ═══ CLIENTES ══════════════════════════════════════════════════ */
+function ClientesPage({ctx}){
+  const{data,mutate,setModal}=ctx;const clients=data.clients||[];
+  const openAdd=()=>setModal(<Modal title="Novo Cliente" onClose={()=>setModal(null)}><AddClientForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+  const openDetail=c=>setModal(<Modal title={`👤 ${c.name}`} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={c}/></Modal>);
+  return<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div><div style={{fontWeight:900,fontSize:18}}>Clientes</div><div style={{color:C.muted,fontSize:12}}>{clients.length} clientes</div></div>
+      <Btn onClick={openAdd}>+ Cliente</Btn>
+    </div>
+    {clients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente cadastrado</div><div style={{fontSize:12,marginTop:8}}>Registre clientes e vincule as máquinas que foram vendidas</div></div>
+      :clients.map(c=>{
+        const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
+        const saidas=macs.filter(m=>["SAIDA","VENDIDA","EXPORTADA"].includes(m.situacao)).length;
+        return<Card key={c._id} onClick={()=>openDetail(c)}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:15}}>👤 {c.name}</div>
+              {c.phone&&<div style={{color:C.muted,fontSize:12}}>📱 {c.phone}</div>}
+              {c.notes&&<div style={{color:C.subtle,fontSize:11,marginTop:2}}>{c.notes}</div>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <Tag color={C.accent}>{c.machinesSN?.length||0} máq.</Tag>
+              {saidas>0&&<div style={{marginTop:4}}><Tag color={C.red} small>{saidas} saídas</Tag></div>}
+            </div>
+          </div>
+          {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>
+            {macs.slice(0,4).map(m=><span key={m._id} style={{background:SIT_C[m.situacao]+"22",border:`1px solid ${SIT_C[m.situacao]}44`,borderRadius:6,padding:"2px 6px",fontSize:10,color:SIT_C[m.situacao]}}>{m.sn?.slice(0,10)||"s/sn"}</span>)}
+            {macs.length>4&&<span style={{color:C.muted,fontSize:10,padding:"2px 4px"}}>+{macs.length-4}</span>}
+          </div>}
+          <By by={c._byName} at={c._at}/>
+        </Card>
+      })}
+  </div>;
+}
+
+function AddClientForm({ctx,onClose}){
+  const{mutate,user}=ctx;
+  const[name,setName]=useState(""),[phone,setPhone]=useState(""),[notes,setNotes]=useState("");
+  const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),phone,notes,machinesSN:[],...audit(user),createdAt:TODAY()};await fbSet("clients",id,d);mutate("clients",c=>[...c,{...d,_id:id}]);await markChanged("clients");onClose()};
+  return<div>
+    <Inp label="Nome do Cliente" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: João Silva" autoFocus/>
+    <Inp label="Telefone / WhatsApp" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(47) 99999-9999"/>
+    <Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Endereço, empresa, etc..."/>
+    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div>
+  </div>;
+}
+
+function ClientDetail({ctx,client}){
+  const{data,mutate,setModal,user,allModels}=ctx;const models=allModels();
+  const[c,setC]=useState(client),[input,setInput]=useState(""),[mode,setMode]=useState("list"),[editName,setEditName]=useState(false),[nameVal,setNameVal]=useState(client.name),[scanning,setScanning]=useState(false),[log,setLog]=useState([]);
+  const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
+
+  const saveName=async()=>{const u={...c,name:nameVal,...audit(user)};setC(u);mutate("clients",arr=>arr.map(x=>x._id===c._id?u:x));await fbSet("clients",c._id,u);await markChanged("clients");setEditName(false)};
+
+  const addMachineSN=async(snRaw)=>{
+    const sn=snRaw.toUpperCase().trim();if(!sn)return;
+    if((c.machinesSN||[]).includes(sn)){setLog(l=>[{sn,status:"dup",msg:"Já vinculada a este cliente"},...l]);setInput("");return}
+    // Find or create machine
+    const ex=data.machines.find(m=>m.sn===sn);
+    let msg="";
+    if(!ex){
+      // Create new machine
+      const id=uid();const d={sn,model:models[0]?.m||"M30S",th:models[0]?.th||86,type:"complete",situacao:"SAIDA",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",...audit(user),addedAt:TODAY(),destino:c.name};
+      await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);await markChanged("machines");msg="🆕 Nova — criada como SAIDA";
+    } else {
+      // Update machine to SAIDA if not already
+      if(!["SAIDA","VENDIDA","EXPORTADA"].includes(ex.situacao)){
+        // Update HASHs in machine
+        const mHashes=data.hashes.filter(h=>h.machineSN===sn);
+        for(const h of mHashes){
+          const u={...h,status:"SAIDA",location:`Vendida ao cliente ${c.name} em ${TODAY()}`,...audit(user)};
+          mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);
+        }
+        const u={...ex,situacao:"SAIDA",destino:c.name,...audit(user)};
+        mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));await fbSet("machines",ex._id,u);
+        await markChanged("machines");await markChanged("hashes");
+      }
+      msg=`✓ ${ex.model} → SAIDA`;
+    }
+    const newSNs=[...(c.machinesSN||[]),sn];
+    const upd={...c,machinesSN:newSNs,...audit(user)};
+    setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));
+    await fbSet("clients",c._id,upd);await markChanged("clients");
+    setLog(l=>[{sn,status:"ok",msg},...l]);setInput("");
+  };
+
+  const remMachine=async(sn)=>{
+    const newSNs=(c.machinesSN||[]).filter(s=>s!==sn);
+    const upd={...c,machinesSN:newSNs,...audit(user)};
+    setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));
+    await fbSet("clients",c._id,upd);await markChanged("clients");
+  };
+
+  const del=async()=>{if(!confirm("Remover cliente?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
+
+  const exportCSV=()=>{
+    const rows=["SN,Modelo,TH,Situação,Data"];
+    macs.forEach(m=>rows.push(`${m.sn||""},${m.model||""},${m.th||""},${m.situacao||""},${m.addedAt||""}`));
+    const blob=new Blob([rows.join("\n")],{type:"text/csv"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+    a.download=`cliente-${c.name.replace(/\s/g,"-")}.csv`;a.click();
+  };
+
+  return<div>
+    {/* Header */}
+    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}>
+      {editName?<div style={{display:"flex",gap:6,marginBottom:8}}><input value={nameVal} onChange={e=>setNameVal(e.target.value)} style={{...inp,flex:1}}/><Btn v="g" onClick={saveName} style={{padding:"8px 12px"}}>✓</Btn><Btn v="s" onClick={()=>setEditName(false)} style={{padding:"8px 10px"}}>✕</Btn></div>
+        :<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}><div style={{fontWeight:900,fontSize:16}}>👤 {c.name}</div><button onClick={()=>setEditName(true)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✏️</button></div>}
+      {c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}
+      {c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}
+      <div style={{marginTop:10,display:"flex",gap:8"}}>
+        <div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:18}}>{c.machinesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>Máquinas</div></div>
+        <div style={{background:C.red+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.red,fontSize:18}}>{macs.filter(m=>["SAIDA","VENDIDA","EXPORTADA"].includes(m.situacao)).length}</div><div style={{fontSize:10,color:C.muted}}>Saídas</div></div>
+      </div>
+    </div>
+
+    {/* Add machines */}
+    <SL>Adicionar Máquinas ao Cliente</SL>
+    <div style={{display:"flex",gap:6,marginBottom:12}}>
+      {[["list","✍️ Manual"],["scan","📷 Scanner"]].map(([id,l])=>
+        <button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 4px",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>
+      )}
+    </div>
+
+    {mode==="list"&&<>
+      <SNInput value={input} onChange={setInput} placeholder="SN da máquina..." onEnter={()=>addMachineSN(input)}/>
+      <Btn onClick={()=>addMachineSN(input)} style={{width:"100%",marginBottom:10}}>+ Vincular Máquina</Btn>
+      <div style={{color:C.amber,fontSize:11,textAlign:"center",marginBottom:10}}>⚠️ Ao vincular, a máquina e suas HASHs vão para SAIDA automaticamente</div>
+    </>}
+
+    {mode==="scan"&&<>
+      {scanning&&<BarcodeScanner onScan={v=>{addMachineSN(v)}} onClose={()=>setScanning(false)}/>}
+      <Btn v="b" onClick={()=>setScanning(true)} style={{width:"100%",marginBottom:10}}>📷 Escanear SNs</Btn>
+    </>}
+
+    {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:10,marginBottom:12,maxHeight:100,overflow:"auto"}}>
+      {log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="dup"?C.amber:C.green,padding:"2px 0"}}>{l.sn} — {l.msg}</div>)}
+    </div>}
+
+    {/* Machine list */}
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+      <SL style={{margin:0}}>Máquinas ({macs.length})</SL>
+      {macs.length>0&&<button onClick={exportCSV} style={{background:"none",border:"none",color:C.blue,fontSize:11,cursor:"pointer",fontWeight:700}}>⬇️ CSV</button>}
+    </div>
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:16}}>Nenhuma máquina vinculada</div>
+      :macs.map(m=>{
+        const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
+        return<div key={m._id} style={{borderBottom:`1px solid ${C.border}`,padding:"10px 0"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:13}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div>
+              <div style={{fontSize:11,color:C.muted}}>{m.model} · {m.th}TH</div>
+              {mHashes.length>0&&<div style={{fontSize:10,color:C.subtle,marginTop:2}}>⚡ {mHashes.length} HASH(s) incluídas</div>}
+            </div>
+            <button onClick={()=>remMachine(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:"4px"}}>✕</button>
+          </div>
+        </div>
+      })}
+
+    <Btn v="d" onClick={del} style={{width:"100%",marginTop:16}}>🗑 Remover Cliente</Btn>
   </div>;
 }
