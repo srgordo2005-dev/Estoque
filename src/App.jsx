@@ -410,11 +410,7 @@ function MacPage({ctx}){
   const openDetail=m=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>);
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>Máquinas</div><div style={{color:C.muted,fontSize:12}}>{data.machines.length} cadastradas</div></div><Btn onClick={openAdd}>+ Adicionar</Btn></div>
-    <div style={{background:C.card,borderRadius:10,padding:"8px 12px",display:"flex",gap:8,marginBottom:10}}>🔍<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="SN ou modelo..." style={{background:"none",border:"none",color:C.text,fontSize:13,flex:1,outline:"none"}}/></div>
-    <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}>
-      {[["all","Todas"],["complete","Completas"],["shell","Carcaças"]].map(([id,l])=><button key={id} onClick={()=>setFType(id)} style={{background:fType===id?C.accent:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{l}</button>)}
-      {["BOA","AGUARD. REVISÃO","REVISAR","STOCK","ENTRADA OFICINA"].map(s=><button key={s} onClick={()=>setFSit(fSit===s?"all":s)} style={{background:fSit===s?SIT_C[s]:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{s}</button>)}
-    </div>
+    <FilterBar filters={macFilters} active={activeFilters} onToggle={toggleFilter} counts={macCounts} label={"Máquinas ("+filtered.length+"/"+data.machines.length+")"}/>
     {filtered.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>🖥️</div>Nenhuma máquina</div>
       :filtered.map(m=><div key={m._id} style={{position:"relative"}}>
       {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(m._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(m._id):s.delete(m._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
