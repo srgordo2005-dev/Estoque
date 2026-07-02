@@ -863,6 +863,11 @@ function TeamPage({ctx,canSeeEmp}){
           </div>
           <div style={{textAlign:"right"}}><div style={{fontWeight:900,fontSize:22,color:(rT+tT)>0?C.green:C.border}}>{rT+gT+tT}</div><div style={{fontSize:9,color:C.muted}}>HOJE</div></div>
         </div>
+        <div style={{display:"flex",gap:6,marginTop:10}}>
+          <Btn v="s" onClick={()=>setModal(<Modal title={"📋 "+e.name} onClose={()=>setModal(null)}><EmpHistory ctx={ctx} emp={e}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>📋 Histórico</Btn>
+          {isSuper&&<Btn v="s" onClick={()=>setModal(<Modal title={"✏️ "+e.name} onClose={()=>setModal(null)}><EmpEdit ctx={ctx} emp={e} onClose={()=>setModal(null)}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>✏️ Editar</Btn>}
+          <Btn v="s" onClick={()=>copyReport(e,data.repairs,data.tests,TODAY())} style={{fontSize:11,padding:"7px"}}>📤</Btn>
+        </div>
       </Card>
     })}
   </div>;
@@ -985,3 +990,191 @@ function PalletsPage({ctx}){
 }
 
 
+
+/* ═══ MOVIMENTACAO ═══════════════════════════════════════════ */
+function MovimentacaoTab({ctx}){
+  const{data,mutate,user}=ctx;
+  const pallets=data.pallets||[];
+  const[src,setSrc]=useState(""),[dst,setDst]=useState(""),[scanned,setScanned]=useState([]),[input,setInput]=useState(""),[moving,setMoving]=useState(false),[log,setLog]=useState([]),[scanning,setScanning]=useState(false);
+  const addSN=v=>{const sn=v.toUpperCase().trim();if(!sn||scanned.includes(sn))return;setScanned(s=>[...s,sn]);setInput("");};
+  const doMove=async()=>{
+    if(!src||!dst||!scanned.length)return;
+    if(src===dst){alert("Origem e destino iguais!");return}
+    setMoving(true);
+    const srcP=pallets.find(p=>p._id===src);
+    const dstP=pallets.find(p=>p._id===dst);
+    if(!srcP||!dstP){setMoving(false);return}
+    const srcNew=(srcP.machinesSN||[]).filter(s=>!scanned.includes(s));
+    const dstNew=[...(dstP.machinesSN||[]),...scanned.filter(s=>!(dstP.machinesSN||[]).includes(s))];
+    const srcUpd={...srcP,machinesSN:srcNew,...audit(user)};
+    const dstUpd={...dstP,machinesSN:dstNew,...audit(user)};
+    mutate("pallets",arr=>arr.map(p=>p._id===src?srcUpd:p._id===dst?dstUpd:p));
+    await fbSet("pallets",src,srcUpd);await fbSet("pallets",dst,dstUpd);await markChanged("pallets");
+    setLog(l=>[{src:srcP.name,dst:dstP.name,count:scanned.length,at:stamp()},...l]);
+    setScanned([]);setSrc("");setDst("");setMoving(false);
+    alert("✓ "+scanned.length+" máquinas movidas: "+srcP.name+" → "+dstP.name);
+  };
+  return<div>
+    <SL>Mover Máquinas Entre Paletes</SL>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+      <Sel label="DE (origem)" value={src} onChange={e=>setSrc(e.target.value)}>
+        <option value="">Selecionar...</option>
+        {pallets.map(p=><option key={p._id} value={p._id}>{p.name} ({p.machinesSN?.length||0})</option>)}
+      </Sel>
+      <Sel label="PARA (destino)" value={dst} onChange={e=>setDst(e.target.value)}>
+        <option value="">Selecionar...</option>
+        {pallets.map(p=><option key={p._id} value={p._id}>{p.name} ({p.machinesSN?.length||0})</option>)}
+      </Sel>
+    </div>
+    <SL>Bipe as Máquinas a Mover</SL>
+    {scanning&&<BarcodeScanner onScan={v=>{addSN(v)}} onClose={()=>setScanning(false)}/>}
+    <div style={{display:"flex",gap:8,marginBottom:8}}>
+      <input value={input} onChange={e=>setInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&addSN(input)} placeholder="SN da máquina..." style={{...inp,flex:1}}/>
+      <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
+    </div>
+    {scanned.length>0&&<div style={{background:C.card2,borderRadius:10,padding:10,marginBottom:12,maxHeight:140,overflow:"auto"}}>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4}}>PARA MOVER ({scanned.length})</div>
+      {scanned.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12,borderBottom:"1px solid "+C.border}}><span style={{color:C.blue}}>{s}</span><button onClick={()=>setScanned(sc=>sc.filter(x=>x!==s))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button></div>)}
+    </div>}
+    <Btn v="g" onClick={doMove} disabled={moving||!src||!dst||!scanned.length} style={{width:"100%",marginBottom:12}}>{moving?"Movendo...":"🔄 Mover "+scanned.length+" máq. → "+((pallets.find(p=>p._id===dst)||{}).name||"?")}</Btn>
+    {log.length>0&&<><SL>Histórico</SL>{log.slice(0,5).map((l,i)=><div key={i} style={{background:C.card2,borderRadius:8,padding:"8px 12px",marginBottom:6,fontSize:12}}><div style={{fontWeight:700}}>{l.src} → {l.dst}</div><div style={{color:C.muted,fontSize:10}}>{l.count} máquinas · {fmtTS(l.at)}</div></div>)}</>}
+  </div>;
+}
+
+/* ═══ PALLET FORMS ═══════════════════════════════════════════ */
+function AddPalletForm({ctx,onClose}){
+  const{mutate,user}=ctx;
+  const[name,setName]=useState(""),[location,setLocation]=useState(""),[notes,setNotes]=useState("");
+  const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),location,notes,machinesSN:[],...audit(user),createdAt:TODAY()};await fbSet("pallets",id,d);mutate("pallets",p=>[...p,{...d,_id:id}]);await markChanged("pallets");onClose()};
+  return<div>
+    <Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Palete 01" autoFocus/>
+    <Inp label="Localização" value={location} onChange={e=>setLocation(e.target.value)} placeholder="Ex: Galpão A, Prateleira B3"/>
+    <Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Opcional"/>
+    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div>
+  </div>;
+}
+
+function PalletDetail({ctx,pallet}){
+  const{data,mutate,setModal,user}=ctx;
+  const[p,setP]=useState(pallet),[input,setInput]=useState(""),[mode,setMode]=useState("single"),[log,setLog]=useState([]),[scanning,setScanning]=useState(false);
+  const fileRef=useRef();
+  const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
+  const addSN=async(snRaw)=>{
+    const sn=snRaw.toUpperCase().trim();if(!sn)return;
+    if((p.machinesSN||[]).includes(sn)){setLog(l=>[{sn,status:"dup",msg:"Já no palete"},...l]);setInput("");return}
+    const newSNs=[...(p.machinesSN||[]),sn];
+    const upd={...p,machinesSN:newSNs,...audit(user)};
+    setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
+    await fbSet("pallets",p._id,upd);await markChanged("pallets");
+    const ex=data.machines.find(m=>m.sn===sn);
+    if(!ex){const id=uid();const d={sn,model:"M30S",th:86,type:"complete",situacao:"STOCK",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",...audit(user),addedAt:TODAY(),destino:""};await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);await markChanged("machines");setLog(l=>[{sn,status:"new",msg:"Nova — criada no estoque"},...l]);}
+    else setLog(l=>[{sn,status:"ok",msg:ex.model+" · "+ex.situacao},...l]);
+    setInput("");
+  };
+  const uploadCSV=async(file)=>{
+    const text=await file.text();
+    const sns=text.split("\n").map(l=>l.split(",")[0].replace(/['"]/g,"").toUpperCase().trim()).filter(s=>s&&s!=="SN"&&s.length>5);
+    for(const sn of sns)await addSN(sn);
+    alert("✓ "+sns.length+" SNs processados");
+  };
+  const remSN=async(sn)=>{const newSNs=(p.machinesSN||[]).filter(s=>s!==sn);const upd={...p,machinesSN:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets")};
+  const del=async()=>{if(!confirm("Remover palete "+p.name+"?"))return;mutate("pallets",arr=>arr.filter(x=>x._id!==p._id));await fbDel("pallets",p._id);await markChanged("pallets");setModal(null)};
+  return<div>
+    <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:12}}>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}<div style={{fontWeight:700,marginTop:4,color:C.accent}}>{p.machinesSN?.length||0} máquinas</div></div>
+    <div style={{display:"flex",gap:6,marginBottom:10}}>
+      {[["single","✍️ Manual"],["scan","📷 Bipar"],["upload","📄 CSV"]].map(([id,l])=><button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"8px 4px",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>)}
+    </div>
+    {mode==="single"&&<><input value={input} onChange={e=>setInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&addSN(input)} placeholder="SN da máquina..." style={{...inp,marginBottom:8}}/><Btn onClick={()=>addSN(input)} style={{width:"100%",marginBottom:8}}>+ Adicionar</Btn></>}
+    {mode==="scan"&&<>{scanning&&<BarcodeScanner onScan={v=>{addSN(v)}} onClose={()=>setScanning(false)}/>}<input value={input} onChange={e=>setInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&addSN(input)} placeholder="Bipe ou digita SN..." style={{...inp,marginBottom:8}}/><Btn v="b" onClick={()=>setScanning(true)} style={{width:"100%",marginBottom:8}}>📷 Câmera</Btn></>}
+    {mode==="upload"&&<><input ref={fileRef} type="file" accept=".csv,.txt" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadCSV(e.target.files[0])}/><Btn v="b" onClick={()=>fileRef.current.click()} style={{width:"100%",marginBottom:8}}>📂 Escolher CSV</Btn><Btn v="s" onClick={()=>{const rows=["SN,Modelo,Situação"];macs.forEach(m=>rows.push((m.sn||"")+","+(m.model||"")+","+(m.situacao||"")));const blob=new Blob([rows.join("\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="palete-"+p.name+".csv";a.click()}} style={{width:"100%",marginBottom:8}}>⬇️ Exportar CSV</Btn></>}
+    {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:8,marginBottom:10,maxHeight:100,overflow:"auto"}}>{log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:C.blue,padding:"2px 0"}}>{l.sn} — {l.msg}</div>)}</div>}
+    <SL>Máquinas ({macs.length})</SL>
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"}</div><div style={{fontSize:10,color:C.muted}}>{m.model} · <SP s={m.situacao}/></div></div><button onClick={()=>remSN(m.sn||"")} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div>)}
+    <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Palete</Btn>
+  </div>;
+}
+
+/* ═══ CLIENTES ═══════════════════════════════════════════════ */
+function ClientesPage({ctx}){
+  const{data,mutate,setModal}=ctx;
+  const clients=data.clients||[];
+  const openAdd=()=>setModal(<Modal title="Novo Cliente" onClose={()=>setModal(null)}><AddClientForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+  const openDetail=c=>setModal(<Modal title={"👤 "+c.name} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={c}/></Modal>);
+  return<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>Clientes</div><div style={{color:C.muted,fontSize:12}}>{clients.length} clientes</div></div><Btn onClick={openAdd}>+ Cliente</Btn></div>
+    {clients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente</div></div>
+      :clients.map(c=>{const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);return<Card key={c._id} onClick={()=>openDetail(c)}>
+        <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:14}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.muted,fontSize:12}}>📱 {c.phone}</div>}</div><Tag color={C.accent}>{c.machinesSN?.length||0} máq.</Tag></div>
+        {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:(SIT_C[m.situacao]||C.muted)+"22",borderRadius:6,padding:"2px 6px",fontSize:10,color:SIT_C[m.situacao]||C.muted}}>{m.sn?.slice(0,10)||"s/sn"}</span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
+        <By by={c._byName} at={c._at}/>
+      </Card>;})}
+  </div>;
+}
+function AddClientForm({ctx,onClose}){
+  const{mutate,user}=ctx;
+  const[name,setName]=useState(""),[phone,setPhone]=useState(""),[notes,setNotes]=useState("");
+  const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),phone,notes,machinesSN:[],...audit(user),createdAt:TODAY()};await fbSet("clients",id,d);mutate("clients",c=>[...c,{...d,_id:id}]);await markChanged("clients");onClose()};
+  return<div><Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: João Silva" autoFocus/><Inp label="Telefone" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(47) 99999-9999"/><Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Endereço, empresa..."/><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div></div>;
+}
+function ClientDetail({ctx,client}){
+  const{data,mutate,setModal,user}=ctx;
+  const[c,setC]=useState(client),[input,setInput]=useState(""),[scanning,setScanning]=useState(false),[log,setLog]=useState([]);
+  const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
+  const addMac=async(snRaw)=>{
+    const sn=snRaw.toUpperCase().trim();if(!sn)return;
+    if((c.machinesSN||[]).includes(sn)){setLog(l=>[{sn,msg:"⚠️ Já vinculada"},...l]);setInput("");return}
+    const ex=data.machines.find(m=>m.sn===sn);
+    let msg="";
+    if(!ex){const id=uid();const d={sn,model:"M30S",th:86,type:"complete",situacao:"SAIDA",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",destino:c.name,...audit(user),addedAt:TODAY()};await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);await markChanged("machines");msg="🆕 Criada → SAIDA";}
+    else{const mHashes=data.hashes.filter(h=>h.machineSN===sn);for(const h of mHashes){const u={...h,status:"SAIDA",location:"Vendida: "+c.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);}const u={...ex,situacao:"SAIDA",destino:c.name,...audit(user)};mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));await fbSet("machines",ex._id,u);await markChanged("machines");await markChanged("hashes");msg="✓ "+ex.model+" → SAIDA"+(mHashes.length>0?" ("+mHashes.length+" HASHs)":"");}
+    const newSNs=[...(c.machinesSN||[]),sn];const upd={...c,machinesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients");setLog(l=>[{sn,msg},...l]);setInput("");
+  };
+  const remMac=async(sn)=>{const newSNs=(c.machinesSN||[]).filter(s=>s!==sn);const upd={...c,machinesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients")};
+  const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
+  return<div>
+    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}><div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}{c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}<div style={{marginTop:8,display:"flex",gap:8}}><div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:20}}>{c.machinesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>Total</div></div><div style={{background:C.red+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.red,fontSize:20}}>{macs.filter(m=>["SAIDA","VENDIDA","EXPORTADA"].includes(m.situacao)).length}</div><div style={{fontSize:10,color:C.muted}}>Saídas</div></div></div></div>
+    <div style={{color:C.amber,fontSize:11,marginBottom:8}}>⚠️ Ao vincular, máquina e HASHs internas vão para SAIDA</div>
+    {scanning&&<BarcodeScanner onScan={v=>{addMac(v)}} onClose={()=>setScanning(false)}/>}
+    <div style={{display:"flex",gap:8,marginBottom:8}}><input value={input} onChange={e=>setInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&addMac(input)} placeholder="SN da máquina..." style={{...inp,flex:1}}/><button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button></div>
+    <div style={{display:"flex",gap:8,marginBottom:12}}><Btn onClick={()=>addMac(input)} style={{flex:1}}>+ Vincular</Btn></div>
+    {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:8,marginBottom:10,maxHeight:80,overflow:"auto"}}>{log.map((l,i)=><div key={i} style={{fontSize:11,color:C.text,padding:"2px 0"}}>{l.sn} — {l.msg}</div>)}</div>}
+    <SL>Máquinas ({macs.length})</SL>
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma máquina</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div><div style={{fontSize:10,color:C.muted}}>{m.model} · {m.th}TH</div></div><button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div>)}
+    <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Cliente</Btn>
+  </div>;
+}
+
+/* ═══ EQUIPE DETALHES ════════════════════════════════════════ */
+function EmpHistory({ctx,emp}){
+  const{data}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
+  const allR=data.repairs.filter(r=>r.employeeId===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id);
+  const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
+  const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
+  return<div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+      {[[allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent],[allT.length,"Testes",C.blue],[data.feedbacks?.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length||0,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
+    </div>
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="Data" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
+    {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
+      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:C.blue}><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></Card>)}
+      {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.overallResult==="good"?C.green:C.red}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></Card>)}
+    </>}
+    <SL mt={12}>Por Dia</SL>
+    {Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid "+C.border,fontSize:12,cursor:"pointer"}}><span style={{color:d===dateFilter?C.accent:C.text}}>{fmtDate(d)}</span><Tag color={C.accent} small>{byDate[d]}</Tag></div>)}
+  </div>;
+}
+function EmpEdit({ctx,emp,onClose}){
+  const{data,mutate}=ctx;const[e,setE]=useState({...emp});
+  const setPerm=(k,v)=>setE(p=>({...p,permissions:{...p.permissions,[k]:v}}));
+  const save=async()=>{mutate("employees",arr=>arr.map(x=>x._id===e._id?e:x));await fbSet("employees",e._id,e);await markChanged("employees");onClose()};
+  const del=async()=>{if(!confirm("Remover "+e.name+"?"))return;mutate("employees",arr=>arr.filter(x=>x._id!==e._id));await fbDel("employees",e._id);await markChanged("employees");onClose()};
+  const resetPwd=async()=>{const np=prompt("Nova senha para "+e.name+" (mín 4):");if(!np||np.length<4){alert("Senha muito curta");return}const hash=await hashPwd(np);const upd={...e,passwordHash:hash};setE(upd);mutate("employees",arr=>arr.map(x=>x._id===e._id?upd:x));await fbSet("employees",e._id,upd);await markChanged("employees");alert("✓ Senha redefinida!")};
+  return<div>
+    <Inp label="Nome" value={e.name} onChange={ev=>setE(p=>({...p,name:ev.target.value}))}/>
+    <Inp label="Código" value={e.code} onChange={ev=>setE(p=>({...p,code:ev.target.value.slice(0,3)}))} maxLength={3}/>
+    <SL mt={8}>Permissões</SL>
+    {PERMS.map(({key,label})=><div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><span style={{fontSize:13}}>{label}</span><button onClick={()=>setPerm(key,!e.permissions?.[key])} style={{background:e.permissions?.[key]?C.green+"22":"#1a2d42",color:e.permissions?.[key]?C.green:C.muted,border:"1px solid "+(e.permissions?.[key]?C.green:C.border),borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{e.permissions?.[key]?"ON":"OFF"}</button></div>)}
+    <div style={{marginTop:12}}><Btn v="y" onClick={resetPwd} style={{width:"100%",marginBottom:8}}>🔑 Redefinir Senha</Btn></div>
+    <div style={{display:"flex",gap:8}}><Btn v="d" onClick={del} style={{flex:1}}>🗑 Remover</Btn><Btn v="g" onClick={save} style={{flex:2}}>💾 Salvar</Btn></div>
+  </div>;
+}
