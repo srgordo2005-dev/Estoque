@@ -12,7 +12,11 @@ async function fbList(c){let docs=[],pt=null;do{const r=await fetch(`${FB}/${c}?
 async function fbGet(c,id){try{const r=await fetch(`${FB}/${c}/${id}`);if(!r.ok)return null;const d=await r.json();return d.fields?{...fromFS(d),_id:id}:null}catch{return null}}
 async function fbSet(c,id,data){await fetch(`${FB}/${c}/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:toFS(data)})})}
 async function fbDel(c,id){await fetch(`${FB}/${c}/${id}`,{method:"DELETE"})}
-async function fbBatch(writes){const url=`https://firestore.googleapis.com/v1/projects/${PID}/databases/(default)/documents:batchWrite`;for(let i=0;i<writes.length;i+=500)await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({writes:writes.slice(i,i+500).map(w=>({update:{name:`projects/${PID}/databases/(default)/documents/${w.c}/${w.id}`,fields:toFS(w.d)}}))})});}
+async function fbBatch(writes){
+  // Use individual PATCHes to avoid batchWrite auth issues
+  const chunks=[];for(let i=0;i<writes.length;i+=50)chunks.push(writes.slice(i,i+50));
+  for(const chunk of chunks){await Promise.all(chunk.map(w=>fbSet(w.c,w.id,w.d)));}
+}
 const markChanged=k=>fbSet("_meta",k,{ts:Date.now()});
 const stamp=()=>new Date().toISOString();
 const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
