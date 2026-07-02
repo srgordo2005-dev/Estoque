@@ -950,12 +950,12 @@ function ApprovalsPage({ctx}){
 
 /* ═══ TEAM ══════════════════════════════════════════════════════ */
 function TeamPage({ctx,canSeeEmp}){
-  const{data,mutate,setModal}=ctx;const today=TODAY();
+  const{data,mutate,setModal,user}=ctx;const today=TODAY();
   const isSuper=user.code==="019";const openAdd=()=>setModal(<Modal title="Novo Funcionário" onClose={()=>setModal(null)}><AddEmpForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openProfile=e=>setModal(<Modal title={`${e.name} #${e.code}`} onClose={()=>setModal(null)}><EmpProfile ctx={ctx} emp={e}/></Modal>);
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div><div style={{fontWeight:900,fontSize:18}}>Equipe</div><div style={{color:C.muted,fontSize:12}}>{data.employees.length} funcionários</div></div><Btn onClick={openAdd}>+ Funcionário</Btn></div>
-    {visibleEmps.map(e=>{
+    {data.employees.map(e=>{
       if(!canSeeEmp(e._id)&&!data.employees.find(x=>x._id===ctx.user._id)?.permissions?.admin)return null;
       const rT=data.repairs.filter(r=>r.employeeId===e._id&&r.date===today&&r.type!=="already_good").length;
       const gT=data.repairs.filter(r=>r.employeeId===e._id&&r.date===today&&r.type==="already_good").length;
