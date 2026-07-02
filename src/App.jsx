@@ -11,7 +11,11 @@ function fromFS(d){if(!d?.fields)return{};const o={};for(const[k,v]of Object.ent
 async function fbList(c){let docs=[],pt=null;do{const r=await fetch(`${FB}/${c}?pageSize=300${pt?"&pageToken="+pt:""}`);const d=await r.json();if(d.documents)docs=[...docs,...d.documents.map(x=>({...fromFS(x),_id:x.name.split("/").pop()}))];pt=d.nextPageToken}while(pt);return docs;}
 async function fbGet(c,id){try{const r=await fetch(`${FB}/${c}/${id}`);if(!r.ok)return null;const d=await r.json();return d.fields?{...fromFS(d),_id:id}:null}catch{return null}}
 async function fbSet(c,id,data){await fetch(`${FB}/${c}/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:toFS(data)})})}
-async function fbDel(c,id){await fetch(`${FB}/${c}/${id}`,{method:"DELETE"})}
+async function fbDel(c,id){
+  // Soft delete - mark as deleted instead of removing
+  try{await fbSet(c,id+"__deleted__"+Date.now(),{_deleted:true,_deletedAt:stamp(),_originalId:id});
+  await fetch(`${FB}/${c}/${id}`,{method:"DELETE"});}catch(e){console.warn("Del error:",e)}
+}
 async function fbBatch(writes){
   // Use individual PATCHes to avoid batchWrite auth issues
   const chunks=[];for(let i=0;i<writes.length;i+=50)chunks.push(writes.slice(i,i+50));
@@ -136,7 +140,19 @@ export default function App(){
   const gTH=useCallback(m=>{const f=[...DEF_MODELS,...data.customModels].find(x=>x.m===m);return f?.th||0},[data.customModels]);
   const loadAll=useCallback(async()=>{const _res=await Promise.allSettled([fbList("employees"),fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);
     const[e,m,h,r,t,f,a,cm,p,cl]=_res.map(x=>x.status==="fulfilled"?x.value:[]);
-    setData({employees:e.length?e:data.employees,machines:m,hashes:h,repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p,clients:cl})},[]);
+    // BLINDAGEM: never overwrite existing data with empty array
+    setData(prev=>({
+      employees:e.length?e:prev.employees,
+      machines:m.length?m:prev.machines,
+      hashes:h.length?h:prev.hashes,
+      repairs:r.length?r:prev.repairs,
+      tests:t.length?t:prev.tests,
+      feedbacks:f.length?f:prev.feedbacks,
+      approvals:a.length?a:prev.approvals,
+      customModels:cm.length?cm:prev.customModels,
+      pallets:p.length?p:prev.pallets,
+      clients:cl.length?cl:prev.clients,
+    }))},[]);
 
   useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const adm={code:"00",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const _boot=await Promise.allSettled([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);
       const[m,h,r,t,f,a,cm,p,cl]=_boot.map(x=>x.status==="fulfilled"?x.value:[]);
@@ -463,16 +479,37 @@ function HashPage({ctx}){
 function HashAddMode({ctx,onClose}){const[mode,setMode]=useState(null);if(!mode)return<div><div style={{display:"flex",flexDirection:"column",gap:10}}><Btn onClick={()=>setMode("single")} style={{justifyContent:"center",padding:"14px 0"}}>⚡ Individual</Btn><Btn v="p" onClick={()=>setMode("batch-nosn")} style={{justifyContent:"center",padding:"14px 0"}}>📦 Lote SEM SN</Btn></div></div>;if(mode==="single")return<AddHashForm ctx={ctx} onClose={onClose}/>;return<BatchNoSNForm ctx={ctx} onClose={onClose}/>;}
 
 function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
-  const{data,mutate,user,allModels}=ctx;const models=allModels();
-  const[f,setF]=useState({sn:initSN,model:models[0]?.m||"M30S",status:"REPARO"}),[photoKey,setPhotoKey]=useState(initPhoto);
-  const set=(k,v)=>setF(p=>({...p,[k]:v}));
-  const save=async()=>{const id=uid();const d={...f,sn:f.sn.toUpperCase().trim(),...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,repairedBy:"",photoKey:photoKey||""};await fbSet("hashes",id,d);mutate("hashes",h=>[...h,{...d,_id:id}]);await markChanged("hashes");onClose()};
-  return<div><SNInput label="SN (deixe vazio se não tiver)" value={f.sn} onChange={v=>set("sn",v)} placeholder="SN da HASH"/><Sel label="MODELO" value={f.model} onChange={e=>set("model",e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel><Sel label="STATUS" value={f.status} onChange={e=>set("status",e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel><PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} style={{flex:1}}>Salvar</Btn></div></div>;
+  const{data,mutate,user,allModels,webhookUrl}=ctx;const models=allModels();
+  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[status,setStatus]=useState("REPARO"),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null);
+  const checkSN=v=>{setSN(v);const s=v.toUpperCase().trim();if(!s){setSnInfo(null);return}const ex=data.hashes.find(h=>h.sn===s);if(ex)setSnInfo({type:"exists",item:ex});else{const mac=data.machines.find(m=>m.sn===s);if(mac)setSnInfo({type:"mac",item:mac});else setSnInfo(null)}};
+  const save=async()=>{
+    const s=sn.toUpperCase().trim();
+    if(s&&data.hashes.find(h=>h.sn===s)){alert("SN já cadastrado!");return}
+    const id=uid();
+    const d={sn:s,model,status,obs,...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,repairedBy:"",photoKey:photoKey||""};
+    await fbSet("hashes",id,d);
+    mutate("hashes",h=>[...h,{...d,_id:id}]);
+    await markChanged("hashes");
+    if(webhookUrl)syncSheet(webhookUrl,"addHash",{sn:s,model,status,obs,employeeName:user.name,employeeCode:user.code});
+    onClose();
+  };
+  return<div>
+    <SNInput label="SN (deixe vazio se não tiver)" value={sn} onChange={checkSN} placeholder="SN da HASH"/>
+    {snInfo?.type==="exists"&&<div style={{background:"#3a0a0a",border:"1px solid "+C.red,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.red,fontWeight:800}}>⚠️ SN já existe!</div><div style={{fontSize:12,color:C.muted}}>{snInfo.item.model} · <HP s={snInfo.item.status}/></div></div>}
+    {snInfo?.type==="mac"&&<div style={{background:"#3a2a0a",border:"1px solid "+C.amber,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.amber,fontWeight:800}}>📌 SN é de uma Máquina</div><div style={{fontSize:12,color:C.muted}}>{snInfo.item.model} · <SP s={snInfo.item.situacao}/></div></div>}
+    <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+    <Sel label="STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
+    <Inp label="Observação" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: Chip U3 trocado, Chain Break corrigida..."/>
+    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
+    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={snInfo?.type==="exists"} style={{flex:1}}>Salvar</Btn></div>
+  </div>;
 }
 
 function HashDetail({ctx,hash}){
-  const{data,mutate,setModal,user}=ctx;const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
-  const upd=async(k,v)=>{const u={...h,[k]:v,...audit(user)};setH(u);mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes")};
+  const{data,mutate,setModal,user,webhookUrl}=ctx;const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
+  const upd=async(k,v)=>{const u={...h,[k]:v,...audit(user)};setH(u);mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");
+    if(webhookUrl)syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:u.status,location:u.location,employeeName:user.name,employeeCode:user.code});
+  };
   const history=[];
   data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${emp?.name||"?"} (já estava boa)`:`Consertada por ${emp?.name||"?"}${obs}`,notes:r.notes,photoKey:r.photoKey})});
   data.tests.forEach(t=>{const si=[t.slot0HashSN,t.slot1HashSN,t.slot2HashSN].indexOf(h.sn);if(si<0||!h.sn)return;const emp=data.employees.find(e=>e._id===t.employeeId);const res=si===0?t.slot0Result:si===1?t.slot1Result:t.slot2Result;history.push({icon:"🧪",date:t._at||t.date,text:`Testada por ${emp?.name||"?"} — Máq.${t.machineSN||"s/n"} Slot${si+1} — ${res==="good"?"BOA ✓":"RUIM ✗"}`,photoKey:si===0?t.slot0Photo:si===1?t.slot1Photo:t.slot2Photo})});
@@ -908,9 +945,11 @@ function PalletDetail({ctx,pallet}){
     </>}
 
     {mode==="scan"&&<>
-      {scanning&&<BarcodeScanner onScan={async v=>{const res=await addSN(v);if(!res)return;const newSNs=[...(p.machinesSN||[]),res.sn];const upd={...p,machinesSN:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets");setLog(l=>[res,...l])}} onClose={()=>setScanning(false)}/>}
-      <Btn v="b" onClick={()=>setScanning(true)} style={{width:"100%",marginBottom:10}}>📷 Iniciar Câmera Contínua</Btn>
-      <div style={{color:C.muted,fontSize:11,textAlign:"center",marginBottom:10}}>Cada SN bipado é adicionado automaticamente</div>
+      <div style={{background:C.card2,borderRadius:10,padding:14,marginBottom:10}}>
+        <div style={{color:C.text,fontSize:12,fontWeight:700,marginBottom:8}}>📋 Lista de SNs para adicionar</div>
+        <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Bipe os códigos abaixo — cada SN vai aparecer na lista</div>
+        <SNInput value={input} onChange={setInput} placeholder="Bipe ou digite o SN..." onEnter={async()=>{if(!input.trim())return;const res=await addSN(input);if(!res)return;const newSNs=[...(p.machinesSN||[]),res.sn];const upd={...p,machinesSN:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets");setLog(l=>[res,...l]);setInput("");}}/>
+      </div>
     </>}
 
     {mode==="upload"&&<>
