@@ -866,8 +866,7 @@ function PalletDetail({ctx,pallet}){
   const exportSheet=()=>{
     const rows=["SN,Modelo,Situação,T/H"];
     macs.forEach(m=>rows.push(`${m.sn||""},${m.model||""},${m.situacao||""},${m.th||""}`));
-    const blob=new Blob([rows.join("
-")],{type:"text/csv"});
+    const blob=new Blob([rows.join("")],{type:"text/csv"});
     const a=document.createElement("a");a.href=URL.createObjectURL(blob);
     a.download=`palete-${p.name.replace(/\s/g,"-")}.csv`;a.click();
   };
@@ -1096,7 +1095,7 @@ function ClientDetail({ctx,client}){
   const exportCSV=()=>{
     const rows=["SN,Modelo,TH,Situação,Data"];
     macs.forEach(m=>rows.push((m.sn||"")+","+(m.model||"")+","+(m.th||"")+","+(m.situacao||"")+","+(m.addedAt||"")));
-    const blob=new Blob([rows.join("\n")],{type:"text/csv"});
+    const blob=new Blob([rows.join(String.fromCharCode(10))],{type:"text/csv"});
     const a=document.createElement("a");
     a.href=URL.createObjectURL(blob);
     a.download="cliente-"+c.name.replace(/\s/g,"-")+".csv";
