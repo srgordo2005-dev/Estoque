@@ -259,7 +259,7 @@ export default function App(){
     });
   },[]);
 
-  useEffect(()=>{(async()=>{
+  const bootLoad=useCallback(async()=>{
     setLoading(true);
     const cachedEmps=JSON.parse(localStorage.getItem("hs_employees")||"[]");
     try{
@@ -312,13 +312,15 @@ export default function App(){
       setDataWarnings(w=>[{msg:"⚠️ Falha ao carregar dados iniciais: "+e.message+". Usando última cópia salva.",at:stamp()},...w]);
     }
     setLoading(false);
-  })()},[]);
+  },[]);
+  useEffect(()=>{bootLoad()},[bootLoad]);
   useEffect(()=>{const poll=async()=>{try{const r=await fetch(`${FB}/_meta?pageSize=20`);const d=await r.json();const docs=d.documents||[];let changed=false;docs.forEach(doc=>{const id=doc.name.split("/").pop();const ts=doc.fields?.ts?.integerValue;if(ts&&lastMeta.current[id]!==ts){lastMeta.current[id]=ts;changed=true}});if(changed){setSyncing(true);await loadAll();setSyncing(false)}}catch{}};const iv=setInterval(poll,300000);return()=>clearInterval(iv)},[loadAll]); // Poll every 5 min to save Firebase quota
 
   useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
   const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,dataWarnings};
   if(loading)return<Splash/>;
+  if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
   if(!user)return<LoginPage employees={data.employees} onLogin={setUser}/>;
 
   const p=user.permissions||{};const isAdmin=p.admin;
@@ -371,6 +373,23 @@ export default function App(){
 }
 
 const Splash=()=><div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><div style={{fontSize:52}}>⛏️</div><div style={{fontWeight:900,color:C.text,fontSize:18,marginTop:8}}>HashStock</div><div style={{color:C.muted,fontSize:12,marginTop:4}}>Conectando...</div></div></div>;
+
+// Mostrado apenas se, mesmo após todas as tentativas e o cache local, não foi
+// possível carregar NENHUM funcionário. Evita mostrar a tela de login normal
+// (que erroneamente parece dizer "usuário não existe") quando na verdade é
+// uma falha de conexão com o Firebase.
+function BootErrorScreen({onRetry,warnings}){
+  const[retrying,setRetrying]=useState(false);
+  return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{width:"100%",maxWidth:360,textAlign:"center"}}>
+      <div style={{fontSize:52,marginBottom:12}}>🛡️⚠️</div>
+      <div style={{fontWeight:900,fontSize:18,color:C.red,marginBottom:8}}>Não consegui carregar os usuários</div>
+      <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>Isso normalmente é uma falha temporária de conexão com o Firebase — nenhum dado foi apagado. Verifique sua internet e tente de novo.</div>
+      {warnings?.[0]&&<div style={{background:"#2a0c0c",border:`1px solid ${C.red}`,borderRadius:10,padding:12,marginBottom:16,fontSize:11,color:"#ff9b9b",textAlign:"left"}}>{warnings[0].msg}</div>}
+      <Btn onClick={async()=>{setRetrying(true);await onRetry();setRetrying(false)}} disabled={retrying} style={{width:"100%",padding:"13px",fontSize:14,justifyContent:"center"}}>{retrying?"Tentando...":"🔄 Tentar de novo"}</Btn>
+    </div>
+  </div>;
+}
 
 /* ═══ LOGIN ═════════════════════════════════════════════════════ */
 function LoginPage({employees,onLogin}){
