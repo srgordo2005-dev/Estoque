@@ -1098,3 +1098,4 @@ function ClientDetail({ctx,client}){
     <Btn v="d" onClick={del} style={{width:"100%",marginTop:16}}>🗑 Remover Cliente</Btn>
   </div>;
 }
+
