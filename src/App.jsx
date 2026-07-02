@@ -158,8 +158,21 @@ export default function App(){
 
   useEffect(()=>{(async()=>{setLoading(true);const emps=await fbList("employees");if(emps.length===0){const id=uid();const adm={code:"00",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true};await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}])}else setCol("employees",emps);const _boot=await Promise.allSettled([fbList("machines"),fbList("hashes"),fbList("repairs"),fbList("tests"),fbList("feedbacks"),fbList("pendingApprovals"),fbList("customModels"),fbList("pallets"),fbList("clients")]);
       const[m,h,r,t,f,a,cm,p,cl]=_boot.map(x=>x.status==="fulfilled"?x.value:[]);
-      const newData={...data,machines:m.length?m:JSON.parse(localStorage.getItem("hs_machines")||"[]"),hashes:h.length?h:JSON.parse(localStorage.getItem("hs_hashes")||"[]"),repairs:r,tests:t,feedbacks:f,approvals:a,customModels:cm,pallets:p,clients:cl};
-      setData(d=>({...d,...newData}));
+      // Don't spread old data - use functional update to preserve employees already set
+      if(m.length)localStorage.setItem("hs_machines",JSON.stringify(m));
+      if(h.length)localStorage.setItem("hs_hashes",JSON.stringify(h));
+      setData(d=>({
+        ...d,
+        machines:m.length?m:JSON.parse(localStorage.getItem("hs_machines")||"[]"),
+        hashes:h.length?h:JSON.parse(localStorage.getItem("hs_hashes")||"[]"),
+        repairs:r.length?r:d.repairs,
+        tests:t.length?t:d.tests,
+        feedbacks:f.length?f:d.feedbacks,
+        approvals:a.length?a:d.approvals,
+        customModels:cm.length?cm:d.customModels,
+        pallets:p.length?p:d.pallets,
+        clients:cl.length?cl:d.clients,
+      }));
       if(m.length)localStorage.setItem("hs_machines",JSON.stringify(m));
       if(h.length)localStorage.setItem("hs_hashes",JSON.stringify(h));
       setLoading(false)})()},[]);
