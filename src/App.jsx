@@ -833,12 +833,10 @@ function PalletDetail({ctx,pallet}){
     try{
       const text=await file.text();
       // Parse CSV or TSV — get first column (SN)
-      const lines=text.split(/
-?
-/).filter(l=>l.trim());
+      const lines=text.split("\n").filter(l=>l.trim());
       const sns=[];
       for(const line of lines){
-        const cols=line.split(/[,;	]/);
+        const cols=line.indexOf(",")>=0?line.split(","):line.indexOf(";")>=0?line.split(";"):line.split("\t");
         const sn=(cols[0]||"").replace(/['"]/g,"").toUpperCase().trim();
         if(sn&&sn!=="SN"&&sn!=="SN/MAC"&&sn.length>5)sns.push(sn);
       }
