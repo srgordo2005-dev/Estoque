@@ -706,49 +706,161 @@ function ConsertaPage({ctx}){
 /* ═══ TESTE ═════════════════════════════════════════════════════ */
 function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH}=ctx;const models=allModels();
-  const[session,setSession]=useState(null),[macInput,setMacInput]=useState(""),[slotModal,setSlotModal]=useState(null),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[err,setErr]=useState("");
-  useEffect(()=>{fbGet("sessions",user._id).then(s=>{if(s)setSession(s)})},[user._id]);
+  const[session,setSession]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false);
+  useEffect(()=>{fbGet("sessions",user._id).then(s=>{if(s){setSession(s);setMacInput(s.machineSN||"")}})},[user._id]);
   const saveSession=async s=>{setSession(s);await fbSet("sessions",user._id,s)};
-  const loadMachine=async(snParam)=>{const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;const ex=data.machines.find(m=>m.sn===sn);const s={machineSN:sn,model:ex?.model||models[0]?.m||"M30S",th:ex?.th||gTH(ex?.model||"M30S"),slots:[{hashSN:ex?.hashSN0||"",model:models[0]?.m||"M30S",status:"",photoKey:null},{hashSN:ex?.hashSN1||"",model:models[0]?.m||"M30S",status:"",photoKey:null},{hashSN:ex?.hashSN2||"",model:models[0]?.m||"M30S",status:"",photoKey:null}],controladora:"",fonte:"",fans:"",photoKey:null,updatedAt:stamp()};await saveSession(s)};
-  const submitForApproval=async()=>{
-    if(!session)return;if(!session.photoKey){setErr("Foto da tela obrigatória!");return}if(!session.controladora||!session.fonte||!session.fans){setErr("Marque controladora, fonte e cooler!");return}
-    setErr("");setSubmitting(true);const id=uid();
-    const rec={machineSN:session.machineSN,model:session.model,th:session.th,employeeId:user._id,...audit(user),date:TODAY(),status:"pending",slot0HashSN:session.slots[0].hashSN||"",slot0Result:session.slots[0].status||"",slot0Photo:session.slots[0].photoKey||"",slot1HashSN:session.slots[1].hashSN||"",slot1Result:session.slots[1].status||"",slot1Photo:session.slots[1].photoKey||"",slot2HashSN:session.slots[2].hashSN||"",slot2Result:session.slots[2].status||"",slot2Photo:session.slots[2].photoKey||"",controladora:session.controladora,fonte:session.fonte,fans:session.fans,testPhoto:session.photoKey,overallResult:"pending"};
+
+  const loadMachine=async(snParam)=>{
+    const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;
+    const ex=data.machines.find(m=>m.sn===sn);
+    const s={machineSN:sn,model:ex?.model||models[0]?.m||"M30S",th:ex?.th||0,
+      slots:[
+        {hashSN:ex?.hashSN0||"",status:"",photoKey:null},
+        {hashSN:ex?.hashSN1||"",status:"",photoKey:null},
+        {hashSN:ex?.hashSN2||"",status:"",photoKey:null}
+      ],controladora:"",fonte:"",fans:"",photoKey:null,updatedAt:stamp()};
+    await saveSession(s);
+  };
+
+  const setSlotSN=async(i,sn)=>{
+    if(!session)return;
+    const newSlots=[...session.slots];newSlots[i]={...newSlots[i],hashSN:sn};
+    await saveSession({...session,slots:newSlots,updatedAt:stamp()});
+  };
+
+  const markAllGood=async()=>{
+    if(!session)return;
+    if(!session.photoKey){setErr("Adicione a foto da tela primeiro!");return}
+    const newSlots=session.slots.map(s=>({...s,status:"good"}));
+    const s={...session,slots:newSlots,controladora:"ON",fonte:"ON",fans:"ON",updatedAt:stamp()};
+    await saveSession(s);
+    // Auto-submit
+    await doSubmit(s);
+  };
+
+  const doSubmit=async(s)=>{
+    const sess=s||session;if(!sess)return;
+    setSubmitting(true);const id=uid();
+    const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,...audit(user),date:TODAY(),status:"pending",
+      slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
+      slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
+      slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
+      controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending"};
     await fbSet("tests",id,rec);mutate("tests",t=>[...t,{...rec,_id:id}]);
-    const apprId=uid();await fbSet("pendingApprovals",apprId,{testId:id,machineSN:session.machineSN,model:session.model,th:session.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",...audit(user)});mutate("approvals",a=>[...a,{testId:id,machineSN:session.machineSN,model:session.model,th:session.th,employeeId:user._id,employeeName:user.name,date:TODAY(),status:"pending",_id:apprId}]);
-    const exMac=data.machines.find(m=>m.sn===session.machineSN);if(exMac){const u={...exMac,situacao:"AGUARD. REVISÃO",lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u)}
+    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",...audit(user)};
+    await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
+    const exMac=data.machines.find(m=>m.sn===sess.machineSN);
+    if(exMac){const u={...exMac,situacao:"AGUARD. REVISÃO",lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
     await markChanged("tests");await markChanged("approvals");await markChanged("machines");
     syncSheet(webhookUrl,"test",{...rec,employeeCode:user.code,employeeName:user.name});
     await fbDel("sessions",user._id);setSession(null);setMacInput("");setSubmitting(false);setDone(true);setTimeout(()=>setDone(false),3000);
   };
-  const compOk=session&&session.controladora&&session.fonte&&session.fans;const photoOk=session&&session.photoKey;
+
+  // HASHs waiting to test
+  const hashesWaiting=data.hashes.filter(h=>h.status==="TESTAR");
+
   return<div>
-    {done&&<Alrt type="ok">✓ Enviado para revisão do admin!</Alrt>}{err&&<Alrt type="err">{err}</Alrt>}
-    <Card style={{marginBottom:14}}>
-      <SNInput label="SN DA CARCAÇA" value={macInput} onChange={setMacInput} placeholder="Bipe, escaneie ou digite" list="mac-tst" onEnter={loadMachine}/>
-      <datalist id="mac-tst">{data.machines.map(m=><option key={m._id} value={m.sn||""}>{m.sn||"SEM SN"} — {m.model}</option>)}</datalist>
-      <Btn onClick={loadMachine} style={{width:"100%",justifyContent:"center"}}>→ Carregar Máquina</Btn>
-      {session&&<div style={{marginTop:10,padding:"8px 12px",background:"#080e17",borderRadius:8,display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:800,color:C.accent}}>{session.machineSN}</span><span style={{color:C.muted,fontSize:12}}>{session.model} · {session.th}TH</span></div>}
-    </Card>
+    {scanning&&<BarcodeScanner onScan={v=>{setMacInput(v.toUpperCase());setScanning(false);loadMachine(v)}} onClose={()=>setScanning(false)}/>}
+    {done&&<Alrt type="ok">✓ Enviado para revisão do admin!</Alrt>}
+    {err&&<Alrt type="err">{err}</Alrt>}
+
+    {/* Waiting HASHs */}
+    {hashesWaiting.length>0&&<div style={{background:C.amber+"11",border:"1px solid "+C.amber+"44",borderRadius:12,padding:"10px 14px",marginBottom:12}}>
+      <div style={{fontWeight:800,color:C.amber,marginBottom:6}}>⏳ HASHs aguardando teste ({hashesWaiting.length})</div>
+      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{hashesWaiting.slice(0,6).map(h=><span key={h._id} style={{background:C.card2,borderRadius:6,padding:"2px 8px",fontSize:11,color:C.blue}}>⚡ {h.sn||"SEM SN"} — {h.model}</span>)}{hashesWaiting.length>6&&<span style={{color:C.muted,fontSize:11}}>+{hashesWaiting.length-6}</span>}</div>
+    </div>}
+
+    {/* Machine input */}
+    <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>SN DA MÁQUINA</div>
+      <div style={{display:"flex",gap:8}}>
+        <input value={macInput} onChange={e=>{setMacInput(e.target.value.toUpperCase());clearTimeout(window._lt);window._lt=setTimeout(()=>loadMachine(e.target.value),1000)}} onKeyDown={e=>e.key==="Enter"&&loadMachine(macInput)} placeholder="Bipe ou escaneie o SN..." list="mac-list" style={{...inp,flex:1}}/>
+        <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
+      </div>
+      <datalist id="mac-list">{data.machines.map(m=><option key={m._id} value={m.sn||""}>{m.model}</option>)}</datalist>
+      {session&&<div style={{marginTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontWeight:800,color:C.accent}}>{session.machineSN}</span><span style={{color:C.muted,fontSize:12}}>{session.model} · {session.th}TH</span></div>}
+    </div>
+
     {session&&<>
-      {[0,1,2].map(i=>{const slot=session.slots[i];const hsh=slot.hashSN?data.hashes.find(h=>h.sn===slot.hashSN):null;const rep=hsh?data.employees.find(e=>e._id===hsh?.repairedBy):null;
-        return<div key={i} onClick={()=>setSlotModal(i)} style={{background:C.card,borderRadius:12,padding:14,marginBottom:10,cursor:"pointer",borderLeft:`3px solid ${slot.status==="good"?C.green:slot.status==="bad"?C.red:C.border}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontWeight:800,fontSize:13,color:C.subtle}}>SLOT {i+1}</div>{slot.hashSN?<span style={{background:slot.status==="good"?C.green:slot.status==="bad"?C.red:C.amber,color:"#fff",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{slot.status==="good"?"✓ BOA":slot.status==="bad"?"✗ RUIM":"⏳ Pendente"}</span>:<span style={{color:C.muted,fontSize:12}}>Toque para adicionar HASH</span>}</div>
-          {slot.hashSN&&<><div style={{fontWeight:700,fontSize:14,color:C.blue,marginTop:6}}>⚡ {slot.hashSN}</div><div style={{fontSize:12,color:C.muted}}>{slot.model}{rep?` · 👷 ${rep.name}`:""}</div></>}
-        </div>})}
-      <Card style={{marginBottom:14}}>
-        <SL>COMPONENTES</SL>
-        {[["controladora","Controladora"],["fonte","Fonte"],["fans","Cooler"]].map(([k,l])=><div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13,fontWeight:700}}>{l}</span><div style={{display:"flex",gap:6}}>{[["ON","Bom",C.green],["OFF","Ruim",C.red]].map(([v,lbl,c])=><button key={v} onClick={()=>saveSession({...session,[k]:v,updatedAt:stamp()})} style={{background:session[k]===v?c:"#1a2d42",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{lbl}</button>)}</div></div>)}
-      </Card>
-      <Card style={{marginBottom:14}}>
-        <PhotoCapture label="📸 FOTO DA TELA DO TESTADOR (obrigatória)" photoKey={session.photoKey||null} onChange={k=>saveSession({...session,photoKey:k,updatedAt:stamp()})} folder="testes" required/>
-      </Card>
-      <Btn v="g" onClick={submitForApproval} disabled={submitting||!compOk||!photoOk} style={{width:"100%",justifyContent:"center",padding:"16px 0",fontSize:15}}>
-        {submitting?"Enviando...":"✅ Enviar para Revisão do Admin"}
+      {/* Slots */}
+      {[0,1,2].map(i=>{
+        const slot=session.slots[i];
+        const h=slot.hashSN?data.hashes.find(x=>x.sn===slot.hashSN.toUpperCase()):null;
+        const modelMismatch=h&&h.model&&session.model&&h.model!==session.model;
+        return<div key={i} style={{background:C.card,borderRadius:14,padding:14,marginBottom:8,border:"1px solid "+(slot.status==="bad"?C.red:slot.status==="good"?C.green:C.border)}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontWeight:800,fontSize:12,color:C.subtle}}>SLOT {i+1}</div>
+            {slot.status==="good"&&<Tag color={C.green}>✓ BOA</Tag>}
+            {slot.status==="bad"&&<Tag color={C.red}>✗ RUIM</Tag>}
+            {!slot.status&&<Tag color={C.muted}>Aguardando</Tag>}
+          </div>
+          <input value={slot.hashSN||""} onChange={e=>setSlotSN(i,e.target.value.toUpperCase())} placeholder="Bipe o SN da HASH..." list={"hash-list-"+i} style={{...inp,marginBottom:6}}/>
+          <datalist id={"hash-list-"+i}>{data.hashes.map(x=><option key={x._id} value={x.sn||""}>{x.model} — {x.status}</option>)}</datalist>
+          {h&&<div style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:C.card2,borderRadius:8,marginBottom:6}}>
+            <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}</span>
+            {h.location&&<span style={{fontSize:10,color:C.muted}}>📍{h.location}</span>}
+          </div>}
+          {modelMismatch&&<div style={{background:C.amber+"22",border:"1px solid "+C.amber+"44",borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.amber}}>⚠️ HASH é <b>{h.model}</b> mas máquina é <b>{session.model}</b></div>}
+          {slot.status!=="bad"&&slot.hashSN&&<button onClick={()=>setRuimModal(i)} style={{background:C.red+"22",border:"1px solid "+C.red+"44",color:C.red,borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,width:"100%"}}>✗ Marcar como RUIM</button>}
+        </div>;
+      })}
+
+      {/* Componentes */}
+      <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
+        <SL>Componentes</SL>
+        {[["controladora","Controladora"],["fonte","Fonte"],["fans","Cooler"]].map(([k,l])=><div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><span style={{fontSize:13}}>{l}</span><div style={{display:"flex",gap:6}}>{["ON","OFF"].map(v=><button key={v} onClick={()=>saveSession({...session,[k]:v,updatedAt:stamp()})} style={{background:session[k]===v?(v==="ON"?C.green:C.red)+"22":C.card2,color:session[k]===v?(v==="ON"?C.green:C.red):C.muted,border:"1px solid "+(session[k]===v?(v==="ON"?C.green:C.red):C.border),borderRadius:8,padding:"5px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{v==="ON"?"Bom":"Ruim"}</button>)}</div></div>)}
+      </div>
+
+      {/* Foto */}
+      <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
+        <PhotoCapture label="📸 Foto da Tela / App Fabricante (obrigatória)" photoKey={session.photoKey||null} onChange={k=>saveSession({...session,photoKey:k,updatedAt:stamp()})} folder="testes" required/>
+      </div>
+
+      <Btn v="g" onClick={markAllGood} disabled={submitting||!session.photoKey} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
+        {submitting?"Enviando...":"✅ TUDO BOA — Enviar para Revisão"}
       </Btn>
-      {(!compOk||!photoOk)&&<div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:6}}>{!photoOk?"Foto obrigatória":""}{!compOk?" · Complete todos os componentes":""}</div>}
+      <Btn v="s" onClick={async()=>{await fbDel("sessions",user._id);setSession(null);setMacInput("")}} style={{width:"100%",fontSize:12}}>🗑 Cancelar / Limpar</Btn>
+      {!session.photoKey&&<div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Adicione a foto para enviar</div>}
     </>}
-    {slotModal!==null&&<SlotModal ctx={ctx} session={session} slotIndex={slotModal} onSave={saveSession} onClose={()=>setSlotModal(null)}/>}
+
+    {/* RUIM Modal */}
+    {ruimModal!==null&&<Modal title={"✗ Slot "+(ruimModal+1)+" RUIM"} onClose={()=>setRuimModal(null)}>
+      <RuimSlotForm ctx={ctx} session={session} slotIndex={ruimModal} onSave={async(s)=>{await saveSession(s);setRuimModal(null)}}/>
+    </Modal>}
+  </div>;
+}
+
+function RuimSlotForm({ctx,session,slotIndex,onSave}){
+  const{data,mutate,user}=ctx;
+  const[logPhoto,setLogPhoto]=useState(null),[notes,setNotes]=useState(""),[saving,setSaving]=useState(false),[err,setErr]=useState("");
+  const slot=session.slots[slotIndex];
+  const h=slot.hashSN?data.hashes.find(x=>x.sn===slot.hashSN.toUpperCase()):null;
+  const lastRep=slot.hashSN?[...data.repairs].reverse().find(r=>r.hashSN===slot.hashSN):null;
+  const repairer=lastRep?data.employees.find(e=>e._id===lastRep.employeeId):null;
+  const confirm=async()=>{
+    if(!logPhoto&&!notes){setErr("Adicione foto ou descrição do erro");return}
+    setSaving(true);
+    const newSlots=[...session.slots];newSlots[slotIndex]={...slot,status:"bad",logPhoto:logPhoto||"",logNotes:notes};
+    // Update hash status
+    if(h){const u={...h,status:"REPARO",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");}
+    // Notify repairer
+    if(lastRep?.employeeId&&slot.hashSN){const fid=uid();const fdb={hashSN:slot.hashSN,machineSN:session.machineSN,originalRepairerId:lastRep.employeeId,testedBy:user._id,...audit(user),date:TODAY(),logPhotoKey:logPhoto||"",notes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);}
+    await onSave({...session,slots:newSlots,updatedAt:stamp()});
+    setSaving(false);
+  };
+  return<div>
+    <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:12}}>
+      <div style={{fontWeight:700,color:C.red,marginBottom:4}}>⚡ {slot.hashSN||"SEM SN"} — Slot {slotIndex+1}</div>
+      {h&&<HP s={h.status}/>}
+      {repairer&&<div style={{color:C.amber,fontSize:12,marginTop:4}}>⚠️ {repairer.name} será notificado do erro</div>}
+    </div>
+    <PhotoCapture label="📸 Foto do Log de Erro" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste"/>
+    <Inp label="Descrição do Erro" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected, Chain Break..."/>
+    {err&&<Alrt type="err">{err}</Alrt>}
+    <div style={{display:"flex",gap:8}}>
+      <Btn v="s" onClick={()=>onSave(session)} style={{flex:1}}>Cancelar</Btn>
+      <Btn v="d" onClick={confirm} disabled={saving} style={{flex:1}}>{saving?"...":"✗ Confirmar RUIM"}</Btn>
+    </div>
   </div>;
 }
 
