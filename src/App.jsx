@@ -268,7 +268,7 @@ function LoginPage({employees,onLogin}){
         </div>
         {err&&<div style={{color:C.red,fontSize:12,marginBottom:12,textAlign:"center"}}>⚠️ {err}</div>}
         <Btn onClick={go} disabled={busy} style={{width:"100%",padding:"13px",fontSize:14}}>{busy?"...":"→ Entrar"}</Btn>
-        <div style={{color:C.muted,fontSize:10,textAlign:"center",marginTop:12}}>Admin: usuário 019 / senha 018</div>
+
       </div>
     </div>
   </div>;
@@ -360,10 +360,52 @@ function AdminSummary({data}){
 }
 
 /* ═══ MACHINES ══════════════════════════════════════════════════ */
+function FilterBar({filters,active,onToggle,counts,label}){
+  const[open,setOpen]=useState(false);
+  const activeList=Object.entries(active).filter(([,v])=>v).map(([k])=>k);
+  return<div style={{position:"relative",marginBottom:10}}>
+    <button onClick={()=>setOpen(o=>!o)} style={{background:C.card,border:`1px solid ${open?C.accent:C.border}`,borderRadius:10,padding:"8px 14px",color:C.text,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:700,width:"100%",justifyContent:"space-between"}}>
+      <span>🔍 {label||"Filtros"} {activeList.length>0&&<Tag color={C.accent} small>{activeList.length} ativo</Tag>}</span>
+      <span style={{color:C.muted}}>{open?"▲":"▼"}</span>
+    </button>
+    {open&&<div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,marginTop:4,padding:10,maxHeight:300,overflow:"auto"}}>
+      {filters.map(f=>{
+        const cnt=counts?.[f.id]||0;
+        return<div key={f.id} onClick={()=>{onToggle(f.id);}} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",cursor:"pointer",borderRadius:8,background:active[f.id]?(f.color||C.accent)+"22":"transparent",marginBottom:2}}>
+          <span style={{fontSize:13,color:active[f.id]?(f.color||C.accent):C.text,fontWeight:active[f.id]?700:400}}>{f.label}</span>
+          <span style={{background:C.card2,borderRadius:20,padding:"1px 8px",fontSize:11,color:C.muted,fontWeight:700}}>{cnt}</span>
+        </div>;
+      })}
+      <button onClick={()=>{filters.forEach(f=>active[f.id]&&onToggle(f.id));setOpen(false)}} style={{width:"100%",background:"none",border:"none",color:C.muted,cursor:"pointer",padding:"6px",fontSize:11,marginTop:4}}>Limpar filtros</button>
+    </div>}
+  </div>;
+}
+
 function MacPage({ctx}){
   const{data,setModal}=ctx;
   const[search,setSearch]=useState(""),[fSit,setFSit]=useState("all"),[fType,setFType]=useState("all");
-  const filtered=data.machines.filter(m=>{const ms=(m.sn||"").toLowerCase().includes(search.toLowerCase())||m.model?.toLowerCase().includes(search.toLowerCase());const typOk=fType==="all"||(fType==="complete"&&m.type==="complete")||(fType==="shell"&&m.type==="shell")||(fType==="nosn"&&!m.sn);return ms&&(fSit==="all"||m.situacao===fSit)&&typOk});const sitCounts={};[...SIT_OPTS].forEach(s=>sitCounts[s]=data.machines.filter(m=>m.situacao===s).length);
+  const toggleFilter=id=>setActiveFilters(f=>({...f,[id]:!f[id]}));
+  const filtered=data.machines.filter(m=>{
+    const ms=(m.sn||"").toLowerCase().includes(search.toLowerCase())||m.model?.toLowerCase().includes(search.toLowerCase());
+    const sitF=Object.entries(activeFilters).filter(([k,v])=>v&&SIT_OPTS.includes(k));
+    const typF=Object.entries(activeFilters).filter(([k,v])=>v&&["complete","shell","nosn","withHash","noHash"].includes(k));
+    const sitOk=sitF.length===0||sitF.some(([k])=>m.situacao===k);
+    const typOk=typF.length===0||typF.some(([k])=>(k==="complete"&&m.type==="complete")||(k==="shell"&&m.type==="shell")||(k==="nosn"&&!m.sn)||(k==="withHash"&&(m.hash0==="ON"||m.hash1==="ON"||m.hash2==="ON"))||(k==="noHash"&&m.hash0!=="ON"&&m.hash1!=="ON"&&m.hash2!=="ON"));
+    return ms&&sitOk&&typOk;
+  });
+  const macFilters=[
+    ...SIT_OPTS.map(s=>({id:s,label:s,color:SIT_C[s]})),
+    {id:"complete",label:"Completas",color:C.blue},
+    {id:"shell",label:"Carcaças",color:C.muted},
+    {id:"nosn",label:"Sem SN",color:C.red},
+    {id:"withHash",label:"Com HASH ON",color:C.green},
+    {id:"noHash",label:"Sem HASH",color:C.amber},
+  ];
+  const macCounts=Object.fromEntries(macFilters.map(f=>[f.id,data.machines.filter(m=>
+    f.id==="complete"?m.type==="complete":f.id==="shell"?m.type==="shell":f.id==="nosn"?!m.sn:
+    f.id==="withHash"?(m.hash0==="ON"||m.hash1==="ON"||m.hash2==="ON"):
+    f.id==="noHash"?(m.hash0!=="ON"&&m.hash1!=="ON"&&m.hash2!=="ON"):m.situacao===f.id
+  ).length]));
   const openAdd=()=>setModal(<Modal title="Adicionar" onClose={()=>setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openDetail=m=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>);
   return<div>
@@ -374,7 +416,9 @@ function MacPage({ctx}){
       {["BOA","AGUARD. REVISÃO","REVISAR","STOCK","ENTRADA OFICINA"].map(s=><button key={s} onClick={()=>setFSit(fSit===s?"all":s)} style={{background:fSit===s?SIT_C[s]:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{s}</button>)}
     </div>
     {filtered.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>🖥️</div>Nenhuma máquina</div>
-      :filtered.map(m=><Card key={m._id} accent={SIT_C[m.situacao]||C.border} onClick={()=>openDetail(m)}>
+      :filtered.map(m=><div key={m._id} style={{position:"relative"}}>
+      {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(m._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(m._id):s.delete(m._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
+      <Card accent={SIT_C[m.situacao]||C.border} onClick={()=>!selMode&&openDetail(m)} style={{paddingLeft:selMode?36:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:14,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{m.model} · {m.th}TH</div><By by={m._byName} at={m._at}/></div><SP s={m.situacao}/></div>
         <div style={{display:"flex",gap:5,flexWrap:"wrap"}}><HP s={m.hash0}/><HP s={m.hash1}/><HP s={m.hash2}/>{m.controladora&&<span style={{fontSize:10,color:C.subtle}}>CTR:{m.controladora}</span>}{m.fans&&<span style={{fontSize:10,color:C.subtle}}>FAN:{m.fans}</span>}</div>
       </Card>)}
@@ -497,6 +541,11 @@ function MachineDetail({ctx,machine}){
         </div>
       )}
       <SNInput label="SN (editar)" value={m.sn||""} onChange={v=>upd("sn",v)} placeholder="Digite o SN" err=""/>
+      <Inp label="Localização" value={m.location||""} onChange={e=>upd("location",e.target.value.toUpperCase())} placeholder="Ex: PALETE 01 · PRATELEIRA B3"/>
+      {(()=>{const paletsComMac=(data.pallets||[]).filter(p=>(p.machinesSN||[]).includes(m.sn));const outrosPalets=(data.pallets||[]).filter(p=>!(p.machinesSN||[]).includes(m.sn));return<div>
+        {paletsComMac.length>0&&<><SL>📦 Paletes desta máquina</SL>{paletsComMac.map(p=><div key={p._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+C.border,fontSize:12}}><span style={{color:C.blue}}>📦 {p.name}{p.location?" · "+p.location:""}</span><button onClick={async()=>{const ns=(p.machinesSN||[]).filter(s=>s!==m.sn);const upd2={...p,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd2:x));await fbSet("pallets",p._id,upd2);await markChanged("pallets");}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>✕</button></div>)}</>}
+        {outrosPalets.length>0&&<><SL mt={8}>Adicionar ao Palete</SL><select onChange={async e=>{const pid=e.target.value;if(!pid||!m.sn)return;const pl=data.pallets.find(x=>x._id===pid);if(!pl)return;const ns=[...(pl.machinesSN||[]),m.sn];const upd2={...pl,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pid?upd2:x));await fbSet("pallets",pid,upd2);await markChanged("pallets");e.target.value="";}} style={{...inp,marginBottom:8}}><option value="">📦 Selecionar palete...</option>{outrosPalets.map(p=><option key={p._id} value={p._id}>{p.name}{p.location?" · "+p.location:""} ({p.machinesSN?.length||0})</option>)}</select></>}
+      </div>})()}
       {history.length>0&&(
         <><SL mt={12}>📋 HISTÓRICO</SL>
         {history.map((ev,i)=>(
@@ -514,7 +563,7 @@ function MachineDetail({ctx,machine}){
 
 /* ═══ HASHES ════════════════════════════════════════════════════ */
 function HashPage({ctx}){
-  const{data,setModal}=ctx;const[search,setSearch]=useState(""),[fS,setFS]=useState("all");
+  const{data,setModal}=ctx;const[search,setSearch]=useState(""),[fS,setFS]=useState("all"),[fDate,setFDate]=useState("");
   const filtered=data.hashes.filter(h=>(h.sn||"").toLowerCase().includes(search.toLowerCase())||h.model?.toLowerCase().includes(search.toLowerCase())).filter(h=>fS==="all"||h.status===fS);
   const openAdd=()=>setModal(<Modal title="Adicionar HASH" onClose={()=>setModal(null)}><HashAddMode ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openDetail=h=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>);
@@ -618,7 +667,7 @@ function ConsertaPage({ctx}){
     const ex=data.hashes.find(h=>h.sn===sn);
     if(ex){const u={...ex,status:"TESTAR",repairedBy:type==="repair"?user._id:ex.repairedBy,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}
     else{const hid=uid();const hd={sn,model:f.model,status:"TESTAR",repairedBy:type==="repair"?user._id:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}])}
-    syncSheet(webhookUrl,type==="repair"?"repair":"alreadyGood",{...rec,employeeCode:user.code,employeeName:user.name});
+    syncSheet(webhookUrl,type==="repair"?"repair":"alreadyGood",{...rec,employeeCode:user.code,employeeName:user.name,tecnico:user.name});
     await markChanged("repairs");await markChanged("hashes");
     setF({hashSN:"",model:f.model,obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});setPhotoKey(null);
     setSaved(type);setTimeout(()=>setSaved(null),2500);
@@ -664,7 +713,7 @@ function TestePage({ctx}){
   const[session,setSession]=useState(null),[macInput,setMacInput]=useState(""),[slotModal,setSlotModal]=useState(null),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[err,setErr]=useState("");
   useEffect(()=>{fbGet("sessions",user._id).then(s=>{if(s)setSession(s)})},[user._id]);
   const saveSession=async s=>{setSession(s);await fbSet("sessions",user._id,s)};
-  const loadMachine=async()=>{const sn=macInput.toUpperCase().trim();if(!sn)return;const ex=data.machines.find(m=>m.sn===sn);const s={machineSN:sn,model:ex?.model||models[0]?.m||"M30S",th:ex?.th||gTH(ex?.model||"M30S"),slots:[{hashSN:ex?.hashSN0||"",model:models[0]?.m||"M30S",status:"",photoKey:null},{hashSN:ex?.hashSN1||"",model:models[0]?.m||"M30S",status:"",photoKey:null},{hashSN:ex?.hashSN2||"",model:models[0]?.m||"M30S",status:"",photoKey:null}],controladora:"",fonte:"",fans:"",photoKey:null,updatedAt:stamp()};await saveSession(s)};
+  const loadMachine=async(snParam)=>{const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;const ex=data.machines.find(m=>m.sn===sn);const s={machineSN:sn,model:ex?.model||models[0]?.m||"M30S",th:ex?.th||gTH(ex?.model||"M30S"),slots:[{hashSN:ex?.hashSN0||"",model:models[0]?.m||"M30S",status:"",photoKey:null},{hashSN:ex?.hashSN1||"",model:models[0]?.m||"M30S",status:"",photoKey:null},{hashSN:ex?.hashSN2||"",model:models[0]?.m||"M30S",status:"",photoKey:null}],controladora:"",fonte:"",fans:"",photoKey:null,updatedAt:stamp()};await saveSession(s)};
   const submitForApproval=async()=>{
     if(!session)return;if(!session.photoKey){setErr("Foto da tela obrigatória!");return}if(!session.controladora||!session.fonte||!session.fans){setErr("Marque controladora, fonte e cooler!");return}
     setErr("");setSubmitting(true);const id=uid();
@@ -794,11 +843,11 @@ function ApprovalsPage({ctx}){
 /* ═══ TEAM ══════════════════════════════════════════════════════ */
 function TeamPage({ctx,canSeeEmp}){
   const{data,mutate,setModal}=ctx;const today=TODAY();
-  const openAdd=()=>setModal(<Modal title="Novo Funcionário" onClose={()=>setModal(null)}><AddEmpForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+  const isSuper=user.code==="019";const openAdd=()=>setModal(<Modal title="Novo Funcionário" onClose={()=>setModal(null)}><AddEmpForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openProfile=e=>setModal(<Modal title={`${e.name} #${e.code}`} onClose={()=>setModal(null)}><EmpProfile ctx={ctx} emp={e}/></Modal>);
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div><div style={{fontWeight:900,fontSize:18}}>Equipe</div><div style={{color:C.muted,fontSize:12}}>{data.employees.length} funcionários</div></div><Btn onClick={openAdd}>+ Funcionário</Btn></div>
-    {data.employees.map(e=>{
+    {visibleEmps.map(e=>{
       if(!canSeeEmp(e._id)&&!data.employees.find(x=>x._id===ctx.user._id)?.permissions?.admin)return null;
       const rT=data.repairs.filter(r=>r.employeeId===e._id&&r.date===today&&r.type!=="already_good").length;
       const gT=data.repairs.filter(r=>r.employeeId===e._id&&r.date===today&&r.type==="already_good").length;
@@ -911,380 +960,28 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
 }
 
 function PalletsPage({ctx}){
-  const{data,mutate,setModal,user}=ctx;const pallets=data.pallets||[];
+  const{data,mutate,setModal,user}=ctx;
+  const pallets=data.pallets||[];
+  const[subTab,setSubTab]=useState("list");
   const openAdd=()=>setModal(<Modal title="Novo Palete" onClose={()=>setModal(null)}><AddPalletForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
-  const openDetail=p=>setModal(<Modal title={`📦 ${p.name}`} onClose={()=>setModal(null)}><PalletDetail ctx={ctx} pallet={p}/></Modal>);
+  const openDetail=p=>setModal(<Modal title={"📦 "+p.name} onClose={()=>setModal(null)}><PalletDetail ctx={ctx} pallet={p}/></Modal>);
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}><div><div style={{fontWeight:900,fontSize:18}}>Paletes</div><div style={{color:C.muted,fontSize:12}}>{pallets.length} paletes · {pallets.reduce((s,p)=>(p.machinesSN?.length||0)+s,0)} máquinas</div></div><Btn onClick={openAdd}>+ Palete</Btn></div>
-    {pallets.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>📦</div><div>Nenhum palete criado</div><div style={{fontSize:12,marginTop:8}}>Agrupe máquinas por palete ou localização</div></div>
-      :pallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:800,fontSize:15}}>📦 {p.name}</div>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:11,marginTop:2}}>{p.notes}</div>}</div><Tag color={C.blue}>{p.machinesSN?.length||0} máq.</Tag></div>
-        {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:C.card2||"#111f2d",borderRadius:6,padding:"2px 6px",fontSize:10}}>{m.sn?.slice(0,12)} <SP s={m.situacao}/></span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
-      </Card>})}
-  </div>;
-}
-function AddPalletForm({ctx,onClose}){
-  const{mutate,user}=ctx;const[name,setName]=useState(""),[location,setLocation]=useState(""),[notes,setNotes]=useState("");
-  const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),location,notes,machinesSN:[],...audit(user),createdAt:TODAY()};await fbSet("pallets",id,d);mutate("pallets",p=>[...p,{...d,_id:id}]);await markChanged("pallets");onClose()};
-  return<div><Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Palete 01, Lote A..." autoFocus/><Inp label="Localização" value={location} onChange={e=>setLocation(e.target.value)} placeholder="Ex: Galpão 2, Prateleira B3..."/><Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Opcional..."/><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div></div>;
-}
-function PalletDetail({ctx,pallet}){
-  const{data,mutate,setModal,user,allModels}=ctx;const models=allModels();
-  const[p,setP]=useState(pallet),[input,setInput]=useState(""),[scanning,setScanning]=useState(false),[log,setLog]=useState([]),[mode,setMode]=useState("list"),[uploading,setUploading]=useState(false),[uploadProg,setUploadProg]=useState("");
-  const fileRef=useRef();
-  const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
-
-  const addSN=async(snRaw,allMachines,allPallet)=>{
-    const sn=snRaw.toUpperCase().trim();if(!sn)return null;
-    const curSNs=allPallet||p.machinesSN||[];
-    if(curSNs.includes(sn))return{sn,status:"dup",msg:"Já está no palete"};
-    const ex=(allMachines||data.machines).find(m=>m.sn===sn);
-    if(!ex){
-      const id=uid();
-      const d={sn,model:models[0]?.m||"M30S",th:models[0]?.th||86,type:"complete",situacao:"STOCK",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",...audit(user),addedAt:TODAY(),destino:""};
-      await fbSet("machines",id,d);
-      mutate("machines",m=>[...m,{...d,_id:id}]);
-      await markChanged("machines");
-      return{sn,status:"new",msg:"🆕 Nova — criada no estoque"};
-    }
-    return{sn,status:"ok",msg:`✓ ${ex.model} · ${ex.situacao}`};
-  };
-
-  const doAddSingle=async()=>{
-    const res=await addSN(input);if(!res)return;
-    const newSNs=[...(p.machinesSN||[]),res.sn];
-    const upd={...p,machinesSN:newSNs,...audit(user)};
-    setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
-    await fbSet("pallets",p._id,upd);await markChanged("pallets");
-    setLog(l=>[res,...l]);setInput("");
-  };
-
-  const uploadSheet=async(file)=>{
-    setUploading(true);setUploadProg("Lendo planilha...");setLog([]);
-    try{
-      const text=await file.text();
-      // Parse CSV or TSV — get first column (SN)
-      const lines=text.split("\n").filter(l=>l.trim());
-      const sns=[];
-      for(const line of lines){
-        const cols=line.indexOf(",")>=0?line.split(","):line.indexOf(";")>=0?line.split(";"):line.split("\t");
-        const sn=(cols[0]||"").replace(/['"]/g,"").toUpperCase().trim();
-        if(sn&&sn!=="SN"&&sn!=="SN/MAC"&&sn.length>5)sns.push(sn);
-      }
-      if(!sns.length){setUploadProg("Nenhum SN encontrado na planilha.");setUploading(false);return;}
-      setUploadProg(`${sns.length} SNs encontrados. Processando...`);
-      const newResults=[];const curSNs=[...(p.machinesSN||[])];
-      for(let i=0;i<sns.length;i++){
-        const sn=sns[i];
-        if(curSNs.includes(sn)){newResults.push({sn,status:"dup",msg:"Já no palete"});continue;}
-        const res=await addSN(sn,data.machines,curSNs);
-        if(res){newResults.push(res);curSNs.push(res.sn);}
-        if(i%10===0)setUploadProg(`${i+1}/${sns.length} processados...`);
-      }
-      // Save all new SNs at once
-      const upd={...p,machinesSN:curSNs,...audit(user)};
-      setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
-      await fbSet("pallets",p._id,upd);await markChanged("pallets");
-      setLog(newResults);
-      const novas=newResults.filter(r=>r.status==="new").length;
-      const exist=newResults.filter(r=>r.status==="ok").length;
-      const dups=newResults.filter(r=>r.status==="dup").length;
-      setUploadProg(`✓ Concluído! ${novas} novas · ${exist} existentes · ${dups} duplicadas`);
-    }catch(e){setUploadProg("Erro: "+e.message);}
-    setUploading(false);
-  };
-
-  const exportSheet=()=>{
-    const rows=["SN,Modelo,Situação,T/H"];
-    macs.forEach(m=>rows.push(`${m.sn||""},${m.model||""},${m.situacao||""},${m.th||""}`));
-    const blob=new Blob([rows.join("")],{type:"text/csv"});
-    const a=document.createElement("a");a.href=URL.createObjectURL(blob);
-    a.download=`palete-${p.name.replace(/\s/g,"-")}.csv`;a.click();
-  };
-
-  const remSN=async(sn)=>{const newSNs=(p.machinesSN||[]).filter(s=>s!==sn);const upd={...p,machinesSN:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets")};
-  const del=async()=>{if(!confirm("Remover palete?"))return;mutate("pallets",arr=>arr.filter(x=>x._id!==p._id));await fbDel("pallets",p._id);await markChanged("pallets");setModal(null)};
-
-  return<div>
-    <div style={{background:"#111f2d",borderRadius:12,padding:12,marginBottom:12}}>
-      {p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}
-      {p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}
-      <div style={{fontWeight:700,marginTop:4,color:C.accent}}>{p.machinesSN?.length||0} máquinas</div>
-    </div>
-
-    <SL>Adicionar Máquinas</SL>
     <div style={{display:"flex",gap:6,marginBottom:12}}>
-      {[["single","✍️ Manual"],["scan","📷 Câmera"],["upload","📄 Planilha"]].map(([id,l])=>
-        <button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 4px",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>
-      )}
+      {[["list","📦 Paletes"],["mov","🔄 Movimentação"]].map(([id,l])=><button key={id} onClick={()=>setSubTab(id)} style={{flex:1,background:subTab===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}
     </div>
-
-    {mode==="single"&&<>
-      <SNInput value={input} onChange={setInput} placeholder="SN da máquina..." onEnter={doAddSingle}/>
-      <Btn onClick={doAddSingle} style={{width:"100%",marginBottom:10}}>+ Adicionar</Btn>
-    </>}
-
-    {mode==="scan"&&<>
-      <div style={{background:C.card2,borderRadius:10,padding:14,marginBottom:10}}>
-        <div style={{color:C.text,fontSize:12,fontWeight:700,marginBottom:8}}>📋 Lista de SNs para adicionar</div>
-        <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Bipe os códigos abaixo — cada SN vai aparecer na lista</div>
-        <SNInput value={input} onChange={setInput} placeholder="Bipe ou digite o SN..." onEnter={async()=>{if(!input.trim())return;const res=await addSN(input);if(!res)return;const newSNs=[...(p.machinesSN||[]),res.sn];const upd={...p,machinesSN:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets");setLog(l=>[res,...l]);setInput("");}}/>
+    {subTab==="mov"?<MovimentacaoTab ctx={ctx}/>:<>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div><div style={{fontWeight:900,fontSize:18}}>Paletes</div><div style={{color:C.muted,fontSize:12}}>{pallets.length} paletes · {pallets.reduce((s,p)=>(p.machinesSN?.length||0)+s,0)} máquinas</div></div>
+        <Btn onClick={openAdd}>+ Palete</Btn>
       </div>
+      {pallets.length===0
+        ?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>📦</div><div>Nenhum palete</div></div>
+        :pallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
+          <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:15}}>📦 {p.name}</div>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}</div><Tag color={C.blue}>{p.machinesSN?.length||0} máq.</Tag></div>
+          {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{m.sn?.slice(0,10)} <SP s={m.situacao}/></span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
+        </Card>;})}
     </>}
-
-    {mode==="upload"&&<>
-      <div style={{background:"#111f2d",borderRadius:10,padding:14,marginBottom:10}}>
-        <div style={{color:C.text,fontSize:13,fontWeight:700,marginBottom:6}}>📄 Subir Planilha CSV</div>
-        <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Formato: 1ª coluna = SN das máquinas (com ou sem cabeçalho)<br/>Máquinas existentes: associa ao palete<br/>Máquinas novas: cria no estoque e associa</div>
-        <input ref={fileRef} type="file" accept=".csv,.txt,.tsv" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadSheet(e.target.files[0])}/>
-        <Btn onClick={()=>fileRef.current.click()} disabled={uploading} style={{width:"100%",marginBottom:8}}>{uploading?"⏳ Processando...":"📂 Escolher Arquivo CSV"}</Btn>
-        {macs.length>0&&<Btn v="s" onClick={exportSheet} style={{width:"100%",fontSize:12}}>⬇️ Exportar Planilha deste Palete</Btn>}
-        {uploadProg&&<div style={{color:uploadProg.startsWith("✓")?C.green:C.blue,fontSize:12,marginTop:8,fontWeight:700}}>{uploadProg}</div>}
-      </div>
-    </>}
-
-    {log.length>0&&<div style={{background:"#111f2d",borderRadius:10,padding:10,marginBottom:12,maxHeight:130,overflow:"auto"}}>
-      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4}}>LOG ({log.length})</div>
-      {log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:C.blue,padding:"2px 0",borderBottom:`1px solid ${C.border}`}}>{l.sn} — {l.msg}</div>)}
-    </div>}
-
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-      <SL style={{margin:0}}>Máquinas ({macs.length})</SL>
-      {macs.length>0&&<button onClick={exportSheet} style={{background:"none",border:"none",color:C.blue,fontSize:11,cursor:"pointer",fontWeight:700}}>⬇️ Exportar CSV</button>}
-    </div>
-    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:16}}>Nenhuma máquina. Use os modos acima.</div>
-      :macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
-        <div><div style={{fontWeight:700,fontSize:12,color:C.text}}>{m.sn}</div><div style={{fontSize:10,color:C.muted}}>{m.model} · <SP s={m.situacao}/></div></div>
-        <button onClick={()=>remSN(m.sn)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:"4px 8px"}}>✕</button>
-      </div>)}
-    <Btn v="d" onClick={del} style={{width:"100%",marginTop:16}}>🗑 Remover Palete</Btn>
   </div>;
 }
 
-function EmpHistory({ctx,emp}){
-  const{data}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
-  const allR=data.repairs.filter(r=>r.employeeId===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id);
-  const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
-  const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
-  const totalR=allR.filter(r=>r.type!=="already_good").length,totalG=allR.filter(r=>r.type==="already_good").length;
-  return<div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-      {[[totalR,"Consertos",C.accent],[allT.length,"Testes",C.blue],[data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:"#111f2d",borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
-    </div>
-    {totalG>0&&<div style={{color:C.green,fontSize:12,textAlign:"center",marginBottom:10}}>✅ {totalG} "já estavam boas"</div>}
-    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="Data" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
-    {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
-      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:C.blue}><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div>{r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}<div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></Card>)}
-      {dayT.map(t=>{const stC=t.status==="pending"?C.blue:t.overallResult==="good"?C.green:C.red;return<Card key={t._id} accent={stC}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></Card>})}
-    </>}
-    <SL mt={12}>Histórico por Dia</SL>
-    {Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,cursor:"pointer"}}><span style={{color:d===dateFilter?C.accent:C.text}}>{fmtDate(d)}</span><Tag color={C.accent} small>{byDate[d]}</Tag></div>)}
-  </div>;
-}
 
-function EmpEdit({ctx,emp,onClose}){
-  const{data,mutate}=ctx;const[e,setE]=useState({...emp});
-  const setPerm=(k,v)=>setE(p=>({...p,permissions:{...p.permissions,[k]:v}}));
-  const resetPwd=async()=>{const np=prompt("Nova senha para "+e.name+" (mín 4 chars):");if(!np||np.length<4){alert("Senha muito curta");return}const hash=await hashPwd(np);const upd={...e,passwordHash:hash};setE(upd);mutate("employees",arr=>arr.map(x=>x._id===e._id?upd:x));await fbSet("employees",e._id,upd);await markChanged("employees");alert("✓ Senha redefinida!")};
-  const save=async()=>{mutate("employees",arr=>arr.map(x=>x._id===e._id?e:x));await fbSet("employees",e._id,e);await markChanged("employees");onClose()};
-  const del=async()=>{if(!confirm("Remover "+e.name+"?"))return;mutate("employees",arr=>arr.filter(x=>x._id!==e._id));await fbDel("employees",e._id);await markChanged("employees");onClose()};
-  return<div>
-    <Inp label="Nome" value={e.name} onChange={ev=>setE(p=>({...p,name:ev.target.value}))}/>
-    <Inp label="Código" value={e.code} onChange={ev=>setE(p=>({...p,code:ev.target.value.slice(0,2)}))} maxLength={2}/>
-    <SL mt={8}>Permissões</SL>
-    {PERMS.map(({key,label})=><div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{label}</span><button onClick={()=>setPerm(key,!e.permissions?.[key])} style={{background:e.permissions?.[key]?C.green+"22":"#1a2d42",color:e.permissions?.[key]?C.green:C.muted,border:`1px solid ${e.permissions?.[key]?C.green:C.border}`,borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{e.permissions?.[key]?"ON":"OFF"}</button></div>)}
-    <SL mt={12}>Pode Ver Histórico de</SL>
-    {data.employees.filter(x=>x._id!==e._id).map(x=>{const allowed=(e.allowedEmployees||[]).includes(x._id);return<div key={x._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{x.name} #{x.code}</span><button onClick={()=>{const list=e.allowedEmployees||[];setE(p=>({...p,allowedEmployees:allowed?list.filter(id=>id!==x._id):[...list,x._id]}))}} style={{background:allowed?C.blue+"22":"#1a2d42",color:allowed?C.blue:C.muted,border:`1px solid ${allowed?C.blue:C.border}`,borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{allowed?"ON":"OFF"}</button></div>})}
-    <div style={{display:"flex",gap:8,marginTop:16}}><Btn v="d" onClick={del} style={{flex:1}}>🗑 Remover</Btn><Btn v="g" onClick={save} style={{flex:2}}>💾 Salvar</Btn></div>
-  </div>;
-}
-
-/* ═══ CLIENTES ══════════════════════════════════════════════════ */
-function ClientesPage({ctx}){
-  const{data,mutate,setModal}=ctx;
-  const clients=data.clients||[];
-  const openAdd=()=>setModal(<Modal title="Novo Cliente" onClose={()=>setModal(null)}><AddClientForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
-  const openDetail=c=>setModal(<Modal title={"👤 "+c.name} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={c}/></Modal>);
-  return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-      <div><div style={{fontWeight:900,fontSize:18}}>Clientes</div><div style={{color:C.muted,fontSize:12}}>{clients.length} clientes</div></div>
-      <Btn onClick={openAdd}>+ Cliente</Btn>
-    </div>
-    {clients.length===0
-      ?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente</div><div style={{fontSize:12,marginTop:8}}>Registre clientes e vincule as máquinas vendidas</div></div>
-      :clients.map(c=>{
-        const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
-        return<Card key={c._id} onClick={()=>openDetail(c)}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div>
-              <div style={{fontWeight:800,fontSize:15}}>👤 {c.name}</div>
-              {c.phone&&<div style={{color:C.muted,fontSize:12}}>📱 {c.phone}</div>}
-              {c.notes&&<div style={{color:C.subtle,fontSize:11,marginTop:2}}>{c.notes}</div>}
-            </div>
-            <Tag color={C.accent}>{c.machinesSN?.length||0} máq.</Tag>
-          </div>
-          {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>
-            {macs.slice(0,4).map(m=><span key={m._id} style={{background:(SIT_C[m.situacao]||C.muted)+"22",border:"1px solid "+(SIT_C[m.situacao]||C.muted)+"44",borderRadius:6,padding:"2px 6px",fontSize:10,color:SIT_C[m.situacao]||C.muted}}>{m.sn?.slice(0,10)||"s/sn"}</span>)}
-            {macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}
-          </div>}
-          <By by={c._byName} at={c._at}/>
-        </Card>;
-      })}
-  </div>;
-}
-
-function AddClientForm({ctx,onClose}){
-  const{mutate,user}=ctx;
-  const[name,setName]=useState("");
-  const[phone,setPhone]=useState("");
-  const[notes,setNotes]=useState("");
-  const save=async()=>{
-    if(!name.trim())return;
-    const id=uid();
-    const d={name:name.trim(),phone,notes,machinesSN:[],...audit(user),createdAt:TODAY()};
-    await fbSet("clients",id,d);
-    mutate("clients",c=>[...c,{...d,_id:id}]);
-    await markChanged("clients");
-    onClose();
-  };
-  return<div>
-    <Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: João Silva" autoFocus/>
-    <Inp label="Telefone / WhatsApp" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(47) 99999-9999"/>
-    <Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Endereço, empresa..."/>
-    <div style={{display:"flex",gap:8}}>
-      <Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
-      <Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn>
-    </div>
-  </div>;
-}
-
-function ClientDetail({ctx,client}){
-  const{data,mutate,setModal,user,allModels}=ctx;
-  const models=allModels();
-  const[c,setC]=useState(client);
-  const[input,setInput]=useState("");
-  const[scanning,setScanning]=useState(false);
-  const[log,setLog]=useState([]);
-  const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
-  const saidaCount=macs.filter(m=>["SAIDA","VENDIDA","EXPORTADA"].includes(m.situacao)).length;
-
-  const addMac=async(snRaw)=>{
-    const sn=snRaw.toUpperCase().trim();
-    if(!sn){return;}
-    if((c.machinesSN||[]).includes(sn)){setLog(l=>[{sn,msg:"⚠️ Já vinculada"},...l]);setInput("");return;}
-    const ex=data.machines.find(m=>m.sn===sn);
-    let msg="";
-    if(!ex){
-      const id=uid();
-      const d={sn,model:models[0]?.m||"M30S",th:models[0]?.th||86,type:"complete",situacao:"SAIDA",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",...audit(user),addedAt:TODAY(),destino:c.name};
-      await fbSet("machines",id,d);
-      mutate("machines",m=>[...m,{...d,_id:id}]);
-      await markChanged("machines");
-      msg="🆕 Criada como SAIDA";
-    } else {
-      if(!["SAIDA","VENDIDA","EXPORTADA"].includes(ex.situacao)){
-        const mHashes=data.hashes.filter(h=>h.machineSN===sn);
-        for(const h of mHashes){
-          const u={...h,status:"SAIDA",location:"Vendida ao cliente "+c.name+" em "+TODAY(),...audit(user)};
-          mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));
-          await fbSet("hashes",h._id,u);
-        }
-        const u={...ex,situacao:"SAIDA",destino:c.name,...audit(user)};
-        mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));
-        await fbSet("machines",ex._id,u);
-        await markChanged("machines");
-        await markChanged("hashes");
-        msg="✓ "+ex.model+" → SAIDA"+(mHashes.length>0?" ("+mHashes.length+" HASHs)":"");
-      } else {
-        msg="✓ "+ex.model+" (já em "+ex.situacao+")";
-      }
-    }
-    const newSNs=[...(c.machinesSN||[]),sn];
-    const upd={...c,machinesSN:newSNs,...audit(user)};
-    setC(upd);
-    mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));
-    await fbSet("clients",c._id,upd);
-    await markChanged("clients");
-    setLog(l=>[{sn,msg},...l]);
-    setInput("");
-  };
-
-  const remMac=async(sn)=>{
-    const newSNs=(c.machinesSN||[]).filter(s=>s!==sn);
-    const upd={...c,machinesSN:newSNs,...audit(user)};
-    setC(upd);
-    mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));
-    await fbSet("clients",c._id,upd);
-    await markChanged("clients");
-  };
-
-  const del=async()=>{
-    if(!confirm("Remover cliente "+c.name+"?"))return;
-    mutate("clients",arr=>arr.filter(x=>x._id!==c._id));
-    await fbDel("clients",c._id);
-    await markChanged("clients");
-    setModal(null);
-  };
-
-  const exportCSV=()=>{
-    const rows=["SN,Modelo,TH,Situação,Data"];
-    macs.forEach(m=>rows.push((m.sn||"")+","+(m.model||"")+","+(m.th||"")+","+(m.situacao||"")+","+(m.addedAt||"")));
-    const blob=new Blob([rows.join(String.fromCharCode(10))],{type:"text/csv"});
-    const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);
-    a.download="cliente-"+c.name.replace(/\s/g,"-")+".csv";
-    a.click();
-  };
-
-  return<div>
-    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}>
-      <div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>
-      {c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}
-      {c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}
-      <div style={{marginTop:10,display:"flex",gap:8}}>
-        <div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}>
-          <div style={{fontWeight:900,color:C.accent,fontSize:20}}>{c.machinesSN?.length||0}</div>
-          <div style={{fontSize:10,color:C.muted}}>Total</div>
-        </div>
-        <div style={{background:C.red+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}>
-          <div style={{fontWeight:900,color:C.red,fontSize:20}}>{saidaCount}</div>
-          <div style={{fontSize:10,color:C.muted}}>Saídas</div>
-        </div>
-      </div>
-    </div>
-
-    <SL>Vincular Máquinas</SL>
-    <div style={{color:C.amber,fontSize:11,marginBottom:8}}>⚠️ Ao vincular, máquina e HASHs internas vão para SAIDA</div>
-    <SNInput value={input} onChange={setInput} placeholder="SN da máquina..." onEnter={()=>addMac(input)}/>
-    {scanning&&<BarcodeScanner onScan={v=>{addMac(v)}} onClose={()=>setScanning(false)}/>}
-    <div style={{display:"flex",gap:8,marginBottom:12}}>
-      <Btn onClick={()=>addMac(input)} style={{flex:1}}>+ Vincular</Btn>
-      <Btn v="b" onClick={()=>setScanning(true)} style={{flex:1}}>📷 Scanner</Btn>
-    </div>
-
-    {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:10,marginBottom:12,maxHeight:100,overflow:"auto"}}>
-      {log.map((l,i)=><div key={i} style={{fontSize:11,color:C.text,padding:"2px 0"}}>{l.sn} — {l.msg}</div>)}
-    </div>}
-
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-      <SL style={{margin:0}}>Máquinas ({macs.length})</SL>
-      {macs.length>0&&<button onClick={exportCSV} style={{background:"none",border:"none",color:C.blue,fontSize:11,cursor:"pointer",fontWeight:700}}>⬇️ CSV</button>}
-    </div>
-    {macs.length===0
-      ?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:16}}>Nenhuma máquina vinculada</div>
-      :macs.map(m=>{
-        const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
-        return<div key={m._id} style={{borderBottom:"1px solid "+C.border,padding:"10px 0"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:700,fontSize:13}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div>
-              <div style={{fontSize:11,color:C.muted}}>{m.model} · {m.th}TH</div>
-              {mHashes.length>0&&<div style={{fontSize:10,color:C.subtle}}>⚡ {mHashes.length} HASH(s)</div>}
-            </div>
-            <button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:4}}>✕</button>
-          </div>
-        </div>;
-      })}
-    <Btn v="d" onClick={del} style={{width:"100%",marginTop:16}}>🗑 Remover Cliente</Btn>
-  </div>;
-}
