@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 /* ═══ FIREBASE ═══════════════════════════════════════════════════ */
 const PID="estoque-11264";
@@ -114,6 +114,16 @@ function generateReport(user,repairs,tests,date){
 function copyReport(user,repairs,tests,date){const txt=generateReport(user,repairs,tests,date);navigator.clipboard.writeText(txt).then(()=>alert("✓ Relatório copiado! Cole no WhatsApp.")).catch(()=>alert(txt));}
 
 /* ═══ APP ROOT ══════════════════════════════════════════════════ */
+
+class SafeTab extends React.Component{
+  constructor(p){super(p);this.state={err:null};}
+  static getDerivedStateFromError(e){return{err:e};}
+  render(){
+    if(this.state.err)return<div style={{padding:20,color:"#ef4444",background:"#1c0a0a",borderRadius:12,margin:12}}><div style={{fontWeight:800,marginBottom:8}}>⚠️ Erro no componente</div><div style={{fontSize:12,fontFamily:"monospace"}}>{this.state.err?.message||"Erro desconhecido"}</div></div>;
+    return this.props.children;
+  }
+}
+
 export default function App(){
   const[user,setUser]=useState(null);
   const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[]});
@@ -171,7 +181,7 @@ export default function App(){
       {tab==="conserto"&&<ConsertaPage ctx={ctx}/>}
       {tab==="teste"&&<TestePage ctx={ctx}/>}
       {tab==="hist"&&<HistPage ctx={ctx}/>}
-      {tab==="approvals"&&<ApprovalsPage ctx={ctx}/>}
+      {tab==="pal"&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&<ApprovalsPage ctx={ctx}/>}
       {tab==="team"&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
       {tab==="cfg"&&<CfgPage ctx={ctx}/>}
     </div>
