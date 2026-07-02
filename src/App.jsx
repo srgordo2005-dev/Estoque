@@ -334,35 +334,95 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
 }
 
 function MachineDetail({ctx,machine}){
-  const{data,mutate,setModal,user}=ctx;const[m,setM]=useState(machine);
+  const{data,mutate,setModal,user}=ctx;
+  const[m,setM]=useState(machine);
   const upd=async(k,v)=>{const u={...m,[k]:v,...audit(user)};setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));await fbSet("machines",m._id,u);await markChanged("machines")};
   const history=[];
-  data.tests.filter(t=>t.machineSN===m.sn&&m.sn).forEach(t=>{const emp=data.employees.find(e=>e._id===t.employeeId);history.push({date:t._at||t.date,text:`Testada por ${emp?.name||"?"} — ${t.status==="pending"?"Aguard.Revisão":t.overallResult==="good"?"BOA":"RUIM"}`,photoKey:t.testPhoto})});
+  data.tests.filter(t=>t.machineSN===m.sn&&m.sn).forEach(t=>{const emp=data.employees.find(e=>e._id===t.employeeId);history.push({date:t._at||t.date,text:"Testada por "+(emp?.name||"?")+" — "+(t.status==="pending"?"Aguard.Revisão":t.overallResult==="good"?"BOA":"RUIM"),photoKey:t.testPhoto})});
   history.sort((a,b)=>a.date<b.date?-1:1);
-  return<div>
-    <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}><SP s={m.situacao}/>{m.type==="shell"&&<Tag color="#475569">CARCAÇA</Tag>}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}><div><div style={{color:C.muted,fontSize:10}}>MODELO</div><div style={{fontWeight:700}}>{m.model}</div></div><div><div style={{color:C.muted,fontSize:10}}>T/H</div><div style={{fontWeight:700}}>{m.th}</div></div></div><By by={m._byName} at={m._at}/></div>
-    <SL>SITUAÇÃO</SL><div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>{SIT_OPTS.map(s=><button key={s} onClick={async()=>{
-      const exitSits=["SAIDA","EXPORTADA","VENDIDA"];
-      if(exitSits.includes(s)&&!exitSits.includes(m.situacao)){
-        const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
-        if(mHashes.length>0){
-          const ok=window.confirm(`${mHashes.length} HASH(s) nesta máquina vão para SAIDA junto com ela.\nElas sairão do estoque ativo.\nContinuar?`);
-          if(!ok)return;
-          for(const h of mHashes){
-            const u={...h,machineSN:m.sn,slot:h.slot,status:"SAIDA",location:`${s} com máq. ${m.sn} em ${TODAY()}`,...audit(user)};
-            mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));
-            await fbSet("hashes",h._id,u);
-          }
-          await markChanged("hashes");
+  const exitSits=["SAIDA","EXPORTADA","VENDIDA"];
+  const setSituacao=async(s)=>{
+    if(exitSits.includes(s)&&!exitSits.includes(m.situacao)){
+      const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
+      if(mHashes.length>0){
+        const ok=window.confirm(mHashes.length+" HASH(s) nesta máquina.\nAo marcar como "+s+", elas vão para SAIDA junto.\nContinuar?");
+        if(!ok)return;
+        for(const h of mHashes){
+          const u={...h,status:"SAIDA",location:s+" com "+m.sn+" em "+TODAY(),...audit(user)};
+          mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));
+          await fbSet("hashes",h._id,u);
         }
+        await markChanged("hashes");
       }
-      await upd("situacao",s);
-    }} style={{background:m.situacao===s?(SIT_C[s]||"#1a2d42"):"#080e17",color:m.situacao===s?"#fff":C.text,border:`1px solid ${m.situacao===s?(SIT_C[s]||C.accent):C.border}`,borderRadius:8,padding:"6px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{s}</button>)}</div>
-    {m.type==="complete"&&<>{[0,1,2].map(i=>{const slotSN=m[`hashSN${i}`]||"";const slotHash=slotSN?data.hashes.find(h=>h.sn===slotSN):null;return<div key={i} style={{marginBottom:8}}><div style={{display:"flex",gap:8,marginBottom:4,alignItems:"center"}}><span style={{color:C.subtle,fontSize:10,width:52,flexShrink:0,fontWeight:800}}>SLOT {i+1}</span><input value={slotSN} onChange={e=>upd(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN da HASH" style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}/><select value={m[`hash${i}`]||"OFF"} onChange={e=>upd(`hash${i}`,e.target.value)} style={{...inp,width:78,padding:"7px 6px",fontSize:10}}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>{slotHash&&<button onClick={()=>setModal(<Modal title={`⚡ ${slotHash.sn}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={slotHash}/></Modal>)} style={{background:HST_C[slotHash.status]+"15",border:`1px solid ${HST_C[slotHash.status]}44`,borderRadius:8,padding:"6px 12px",cursor:"pointer",width:"100%",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",marginLeft:60}}><span style={{fontSize:11,color:HST_C[slotHash.status],fontWeight:700}}>⚡ {slotHash.model} — {slotHash.sn?.slice(0,14)}</span><span style={{fontSize:10,color:C.muted}}>ver detalhes →</span></button>}</div>})}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><div key={k}><div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,textTransform:"uppercase"}}>{l}</div><select value={m[k]||"OFF"} onChange={e=>upd(k,e.target.value)} style={{...inp,padding:"7px 8px",fontSize:12}}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}</div></>
-    <SNInput label="SN (editar)" value={m.sn||""} onChange={v=>upd("sn",v)} placeholder="Digite o SN" err=""/>
-    {history.length>0&&<><SL mt={12}>📋 HISTÓRICO</SL>{history.map((ev,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}><div style={{fontWeight:700}}>{ev.text}</div><div style={{color:C.muted,fontSize:10}}>{fmtTS(ev.date)}</div>{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:80}}/>}</div>)}</>}
-    <Btn v="d" onClick={async()=>{mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)}} style={{width:"100%",marginTop:12}}>🗑 Remover</Btn>
-  </div>;
+    }
+    await upd("situacao",s);
+  };
+  return(
+    <div>
+      <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
+        <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}><SP s={m.situacao}/>{m.type==="shell"&&<Tag color={C.muted}>CARCAÇA</Tag>}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
+          <div><div style={{color:C.muted,fontSize:10}}>MODELO</div><div style={{fontWeight:700}}>{m.model}</div></div>
+          <div><div style={{color:C.muted,fontSize:10}}>T/H</div><div style={{fontWeight:700}}>{m.th}</div></div>
+        </div>
+        <By by={m._byName} at={m._at}/>
+      </div>
+      <SL>Situação</SL>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>
+        {SIT_OPTS.map(s=>(
+          <button key={s} onClick={()=>setSituacao(s)} style={{background:m.situacao===s?(SIT_C[s]||"#1a2d42"):"#080e17",color:m.situacao===s?"#fff":C.text,border:"1px solid "+(m.situacao===s?(SIT_C[s]||C.accent):C.border),borderRadius:8,padding:"6px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{s}</button>
+        ))}
+      </div>
+      {m.type==="complete"&&(
+        <div style={{marginBottom:14}}>
+          <SL>Slots</SL>
+          {[0,1,2].map(i=>{
+            const slotSN=m["hashSN"+i]||"";
+            const slotHash=slotSN?data.hashes.find(h=>h.sn===slotSN):null;
+            return(
+              <div key={i} style={{marginBottom:8}}>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{color:C.subtle,fontSize:10,width:50,flexShrink:0,fontWeight:800}}>SLOT {i+1}</span>
+                  <input value={slotSN} onChange={e=>upd("hashSN"+i,e.target.value.toUpperCase())} placeholder="SN da HASH" style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}/>
+                  <select value={m["hash"+i]||"OFF"} onChange={e=>upd("hash"+i,e.target.value)} style={{...inp,width:78,padding:"7px 6px",fontSize:10}}>
+                    {HST_OPTS.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </div>
+                {slotHash&&(
+                  <button onClick={()=>setModal(<Modal title={"⚡ "+slotHash.sn} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={slotHash}/></Modal>)} style={{background:HST_C[slotHash.status]+"15",border:"1px solid "+HST_C[slotHash.status]+"44",borderRadius:8,padding:"5px 12px",cursor:"pointer",width:"calc(100% - 58px)",marginLeft:58,marginTop:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:11,color:HST_C[slotHash.status],fontWeight:700}}>{"⚡ "+slotHash.model+" — "+(slotHash.sn||"").slice(0,14)}</span>
+                    <span style={{fontSize:10,color:C.muted}}>{"ver →"}</span>
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginTop:8}}>
+            {[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=>(
+              <div key={k}>
+                <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4}}>{l}</div>
+                <select value={m[k]||"OFF"} onChange={e=>upd(k,e.target.value)} style={{...inp,padding:"7px 8px",fontSize:12}}>
+                  {HST_OPTS.map(s=><option key={s}>{s}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <SNInput label="SN (editar)" value={m.sn||""} onChange={v=>upd("sn",v)} placeholder="Digite o SN" err=""/>
+      {history.length>0&&(
+        <><SL mt={12}>📋 HISTÓRICO</SL>
+        {history.map((ev,i)=>(
+          <div key={i} style={{padding:"6px 0",borderBottom:"1px solid "+C.border,fontSize:12}}>
+            <div style={{fontWeight:700}}>{ev.text}</div>
+            <div style={{color:C.muted,fontSize:10}}>{fmtTS(ev.date)}</div>
+            {ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:80}}/>}
+          </div>
+        ))}</>
+      )}
+      <Btn v="d" onClick={async()=>{mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)}} style={{width:"100%",marginTop:14}}>🗑 Remover</Btn>
+    </div>
+  );
 }
 
 /* ═══ HASHES ════════════════════════════════════════════════════ */
