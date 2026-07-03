@@ -119,14 +119,16 @@ async function hashPwd(pwd){
 const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 
 /* ═══ STORAGE ════════════════════════════════════════════════════ */
+// Fotos agora vão pro Google Drive de vocês (via Apps Script), não mais pro
+// Supabase Storage — evita estourar o limite de 1GB grátis do Supabase.
+let DRIVE_UPLOAD_URL=localStorage.getItem("driveUploadUrl")||"";
 async function uploadPhoto(b64,path){
+  if(!DRIVE_UPLOAD_URL){console.warn("Configure a URL do Drive em Config antes de enviar fotos.");return null}
   try{
-    const res=await fetch(b64);
-    const blob=await res.blob();
-    const{error}=await supabase.storage.from("photos").upload(path,blob,{contentType:"image/jpeg",upsert:true});
-    if(error){console.error("Upload error:",error.message);return null}
-    const{data}=supabase.storage.from("photos").getPublicUrl(path);
-    return data?.publicUrl||null;
+    const r=await fetch(DRIVE_UPLOAD_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"uploadPhoto",base64:b64,filename:path.replace(/\//g,"_")})});
+    const d=await r.json();
+    if(d.error){console.error("Upload Drive error:",d.error);return null}
+    return d.url||null;
   }catch(e){console.error("uploadPhoto:",e);return null}
 }
 let wQ=[],wT=null;
@@ -1626,6 +1628,9 @@ function MigrationPanel({ctx}){
 function CfgPage({ctx}){
   const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings}=ctx;
   const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
+  const[driveUrl,setDriveUrl]=useState(DRIVE_UPLOAD_URL),[driveTestRes,setDriveTestRes]=useState(null);
+  const saveDriveUrl=()=>{localStorage.setItem("driveUploadUrl",driveUrl);DRIVE_UPLOAD_URL=driveUrl;alert("✓ URL do Drive salva!")};
+  const testDriveUrl=async()=>{try{const r=await fetch(driveUrl+"?action=test");const d=await r.json();setDriveTestRes(d.status==="ok"?"✓ Conectado! "+d.time:"✗ "+JSON.stringify(d))}catch(e){setDriveTestRes("✗ Falha: "+e.message)}};
   const saveWh=()=>{localStorage.setItem("webhookUrl",url);setWebhookUrl(url);alert("✓ Webhook salvo!")};
   const testWh=async()=>{try{const r=await fetch(url+"?action=test");const d=await r.json();setTestRes(d.status==="ok"?"✓ Conectado! "+d.time:"✗ "+JSON.stringify(d))}catch(e){setTestRes("✗ Falha: "+e.message)}};
   const[importProg,setImportProg]=useState("");
@@ -1641,6 +1646,7 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       {dataWarnings.map((w,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,color:"#ff9b9b"}}>{w.msg}<div style={{color:C.muted,fontSize:10}}>{fmtTS(w.at)}</div></div>)}
     </Card>}
     <MigrationPanel ctx={ctx}/>
+    <Card style={{marginBottom:14}}><SL>📸 GOOGLE DRIVE (fotos)</SL><div style={{color:C.muted,fontSize:11,marginBottom:8}}>Cole aqui a URL do Apps Script que salva as fotos no Drive de vocês (arquivo google-apps-script-drive-upload.js)</div><Inp value={driveUrl} onChange={e=>setDriveUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"/>{driveTestRes&&<Alrt type={driveTestRes.startsWith("✓")?"ok":"err"}>{driveTestRes}</Alrt>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={testDriveUrl} style={{flex:1}}>🔗 Testar</Btn><Btn onClick={saveDriveUrl} style={{flex:1}}>💾 Salvar</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>GOOGLE SHEETS WEBHOOK</SL><Inp value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..."/>{testRes&&<Alrt type={testRes.startsWith("✓")?"ok":"err"}>{testRes}</Alrt>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={testWh} style={{flex:1}}>🔗 Testar</Btn><Btn onClick={saveWh} style={{flex:1}}>💾 Salvar</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>IMPORTAR PLANILHA EXISTENTE</SL>{importRes&&<Alrt type={importRes.startsWith("✓")?"ok":"err"}>{importRes}</Alrt>}{importProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {importProg}</div>}<div style={{display:"flex",gap:8}}><Btn v="b" onClick={doImportMachines} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"📥 Máquinas"}</Btn><Btn v="p" onClick={doImportHashes} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"⚡ HASHs (REPARO)"}</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS</SL>{data.customModels.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
