@@ -1,48 +1,115 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-/* ═══ FIREBASE ═══════════════════════════════════════════════════ */
-const PID="hashstock-prod";
-const FB=`https://firestore.googleapis.com/v1/projects/${PID}/databases/(default)/documents`;
-const BUCKET="hashstock-prod.firebasestorage.app";
-const ST=`https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(BUCKET)}/o`;
+/* ═══ SUPABASE ═══════════════════════════════════════════════════ */
+const SUPABASE_URL="https://paelbarlmayswqilhoxa.supabase.co";
+const SUPABASE_KEY="sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h"; // sb_publishable_...
+const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 
-function toFS(o){const f={};for(const[k,v]of Object.entries(o)){if(v===null||v===undefined)f[k]={nullValue:null};else if(typeof v==="boolean")f[k]={booleanValue:v};else if(typeof v==="number")f[k]=Number.isInteger(v)?{integerValue:String(v)}:{doubleValue:v};else if(typeof v==="string")f[k]={stringValue:v};else if(Array.isArray(v))f[k]={arrayValue:{values:v.map(i=>typeof i==="object"&&i?{mapValue:{fields:toFS(i)}}:typeof i==="number"?{integerValue:String(i)}:{stringValue:String(i??"")})}};else if(typeof v==="object")f[k]={mapValue:{fields:toFS(v)}}}return f;}
-function fromFS(d){if(!d?.fields)return{};const o={};for(const[k,v]of Object.entries(d.fields)){if("stringValue"in v)o[k]=v.stringValue;else if("integerValue"in v)o[k]=Number(v.integerValue);else if("doubleValue"in v)o[k]=v.doubleValue;else if("booleanValue"in v)o[k]=v.booleanValue;else if("nullValue"in v)o[k]=null;else if("arrayValue"in v)o[k]=(v.arrayValue.values||[]).map(i=>"mapValue"in i?fromFS(i.mapValue):"integerValue"in i?Number(i.integerValue):i.stringValue??null);else if("mapValue"in v)o[k]=fromFS(v.mapValue)}return o;}
-// BLINDAGEM: fbList agora tenta de novo em caso de erro/rate-limit em vez de
-// parar silenciosamente no meio da paginação (causa raiz de "sumiço" de dados).
-async function fbListPage(c,pt,attempt=0){
-  const r=await fetch(`${FB}/${c}?pageSize=300${pt?"&pageToken="+pt:""}`);
-  const d=await r.json();
-  if(!r.ok||d.error){
-    if(attempt<4){await new Promise(res=>setTimeout(res,400*Math.pow(2,attempt)));return fbListPage(c,pt,attempt+1)}
-    throw new Error(`fbList(${c}) falhou após ${attempt+1} tentativas: ${d.error?.message||r.status}`);
+// Nome da coleção (usado no resto do app, igual antes) → nome da tabela real no Postgres
+const TABLE_MAP={pendingApprovals:"pending_approvals",customModels:"custom_models"};
+const tableName=c=>TABLE_MAP[c]||c;
+
+// Mapa de campos: nome usado no app (camelCase/Firestore) → coluna no Postgres (snake_case).
+// Mantendo essa tradução aqui, o resto do arquivo (todas as telas) não precisa
+// mudar NADA — continuam lendo/escrevendo os mesmos nomes de sempre.
+const FIELD_MAP={
+  _by:"by_id",_byName:"by_name",_at:"at",addedAt:"added_at",createdAt:"created_at_app",
+  photoKey:"photo_key",changeLog:"change_log",
+  hashSN0:"hash_sn0",hashSN1:"hash_sn1",hashSN2:"hash_sn2",
+  adminNote:"admin_note",lastTesterId:"last_tester_id",
+  _reviewedByName:"reviewed_by_name",_reviewedAt:"reviewed_at",
+  machineSN:"machine_sn",repairedBy:"repaired_by",repairedByName:"repaired_by_name",
+  hashSN:"hash_sn",obsManual:"obs_manual",employeeId:"employee_id",
+  slot0HashSN:"slot0_hash_sn",slot0Result:"slot0_result",slot0Photo:"slot0_photo",
+  slot1HashSN:"slot1_hash_sn",slot1Result:"slot1_result",slot1Photo:"slot1_photo",
+  slot2HashSN:"slot2_hash_sn",slot2Result:"slot2_result",slot2Photo:"slot2_photo",
+  testPhoto:"test_photo",overallResult:"overall_result",
+  originalRepairerId:"original_repairer_id",testedBy:"tested_by",logPhotoKey:"log_photo_key",
+  testId:"test_id",employeeName:"employee_name",employeeCode:"employee_code",
+  machinesSN:"machines_sn",hashesSN:"hashes_sn",
+  canSeeAll:"can_see_all",passwordHash:"password_hash",allowedEmployees:"allowed_employees",
+  updatedAt:"updated_at",
+};
+const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
+function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
+function fromDBRow(row){
+  if(!row)return null;
+  const obj={};
+  for(const[k,v]of Object.entries(row)){
+    if(k==="id"){obj._id=v;continue}
+    if(k==="created_at")continue; // coluna interna do Supabase (timestamp da linha), não é usada pelo app
+    obj[FIELD_MAP_REV[k]||k]=v;
   }
-  return d;
+  return obj;
 }
+
+// BLINDAGEM: Postgres/Supabase por padrão só devolve até 1000 linhas por
+// pedido — sem paginar isso aqui, cairíamos EXATAMENTE no mesmo bug de
+// "600 de 1290" que tínhamos no Firebase. Por isso sempre pagina até acabar.
 async function fbList(c){
+  const table=tableName(c);
+  const pageSize=1000;
+  let all=[],from=0;
+  while(true){
+    const{data,error}=await supabase.from(table).select("*").range(from,from+pageSize-1);
+    if(error)throw new Error(`fbList(${c}): ${error.message}`);
+    if(!data||data.length===0)break;
+    all=all.concat(data);
+    if(data.length<pageSize)break;
+    from+=pageSize;
+  }
+  return all.map(fromDBRow);
+}
+async function fbGet(c,id){
+  const table=tableName(c);
+  const{data,error}=await supabase.from(table).select("*").eq("id",id).maybeSingle();
+  if(error||!data)return null;
+  return fromDBRow(data);
+}
+async function fbSet(c,id,obj){
+  const table=tableName(c);
+  const row={id,...toDBRow(obj)};
+  const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
+  if(error)console.error(`fbSet(${c},${id}):`,error.message);
+}
+async function fbDel(c,id){
+  const table=tableName(c);
+  const{error}=await supabase.from(table).delete().eq("id",id);
+  if(error)console.warn(`fbDel(${c},${id}):`,error.message);
+}
+async function fbBatch(writes){
+  const byCol={};
+  for(const w of writes){(byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(w.d)})}
+  for(const[c,rows]of Object.entries(byCol)){
+    const table=tableName(c);
+    for(let i=0;i<rows.length;i+=500){
+      const{error}=await supabase.from(table).upsert(rows.slice(i,i+500),{onConflict:"id"});
+      if(error)console.error(`fbBatch(${c}):`,error.message);
+    }
+  }
+}
+// Supabase Realtime substitui o sistema de polling + carimbo de tempo (_meta)
+// que existia no Firebase — não precisa mais "marcar" nada manualmente.
+const markChanged=()=>{};
+const stamp=()=>new Date().toISOString();
+
+/* ═══ FIRESTORE (LEGADO — só usado 1x pra migrar os dados antigos) ══ */
+const LEGACY_PID="hashstock-prod";
+const LEGACY_FB=`https://firestore.googleapis.com/v1/projects/${LEGACY_PID}/databases/(default)/documents`;
+function legacyFromFS(d){if(!d?.fields)return{};const o={};for(const[k,v]of Object.entries(d.fields)){if("stringValue"in v)o[k]=v.stringValue;else if("integerValue"in v)o[k]=Number(v.integerValue);else if("doubleValue"in v)o[k]=v.doubleValue;else if("booleanValue"in v)o[k]=v.booleanValue;else if("nullValue"in v)o[k]=null;else if("arrayValue"in v)o[k]=(v.arrayValue.values||[]).map(i=>"mapValue"in i?legacyFromFS(i.mapValue):"integerValue"in i?Number(i.integerValue):i.stringValue??null);else if("mapValue"in v)o[k]=legacyFromFS(v.mapValue)}return o;}
+async function legacyFbList(c){
   let docs=[],pt=null,pages=0;
   do{
-    const d=await fbListPage(c,pt);
-    if(d.documents)docs=[...docs,...d.documents.map(x=>({...fromFS(x),_id:x.name.split("/").pop()}))];
+    const r=await fetch(`${LEGACY_FB}/${c}?pageSize=300${pt?"&pageToken="+pt:""}`);
+    const d=await r.json();
+    if(d.error)throw new Error(`legacyFbList(${c}): ${d.error.message}`);
+    if(d.documents)docs=[...docs,...d.documents.map(x=>({...legacyFromFS(x),_id:x.name.split("/").pop()}))];
     pt=d.nextPageToken;pages++;
-    if(pages>500)throw new Error(`fbList(${c}) excedeu 500 páginas — abortando para evitar loop infinito`);
+    if(pages>500)break;
   }while(pt);
   return docs;
 }
-async function fbGet(c,id){try{const r=await fetch(`${FB}/${c}/${id}`);if(!r.ok)return null;const d=await r.json();return d.fields?{...fromFS(d),_id:id}:null}catch{return null}}
-async function fbSet(c,id,data){await fetch(`${FB}/${c}/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({fields:toFS(data)})})}
-async function fbDel(c,id){
-  // Soft delete - mark as deleted instead of removing
-  try{await fbSet(c,id+"__deleted__"+Date.now(),{_deleted:true,_deletedAt:stamp(),_originalId:id});
-  await fetch(`${FB}/${c}/${id}`,{method:"DELETE"});}catch(e){console.warn("Del error:",e)}
-}
-async function fbBatch(writes){
-  // Use individual PATCHes to avoid batchWrite auth issues
-  const chunks=[];for(let i=0;i<writes.length;i+=50)chunks.push(writes.slice(i,i+50));
-  for(const chunk of chunks){await Promise.all(chunk.map(w=>fbSet(w.c,w.id,w.d)));}
-}
-const markChanged=k=>fbSet("_meta",k,{ts:Date.now()});
-const stamp=()=>new Date().toISOString();
 async function hashPwd(pwd){
   const enc=new TextEncoder();
   const data=enc.encode(pwd+"hs2026salt");
@@ -52,7 +119,16 @@ async function hashPwd(pwd){
 const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 
 /* ═══ STORAGE ════════════════════════════════════════════════════ */
-async function uploadPhoto(b64,path){try{const res=await fetch(b64);const blob=await res.blob();const enc=encodeURIComponent(path);const r=await fetch(`${ST}?name=${enc}`,{method:"POST",headers:{"Content-Type":"image/jpeg"},body:blob});const d=await r.json();if(d.downloadTokens)return`${ST}/${enc}?alt=media&token=${d.downloadTokens}`;return null}catch{return null}}
+async function uploadPhoto(b64,path){
+  try{
+    const res=await fetch(b64);
+    const blob=await res.blob();
+    const{error}=await supabase.storage.from("photos").upload(path,blob,{contentType:"image/jpeg",upsert:true});
+    if(error){console.error("Upload error:",error.message);return null}
+    const{data}=supabase.storage.from("photos").getPublicUrl(path);
+    return data?.publicUrl||null;
+  }catch(e){console.error("uploadPhoto:",e);return null}
+}
 let wQ=[],wT=null;
 function syncSheet(url,action,payload){if(!url)return;wQ.push({action,payload});clearTimeout(wT);wT=setTimeout(()=>{if(!wQ.length)return;const b=[...wQ];wQ=[];fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch:b}),mode:"no-cors"}).catch(()=>{})},1500);}
 async function importMachinesFromSheet(url,onProgress){
@@ -196,7 +272,6 @@ export default function App(){
   const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||"");
-  const lastMeta=useRef({});
   const setCol=(col,val)=>setData(d=>({...d,[col]:val}));
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
   const allModels=useCallback(()=>[...DEF_MODELS,...data.customModels].sort((a,b)=>a.m.localeCompare(b.m)),[data.customModels]);
@@ -223,19 +298,26 @@ export default function App(){
     return{use:freshArr,warn:null};
   };
 
-  const fetchAllCollections=async()=>{
-    const cols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients"];
-    const _res=await Promise.allSettled(cols.map(c=>fbList(c)));
+  // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore
+  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients"};
+  const fetchAllCollections=async(onlyKeys)=>{
+    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients"];
+    const cols=onlyKeys?onlyKeys.map(k=>META_TO_COL[k]).filter(Boolean):allCols;
+    // Espaça o INÍCIO de cada leitura em 120ms — evita disparar tudo junto
+    // de uma vez (rajada), o que ajuda a não estourar limites por minuto
+    // além do limite diário.
+    const _res=await Promise.allSettled(cols.map((c,i)=>new Promise(res=>setTimeout(res,i*120)).then(()=>fbList(c))));
     const out={};const errs=[];
     cols.forEach((c,i)=>{if(_res[i].status==="fulfilled")out[c]=_res[i].value;else{out[c]=[];errs.push(`${c}: ${_res[i].reason?.message||"falha"}`)}});
     return{out,errs};
   };
 
-  const loadAll=useCallback(async()=>{
-    const{out,errs}=await fetchAllCollections();
+  const loadAll=useCallback(async(onlyKeys)=>{
+    const{out,errs}=await fetchAllCollections(onlyKeys);
     setData(prev=>{
       const warnings=[...errs];
       const merge=(col,freshRaw)=>{
+        if(freshRaw===undefined)return prev[col]; // coleção não pedida nesta leitura — mantém como estava
         const{use,warn}=guardCount(col,freshRaw,prev[col]);
         if(warn)warnings.push(warn);
         return use;
@@ -244,13 +326,13 @@ export default function App(){
         ...prev,
         machines:merge("machines",out.machines),
         hashes:merge("hashes",out.hashes),
-        repairs:out.repairs.length?out.repairs:prev.repairs,
-        tests:out.tests.length?out.tests:prev.tests,
-        feedbacks:out.feedbacks.length?out.feedbacks:prev.feedbacks,
-        approvals:out.pendingApprovals.length?out.pendingApprovals:prev.approvals,
-        customModels:out.customModels.length?out.customModels:prev.customModels,
-        pallets:out.pallets.length?out.pallets:prev.pallets,
-        clients:out.clients.length?out.clients:prev.clients,
+        repairs:out.repairs!==undefined?(out.repairs.length?out.repairs:prev.repairs):prev.repairs,
+        tests:out.tests!==undefined?(out.tests.length?out.tests:prev.tests):prev.tests,
+        feedbacks:out.feedbacks!==undefined?(out.feedbacks.length?out.feedbacks:prev.feedbacks):prev.feedbacks,
+        approvals:out.pendingApprovals!==undefined?(out.pendingApprovals.length?out.pendingApprovals:prev.approvals):prev.approvals,
+        customModels:out.customModels!==undefined?(out.customModels.length?out.customModels:prev.customModels):prev.customModels,
+        pallets:out.pallets!==undefined?(out.pallets.length?out.pallets:prev.pallets):prev.pallets,
+        clients:out.clients!==undefined?(out.clients.length?out.clients:prev.clients):prev.clients,
       };
       if(next.machines.length)localStorage.setItem("hs_machines",JSON.stringify(next.machines));
       if(next.hashes.length)localStorage.setItem("hs_hashes",JSON.stringify(next.hashes));
@@ -259,9 +341,26 @@ export default function App(){
     });
   },[]);
 
+  const CACHE_FRESH_MS=3*60*1000; // 3 minutos — dentro desse tempo, reabrir o app não gasta leitura nova
   const bootLoad=useCallback(async()=>{
     setLoading(true);
     const cachedEmps=JSON.parse(localStorage.getItem("hs_employees")||"[]");
+    const lastFetch=Number(localStorage.getItem("hs_lastFullFetch")||0);
+    const isFresh=Date.now()-lastFetch<CACHE_FRESH_MS;
+    if(isFresh&&cachedEmps.length>0){
+      // Já buscamos tudo há pouquíssimo tempo (ex: reabriu a aba, trocou de
+      // tela) — usa o que já está salvo neste aparelho em vez de gastar
+      // leitura nova do Firebase. O polling (a cada 15min) mantém tudo
+      // atualizado depois disso.
+      setCol("employees",cachedEmps);
+      setData(d=>({
+        ...d,
+        machines:JSON.parse(localStorage.getItem("hs_machines")||"[]"),
+        hashes:JSON.parse(localStorage.getItem("hs_hashes")||"[]"),
+      }));
+      setLoading(false);
+      return;
+    }
     try{
       let emps=[];
       let empsFailed=false;
@@ -305,6 +404,7 @@ export default function App(){
       }));
       if(gM.use.length)localStorage.setItem("hs_machines",JSON.stringify(gM.use));
       if(gH.use.length)localStorage.setItem("hs_hashes",JSON.stringify(gH.use));
+      localStorage.setItem("hs_lastFullFetch",String(Date.now()));
       if(warnings.length)setDataWarnings(w=>[...warnings.map(m=>({msg:m,at:stamp()})),...w].slice(0,20));
     }catch(e){
       console.error("Erro crítico no boot:",e);
@@ -314,7 +414,28 @@ export default function App(){
     setLoading(false);
   },[]);
   useEffect(()=>{bootLoad()},[bootLoad]);
-  useEffect(()=>{const poll=async()=>{try{const r=await fetch(`${FB}/_meta?pageSize=20`);const d=await r.json();const docs=d.documents||[];let changed=false;docs.forEach(doc=>{const id=doc.name.split("/").pop();const ts=doc.fields?.ts?.integerValue;if(ts&&lastMeta.current[id]!==ts){lastMeta.current[id]=ts;changed=true}});if(changed){setSyncing(true);await loadAll();setSyncing(false)}}catch{}};const iv=setInterval(poll,300000);return()=>clearInterval(iv)},[loadAll]); // Poll every 5 min to save Firebase quota
+  // Supabase Realtime: qualquer mudança em qualquer tabela avisa todo mundo
+  // na hora (substitui o polling de 15 em 15 minutos do Firebase). Como o
+  // Supabase não cobra por leitura, não tem problema reler a coleção inteira
+  // sempre que algo mudar.
+  useEffect(()=>{
+    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients"};
+    const debounceTimers={};
+    const channel=supabase.channel("hashstock-realtime");
+    Object.keys(TABLE_TO_META).forEach(table=>{
+      channel.on("postgres_changes",{event:"*",schema:"public",table},()=>{
+        const metaKey=TABLE_TO_META[table];
+        clearTimeout(debounceTimers[table]);
+        debounceTimers[table]=setTimeout(async()=>{
+          setSyncing(true);
+          try{await loadAll([metaKey])}catch(e){console.error("Realtime refresh falhou:",e)}
+          setSyncing(false);
+        },500);
+      });
+    });
+    channel.subscribe();
+    return()=>{supabase.removeChannel(channel)};
+  },[loadAll]);
 
   useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
@@ -1466,6 +1587,42 @@ function AddEmpForm({ctx,onClose}){
 }
 
 /* ═══ CONFIG ════════════════════════════════════════════════════ */
+// Painel temporário pra trazer os dados que já existiam no Firebase pro
+// Supabase, uma vez só. O Firebase continua no ar até você confirmar que
+// migrou tudo certinho — nada é apagado de lá nesse processo.
+const MIGRATION_COLLECTIONS=["employees","machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","sessions"];
+function MigrationPanel({ctx}){
+  const{loadAll}=ctx;
+  const[running,setRunning]=useState(false),[log,setLog]=useState([]),[done,setDone]=useState(false);
+  const migrate=async()=>{
+    setRunning(true);setLog([]);setDone(false);
+    for(const c of MIGRATION_COLLECTIONS){
+      try{
+        setLog(l=>[...l,{c,msg:"Buscando no Firebase..."}]);
+        const docs=await legacyFbList(c);
+        if(!docs.length){setLog(l=>l.map(x=>x.c===c?{c,msg:"Nenhum registro (ok, coleção vazia)"}:x));continue}
+        setLog(l=>l.map(x=>x.c===c?{c,msg:`Encontrados ${docs.length}. Salvando no Supabase...`}:x));
+        const writes=docs.map(d=>{const{_id,...rest}=d;return{c,id:_id,d:rest}});
+        for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));
+        setLog(l=>l.map(x=>x.c===c?{c,msg:`✓ ${docs.length} migrados com sucesso`}:x));
+      }catch(e){
+        setLog(l=>l.map(x=>x.c===c?{c,msg:"✗ Erro: "+e.message}:x));
+      }
+    }
+    setRunning(false);setDone(true);
+    await loadAll();
+  };
+  return<Card style={{marginBottom:14,border:`1px solid ${C.blue}`}}>
+    <SL>🔄 MIGRAÇÃO FIREBASE → SUPABASE (fazer uma vez só)</SL>
+    <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Traz tudo que já existe no Firebase (máquinas, HASHs, funcionários, histórico) pro Supabase. Pode rodar mais de uma vez sem problema — só atualiza os registros, não duplica. O Firebase não é apagado nesse processo.</div>
+    {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:10,marginBottom:10,maxHeight:200,overflow:"auto"}}>
+      {log.map((l,i)=><div key={i} style={{fontSize:11,padding:"3px 0",color:l.msg.startsWith("✓")?C.green:l.msg.startsWith("✗")?C.red:C.muted}}><b>{l.c}</b>: {l.msg}</div>)}
+    </div>}
+    {done&&<Alrt type="ok">✓ Migração concluída! Confira as telas de Máquinas, HASHs e Equipe pra conferir se bateu com o Firebase antes de desativar ele.</Alrt>}
+    <Btn v="b" onClick={migrate} disabled={running} style={{width:"100%"}}>{running?"Migrando...":"🔄 Migrar dados do Firebase agora"}</Btn>
+  </Card>;
+}
+
 function CfgPage({ctx}){
   const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings}=ctx;
   const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
@@ -1480,9 +1637,10 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
     {dataWarnings.length>0&&<Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
       <SL>🛡️ AVISOS DE INTEGRIDADE DE DADOS ({dataWarnings.length})</SL>
-      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Sempre que uma leitura do Firebase vier suspeitosamente menor que o normal, o app protege o que já está na tela e registra aqui em vez de apagar dados.</div>
+      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Sempre que uma leitura do banco vier suspeitosamente menor que o normal, o app protege o que já está na tela e registra aqui em vez de apagar dados.</div>
       {dataWarnings.map((w,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,color:"#ff9b9b"}}>{w.msg}<div style={{color:C.muted,fontSize:10}}>{fmtTS(w.at)}</div></div>)}
     </Card>}
+    <MigrationPanel ctx={ctx}/>
     <Card style={{marginBottom:14}}><SL>GOOGLE SHEETS WEBHOOK</SL><Inp value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..."/>{testRes&&<Alrt type={testRes.startsWith("✓")?"ok":"err"}>{testRes}</Alrt>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={testWh} style={{flex:1}}>🔗 Testar</Btn><Btn onClick={saveWh} style={{flex:1}}>💾 Salvar</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>IMPORTAR PLANILHA EXISTENTE</SL>{importRes&&<Alrt type={importRes.startsWith("✓")?"ok":"err"}>{importRes}</Alrt>}{importProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {importProg}</div>}<div style={{display:"flex",gap:8}}><Btn v="b" onClick={doImportMachines} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"📥 Máquinas"}</Btn><Btn v="p" onClick={doImportHashes} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"⚡ HASHs (REPARO)"}</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS</SL>{data.customModels.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
