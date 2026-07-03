@@ -161,7 +161,8 @@ function syncSheet(url,action,payload){
 async function importMachinesFromSheet(url,onProgress){
   if(onProgress)onProgress(0,0);
   const r=await fetch(`${url}?action=getMachines`);
-  const d=await r.json();
+  const text=await r.text();
+  let d;try{d=JSON.parse(text)}catch{throw new Error("A planilha demorou demais ou travou (recebi uma página em vez de dados). Tente de novo em alguns segundos.")}
   if(d.error)throw new Error(d.error);
   const machines=d.machines||[];
   if(onProgress)onProgress(machines.length,machines.length);
@@ -169,7 +170,8 @@ async function importMachinesFromSheet(url,onProgress){
 }
 async function importHashesFromSheet(url){
   const r=await fetch(`${url}?action=getHashes`);
-  const d=await r.json();
+  const text=await r.text();
+  let d;try{d=JSON.parse(text)}catch{throw new Error("A planilha demorou demais ou travou (recebi uma página em vez de dados). Tente de novo em alguns segundos.")}
   if(d.error)throw new Error(d.error);
   return d.hashes||[];
 }
@@ -1712,7 +1714,8 @@ function SheetCompareReview({ctx,onClose}){
   useEffect(()=>{
     (async()=>{
       try{
-        const[sheetMachines,sheetHashes]=await Promise.all([importMachinesFromSheet(webhookUrl),importHashesFromSheet(webhookUrl)]);
+        const sheetMachines=await importMachinesFromSheet(webhookUrl);
+        const sheetHashes=await importHashesFromSheet(webhookUrl);
         const existingMSN=new Set(data.machines.map(m=>(m.sn||"").toUpperCase()).filter(Boolean));
         const existingHSN=new Set(data.hashes.map(h=>(h.sn||"").toUpperCase()).filter(Boolean));
         const nm=sheetMachines.filter(m=>m.sn&&!existingMSN.has(m.sn.toUpperCase()));
