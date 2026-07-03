@@ -30,6 +30,7 @@ const FIELD_MAP={
   machinesSN:"machines_sn",hashesSN:"hashes_sn",
   canSeeAll:"can_see_all",passwordHash:"password_hash",allowedEmployees:"allowed_employees",
   updatedAt:"updated_at",
+  adminNotes:"admin_notes",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
@@ -666,10 +667,10 @@ function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
 }
 function AdminSummary({data}){
   const today=TODAY();const ms={};
-  data.machines.forEach(m=>{if(!ms[m.model])ms[m.model]={model:m.model,boa:0,ruim:0,shell:0,conserto:0};if(m.type==="shell")ms[m.model].shell++;else if(["BOA","STOCK","LIGADA"].includes(m.situacao))ms[m.model].boa++;else if(m.situacao==="ENTRADA OFICINA")ms[m.model].conserto++;else ms[m.model].ruim++});
+  data.machines.forEach(m=>{if(!ms[m.model])ms[m.model]={model:m.model,boa:0,stock:0,ruim:0,shell:0,conserto:0};if(m.type==="shell")ms[m.model].shell++;else if(["BOA","LIGADA"].includes(m.situacao))ms[m.model].boa++;else if(m.situacao==="STOCK")ms[m.model].stock++;else if(m.situacao==="ENTRADA OFICINA")ms[m.model].conserto++;else ms[m.model].ruim++});
   const irrep=data.hashes.filter(h=>h.status==="IRREPARAVEL").length;
   return<><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>{[{label:"Máquinas",v:data.machines.filter(m=>m.type==="complete").length,sub:`${data.machines.filter(m=>["BOA","STOCK"].includes(m.situacao)).length} ok`,c:C.accent},{label:"HASHs",v:data.hashes.length,sub:`${data.hashes.filter(h=>h.status==="TESTAR").length} p/ testar · ${irrep} irrep.`,c:C.blue},{label:"Consertos Hoje",v:data.repairs.filter(r=>r.date===today&&r.type!=="already_good").length,sub:"HASHs",c:C.green},{label:"Testes Hoje",v:data.tests.filter(t=>t.date===today).length,sub:"máquinas",c:C.purple}].map(s=><Card key={s.label} accent={s.c} style={{margin:0}}><div style={{fontSize:26,fontWeight:900,color:s.c}}>{s.v}</div><div style={{fontWeight:700,fontSize:12,marginTop:4}}>{s.label}</div><div style={{fontSize:10,color:C.muted}}>{s.sub}</div></Card>)}</div>
-  <Card><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>📊 Por Modelo</div>{Object.values(ms).sort((a,b)=>(b.boa+b.ruim)-(a.boa+a.ruim)).map(s=><div key={s.model} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:700,fontSize:13}}>{s.model}</div><div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{s.boa>0&&<Tag color={C.green} small>{s.boa} boas</Tag>}{s.ruim>0&&<Tag color={C.red} small>{s.ruim} ruins</Tag>}{s.shell>0&&<Tag color="#475569" small>{s.shell} carc.</Tag>}{s.conserto>0&&<Tag color={C.amber} small>{s.conserto} cons.</Tag>}</div></div>)}</Card></>;
+  <Card><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>📊 Por Modelo</div>{Object.values(ms).sort((a,b)=>(b.boa+b.ruim+b.stock)-(a.boa+a.ruim+a.stock)).map(s=><div key={s.model} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:700,fontSize:13}}>{s.model}</div><div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{s.boa>0&&<Tag color={C.green} small>{s.boa} boas</Tag>}{s.stock>0&&<Tag color={C.amber} small>{s.stock} stock</Tag>}{s.ruim>0&&<Tag color={C.red} small>{s.ruim} ruins</Tag>}{s.shell>0&&<Tag color="#475569" small>{s.shell} carc.</Tag>}{s.conserto>0&&<Tag color={C.amber} small>{s.conserto} cons.</Tag>}</div></div>)}</Card></>;
 }
 
 /* ═══ MACHINES ══════════════════════════════════════════════════ */
@@ -1238,6 +1239,10 @@ function TestePage({ctx}){
     const existing=sessions.find(s=>s.machineSN===sn);
     if(existing){setActiveId(existing._id);setMacInput(sn);return}
     const ex=data.machines.find(m=>m.sn===sn);
+    if(ex&&ex.situacao==="BOA"){
+      const ok=window.confirm(`Essa máquina já está marcada como BOA na planilha/estoque.\nQuer mesmo testar de novo?`);
+      if(!ok)return;
+    }
     const id=uid();
     const s={_id:id,employeeId:user._id,machineSN:sn,model:ex?.model||models[0]?.m||"M30S",th:ex?.th||0,
       slots:[
@@ -1262,14 +1267,9 @@ function TestePage({ctx}){
     }
     if(extraNote)newSession={...newSession,adminNotes:[...(newSession.adminNotes||[]),extraNote]};
     await saveSession(newSession);
-    // SN bipado que ainda não existe em lugar nenhum — cadastra a HASH na
-    // hora e já avisa a planilha (vai pra aba "HASH", não "REPARO DE HASH")
-    if(upperSn&&!existing&&!recentlyCreated.current.has(upperSn)){
-      recentlyCreated.current.add(upperSn);
-      const hid=uid();const hd={sn:upperSn,model:newSession.model,status:"TESTAR",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
-      await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}]);
-      syncSheet(webhookUrl,"hashDiscovered",{sn:upperSn,model:newSession.model,employeeName:user.name,employeeCode:user.code});
-    }
+    // IMPORTANTE: a HASH só é criada de verdade quando o resultado é definido
+    // (marcada RUIM, ou aprovada como boa) — nunca aqui, enquanto ainda está
+    // só digitando/bipando o SN (evitava criar uma HASH nova a cada letra).
     // Bipou rápido? Já pula pro próximo slot sozinho, sem precisar clicar
     if(upperSn)setTimeout(()=>{slotRefs.current[i+1]?.focus()},50);
   };
@@ -1444,11 +1444,19 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
   const lastRep=slot.hashSN?[...data.repairs].reverse().find(r=>r.hashSN===slot.hashSN):null;
   const repairer=lastRep?data.employees.find(e=>e._id===lastRep.employeeId):null;
   const confirm=async()=>{
-    if(!logPhoto&&!notes){setErr("Adicione foto ou descrição do erro");return}
     setSaving(true);
     const newSlots=[...session.slots];newSlots[slotIndex]={...slot,hashSN:"",status:"bad",logPhoto:logPhoto||"",logNotes:notes};
-    // Update hash status
-    if(h){const u={...h,status:"REPARO",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");syncSheet(webhookUrl,"hashBad",{sn:h.sn,model:h.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});}
+    if(h){
+      // HASH já existia — só atualiza o status pra REPARO
+      const u={...h,status:"REPARO",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");
+      syncSheet(webhookUrl,"hashBad",{sn:h.sn,model:h.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});
+    }else if(slot.hashSN){
+      // HASH nova — só é criada agora que foi definido o resultado (RUIM)
+      const sn=slot.hashSN.toUpperCase().trim();const hid=uid();
+      const hd={sn,model:session.model,status:"REPARO",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
+      await fbSet("hashes",hid,hd);mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
+      syncSheet(webhookUrl,"hashBad",{sn,model:session.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});
+    }
     // Notify repairer
     if(lastRep?.employeeId&&slot.hashSN){const fid=uid();const fdb={hashSN:slot.hashSN,machineSN:session.machineSN,originalRepairerId:lastRep.employeeId,testedBy:user._id,...audit(user),date:TODAY(),logPhotoKey:logPhoto||"",notes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);}
     await onSave({...session,slots:newSlots,updatedAt:stamp()});
@@ -1460,7 +1468,7 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
       {h&&<HP s={h.status}/>}
       {repairer&&<div style={{color:C.amber,fontSize:12,marginTop:4}}>⚠️ {repairer.name} será notificado do erro</div>}
     </div>
-    <PhotoCapture label="📸 Foto do Log de Erro" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste"/>
+    <PhotoCapture label="📸 Foto do Log de Erro (opcional)" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste"/>
     <Inp label="Descrição do Erro" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected, Chain Break..."/>
     {err&&<Alrt type="err">{err}</Alrt>}
     <div style={{display:"flex",gap:8}}>
@@ -1544,6 +1552,11 @@ function ApprovalsPage({ctx}){
         const u={...h,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
         newH=newH.map(x=>x._id===h._id?u:x);await fbSet("hashes",h._id,u);
         syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
+      }else{
+        // HASH nova — só é criada agora que foi aprovada como boa
+        const hid=uid();const hd={sn,model:test.model,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,...audit(user),addedAt:TODAY()};
+        await fbSet("hashes",hid,hd);newH=[...newH,{...hd,_id:hid}];
+        syncSheet(webhookUrl,"hashApproved",{sn,model:test.model,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
       }
     }
     mutate("hashes",()=>newH);
@@ -1857,6 +1870,16 @@ function SheetCompareReview({ctx,onClose}){
     hToSend.forEach(h=>syncSheet(webhookUrl,"addHash",{sn:h.sn,model:h.model,status:h.status,employeeName:user.name,employeeCode:user.code}));
     setSaving(false);onClose();
   };
+  // Exclui do app os itens marcados (útil pra limpar lixo/duplicado que não deveria ter sido criado)
+  const deleteFromApp=async()=>{
+    const mToDel=extraInAppM.filter((_,i)=>selAppM.has(i));
+    const hToDel=extraInAppH.filter((_,i)=>selAppH.has(i));
+    if(!confirm(`Excluir ${mToDel.length} máquina(s) e ${hToDel.length} HASH(s) do app? Isso não pode ser desfeito.`))return;
+    setSaving(true);
+    for(const m of mToDel){await fbDel("machines",m._id);mutate("machines",arr=>arr.filter(x=>x._id!==m._id))}
+    for(const h of hToDel){await fbDel("hashes",h._id);mutate("hashes",arr=>arr.filter(x=>x._id!==h._id))}
+    setSaving(false);onClose();
+  };
 
   if(loading)return<div style={{textAlign:"center",padding:30,color:C.muted}}>🔍 Comparando com a planilha...</div>;
   if(err)return<Alrt type="err">✗ {err}</Alrt>;
@@ -1893,7 +1916,10 @@ function SheetCompareReview({ctx,onClose}){
           <input type="checkbox" checked={selAppH.has(i)} readOnly style={{width:16,height:16}}/>
         </div>)}
       </>}
-      <Btn v="y" onClick={sendToSheet} disabled={saving||(selAppM.size+selAppH.size===0)} style={{width:"100%",marginTop:10}}>{saving?"...":`⬆️ Mandar ${selAppM.size+selAppH.size} pra planilha`}</Btn>
+      <div style={{display:"flex",gap:8,marginTop:10}}>
+        <Btn v="y" onClick={sendToSheet} disabled={saving||(selAppM.size+selAppH.size===0)} style={{flex:1}}>{saving?"...":`⬆️ Mandar ${selAppM.size+selAppH.size} pra planilha`}</Btn>
+        <Btn v="d" onClick={deleteFromApp} disabled={saving||(selAppM.size+selAppH.size===0)} style={{flex:1}}>🗑 Excluir do app</Btn>
+      </div>
     </div>}
   </div>;
 }
