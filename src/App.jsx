@@ -129,16 +129,16 @@ const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 const DEFAULT_DRIVE_UPLOAD_URL="https://script.google.com/macros/s/AKfycbwtbyy8Khgh50KWk9Cmj4MyXB33it08WQF0IJlrPOuq8-ujmvDOShye4SkPFvKEp_OE5A/exec";
 let DRIVE_UPLOAD_URL=localStorage.getItem("driveUploadUrl")||DEFAULT_DRIVE_UPLOAD_URL;
 async function uploadPhoto(b64,path){
-  if(!DRIVE_UPLOAD_URL){console.warn("Configure a URL do Drive em Config antes de enviar fotos.");return null}
+  if(!DRIVE_UPLOAD_URL){onSyncSheetError?.("Foto não enviada: configure a URL do Drive em Config.");return null}
   try{
     const r=await fetch(DRIVE_UPLOAD_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({action:"uploadPhoto",base64:b64,filename:path.replace(/\//g,"_")})});
     const d=await r.json();
-    if(d.error){console.error("Upload Drive error:",d.error);return null}
+    if(d.error){console.error("Upload Drive error:",d.error);onSyncSheetError?.("Foto não salvou no Drive: "+d.error);return null}
     return d.url||null;
-  }catch(e){console.error("uploadPhoto:",e);return null}
+  }catch(e){console.error("uploadPhoto:",e);onSyncSheetError?.("Foto não chegou no Drive: "+e.message);return null}
 }
 let wQ=[],wT=null;
-let onSyncSheetError=null; // o App registra isso no boot pra mostrar erros de sincronização com a planilha na tela
+let onSyncSheetError=null; // o App registra isso no boot pra mostrar erros de sincronização (planilha e Drive) na tela
 function syncSheet(url,action,payload){
   if(!url)return;
   wQ.push({action,payload});
@@ -182,6 +182,10 @@ const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{cons
 const DEF_MODELS=[{m:"E9 Pro",th:3680},{m:"E9 Pro+",th:3880},{m:"KS5",th:21},{m:"KS5L",th:14},{m:"KS3",th:8},{m:"S19JPRO+",th:120},{m:"S19KPRO",th:77},{m:"S21XP",th:270},{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
 const SIT_OPTS=["STOCK","BOA","AGUARD. REVISÃO","REVISAR","ENTRADA OFICINA","LIGADA","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","CASTANHAO"];
 const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","SAIDA","IRREPARAVEL","NA MAQUINA"];
+// Controladora/Fonte/Fans/Hash-slots da máquina: a planilha só aceita esses 3
+// valores (validação travada na coluna). Usar mais opções que isso faz a
+// escrita na planilha ser rejeitada silenciosamente.
+const CTR_OPTS=["ON","OFF","TESTAR"];
 const SIT_C={"STOCK":"#d97706","BOA":"#16a34a","AGUARD. REVISÃO":"#2563eb","REVISAR":"#dc2626","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#dc2626","CASTANHAO":"#92400e"};
 const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",SAIDA:"#ea580c",IRREPARAVEL:"#374151","NA MAQUINA":"#0ea5e9"};
 const TODAY=()=>new Date().toISOString().split("T")[0];
@@ -271,9 +275,9 @@ function PhotoView({photoKey,style}){
 
 /* ═══ REPORT ════════════════════════════════════════════════════ */
 function generateReport(user,repairs,tests,date){
-  const dr=repairs.filter(r=>r.employeeId===user._id&&r.date===date&&r.type!=="already_good");
-  const dg=repairs.filter(r=>r.employeeId===user._id&&r.date===date&&r.type==="already_good");
-  const dt=tests.filter(t=>t.employeeId===user._id&&t.date===date);
+  const dr=repairs.filter(r=>(r.employeeId===user._id||r._by===user._id)&&r.date===date&&r.type!=="already_good");
+  const dg=repairs.filter(r=>(r.employeeId===user._id||r._by===user._id)&&r.date===date&&r.type==="already_good");
+  const dt=tests.filter(t=>(t.employeeId===user._id||t._by===user._id)&&t.date===date);
   const d=new Date(date+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
   const lines=[`📋 Relatório — ${user.name} #${user.code}`,`📅 ${d}`,``];
   if(dr.length){lines.push(`🔧 HASHs Consertadas (${dr.length}):`);dr.forEach(r=>{let obs="";if(r.chips)obs+=` | Chips:${r.chips}`;if(r.sensores)obs+=` | Sens:${r.sensores}`;if(r.ldos)obs+=` | LDOs:${r.ldos}`;if(r.obsManual)obs+=` | ${r.obsManual}`;lines.push(`• ${r.hashSN||"SEM SN"} — ${r.model}${obs} — ${fmtTime(r._at)}`)});lines.push("")}
@@ -813,7 +817,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     <SNInput label="SN" value={f.sn} onChange={v=>set("sn",v)} placeholder="Deixe vazio se não tiver"/>
     <div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={f.model} onChange={e=>{set("model",e.target.value);set("th",gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={f.th} onChange={e=>set("th",e.target.value)} style={{width:70}}/></div>
     <div style={{display:"flex",gap:8}}><Sel label="TIPO" value={f.type} onChange={e=>set("type",e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={f.situacao} onChange={e=>set("situacao",e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div>
-    {f.type==="complete"&&<>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span><input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/><select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>}
+    {f.type==="complete"&&<>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span><input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/><select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>}
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
     <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"💾 Salvar"}</Btn></div>
   </div>;
@@ -881,7 +885,7 @@ function MachineDetail({ctx,machine}){
                   <span style={{color:C.subtle,fontSize:10,width:50,flexShrink:0,fontWeight:800}}>SLOT {i+1}</span>
                   <input value={slotSN} onChange={e=>upd("hashSN"+i,e.target.value.toUpperCase())} placeholder="SN da HASH" style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}/>
                   <select value={m["hash"+i]||"OFF"} onChange={e=>upd("hash"+i,e.target.value)} style={{...inp,width:78,padding:"7px 6px",fontSize:10}}>
-                    {HST_OPTS.map(s=><option key={s}>{s}</option>)}
+                    {CTR_OPTS.map(s=><option key={s}>{s}</option>)}
                   </select>
                 </div>
                 {slotHash&&(
@@ -903,7 +907,7 @@ function MachineDetail({ctx,machine}){
               <div key={k}>
                 <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4}}>{l}</div>
                 <select value={m[k]||"OFF"} onChange={e=>upd(k,e.target.value)} style={{...inp,padding:"7px 8px",fontSize:12}}>
-                  {HST_OPTS.map(s=><option key={s}>{s}</option>)}
+                  {CTR_OPTS.map(s=><option key={s}>{s}</option>)}
                 </select>
               </div>
             ))}
@@ -1163,7 +1167,7 @@ function ConsertaPage({ctx}){
     if(!photoKey){setPhotoErr("Foto obrigatória!");return}
     setPhotoErr("");
     const sn=f.hashSN.toUpperCase().trim();const id=uid();
-    const rec={hashSN:sn,model:f.model,type,photoKey:photoKey||"",...audit(user),date:TODAY(),status:"TESTAR"};
+    const rec={hashSN:sn,model:f.model,type,photoKey:photoKey||"",employeeId:user._id,...audit(user),date:TODAY(),status:"TESTAR"};
     if(type==="repair"){Object.assign(rec,{chips:f.chips||"",sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
     await fbSet("repairs",id,rec);mutate("repairs",r=>[...r,{...rec,_id:id}]);
     // Hash → TESTAR
@@ -1273,8 +1277,6 @@ function TestePage({ctx}){
     await closeSession(sess._id);setSubmitting(false);setDone(true);setTimeout(()=>setDone(false),3000);
   };
 
-  // HASHs waiting to test
-  const hashesWaiting=data.hashes.filter(h=>h.status==="TESTAR");
   const otherSessions=sessions.filter(s=>s._id!==activeId);
 
   return<div>
@@ -1291,12 +1293,6 @@ function TestePage({ctx}){
           <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900}}>✕</span>
         </button>)}
       </div>
-    </div>}
-
-    {/* Waiting HASHs */}
-    {hashesWaiting.length>0&&<div style={{background:C.amber+"11",border:"1px solid "+C.amber+"44",borderRadius:12,padding:"10px 14px",marginBottom:12}}>
-      <div style={{fontWeight:800,color:C.amber,marginBottom:6}}>⏳ HASHs aguardando teste ({hashesWaiting.length})</div>
-      <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{hashesWaiting.slice(0,6).map(h=><span key={h._id} style={{background:C.card2,borderRadius:6,padding:"2px 8px",fontSize:11,color:C.blue}}>⚡ {h.sn||"SEM SN"} — {h.model}</span>)}{hashesWaiting.length>6&&<span style={{color:C.muted,fontSize:11}}>+{hashesWaiting.length-6}</span>}</div>
     </div>}
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
@@ -1426,8 +1422,8 @@ function SlotModal({ctx,session,slotIndex,onSave,onClose}){
 /* ═══ HISTÓRICO ═════════════════════════════════════════════════ */
 function HistPage({ctx}){
   const{data,user}=ctx;const[filter,setFilter]=useState("mine");
-  const reps=filter==="mine"?data.repairs.filter(r=>r.employeeId===user._id):data.repairs;
-  const tsts=filter==="mine"?data.tests.filter(t=>t.employeeId===user._id):data.tests;
+  const reps=filter==="mine"?data.repairs.filter(r=>r.employeeId===user._id||r._by===user._id):data.repairs;
+  const tsts=filter==="mine"?data.tests.filter(t=>t.employeeId===user._id||t._by===user._id):data.tests;
   const all=[...reps.map(r=>({...r,_type:"repair"})),...tsts.map(t=>({...t,_type:"test"}))].sort((a,b)=>a.date<b.date?1:-1);
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,TODAY())}>📋 Relatório</Btn></div>
@@ -1498,9 +1494,9 @@ function TeamPage({ctx,canSeeEmp}){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div><div style={{fontWeight:900,fontSize:18}}>Equipe</div><div style={{color:C.muted,fontSize:12}}>{data.employees.length} funcionários</div></div><Btn onClick={openAdd}>+ Funcionário</Btn></div>
     {data.employees.map(e=>{
       if(!canSeeEmp(e._id)&&!data.employees.find(x=>x._id===ctx.user._id)?.permissions?.admin)return null;
-      const rT=data.repairs.filter(r=>r.employeeId===e._id&&r.date===today&&r.type!=="already_good").length;
-      const gT=data.repairs.filter(r=>r.employeeId===e._id&&r.date===today&&r.type==="already_good").length;
-      const tT=data.tests.filter(t=>t.employeeId===e._id&&t.date===today).length;
+      const rT=data.repairs.filter(r=>(r.employeeId===e._id||r._by===e._id)&&r.date===today&&r.type!=="already_good").length;
+      const gT=data.repairs.filter(r=>(r.employeeId===e._id||r._by===e._id)&&r.date===today&&r.type==="already_good").length;
+      const tT=data.tests.filter(t=>(t.employeeId===e._id||t._by===e._id)&&t.date===today).length;
       const fdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===e._id).length;
       return<Card key={e._id}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -1547,7 +1543,7 @@ function DailyTeamReport({ctx}){
 
 function EmpProfile({ctx,emp}){
   const{data,mutate,setModal,user}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
-  const allR=data.repairs.filter(r=>r.employeeId===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id);
+  const allR=data.repairs.filter(r=>r.employeeId===emp._id||r._by===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id||t._by===emp._id);
   const fdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===emp._id);
   const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
   const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
@@ -1989,7 +1985,7 @@ function ClientDetail({ctx,client}){
 /* ═══ EQUIPE DETALHES ════════════════════════════════════════ */
 function EmpHistory({ctx,emp}){
   const{data}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
-  const allR=data.repairs.filter(r=>r.employeeId===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id);
+  const allR=data.repairs.filter(r=>r.employeeId===emp._id||r._by===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id||t._by===emp._id);
   const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
   const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
   return<div>
