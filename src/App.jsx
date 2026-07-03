@@ -1603,10 +1603,20 @@ function MigrationPanel({ctx}){
     for(const c of MIGRATION_COLLECTIONS){
       try{
         setLog(l=>[...l,{c,msg:"Buscando no Firebase..."}]);
-        const docs=await legacyFbList(c);
+        let docs=await legacyFbList(c);
+        // Ignora as "sobras fantasma" do jeito antigo de deletar no Firebase
+        // (docs marcados com _deleted, criados como tombstone antes de apagar de verdade)
+        docs=docs.filter(d=>!d._deleted);
         if(!docs.length){setLog(l=>l.map(x=>x.c===c?{c,msg:"Nenhum registro (ok, coleção vazia)"}:x));continue}
+        if(c==="employees"){
+          // Limpa qualquer funcionário "provisório" que o app possa ter criado
+          // sozinho no Supabase (ex: admin padrão) antes da migração de verdade,
+          // pra não colidir com o código (ex: "019") do funcionário real do Firebase.
+          const existing=await fbList("employees");
+          for(const e of existing)await fbDel("employees",e._id);
+        }
         setLog(l=>l.map(x=>x.c===c?{c,msg:`Encontrados ${docs.length}. Salvando no Supabase...`}:x));
-        const writes=docs.map(d=>{const{_id,...rest}=d;return{c,id:_id,d:rest}});
+        const writes=docs.map(d=>{const{_id,_deleted,_deletedAt,_originalId,...rest}=d;return{c,id:_id,d:rest}});
         for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));
         setLog(l=>l.map(x=>x.c===c?{c,msg:`✓ ${docs.length} migrados com sucesso`}:x));
       }catch(e){
