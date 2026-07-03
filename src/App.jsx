@@ -69,7 +69,8 @@ async function fbGet(c,id){
 }
 async function fbSet(c,id,obj){
   const table=tableName(c);
-  const row={id,...toDBRow(obj)};
+  const{_id,...cleanObj}=obj; // nunca manda o _id junto — o "id" já vai separado
+  const row={id,...toDBRow(cleanObj)};
   const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
   if(error){console.error(`fbSet(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui salvar em "${c}": ${error.message}`);return{ok:false,error:error.message}}
   return{ok:true};
@@ -82,7 +83,7 @@ async function fbDel(c,id){
 }
 async function fbBatch(writes){
   const byCol={};
-  for(const w of writes){(byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(w.d)})}
+  for(const w of writes){const{_id,...cleanD}=w.d||{};(byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD)})}
   const errors=[];
   for(const[c,rows]of Object.entries(byCol)){
     const table=tableName(c);
@@ -1222,7 +1223,9 @@ function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH}=ctx;const models=allModels();
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
   // Cada sessão é um documento próprio (não fica mais 1 sessão por usuário).
-  const[sessions,setSessions]=useState([]),[activeId,setActiveId]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false);
+  const[sessions,setSessions]=useState([]),[activeId,setActiveId]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false),[unlinkPrompt,setUnlinkPrompt]=useState(null);
+  const slotRefs=useRef([]);
+  const recentlyCreated=useRef(new Set());
   useEffect(()=>{fbList("sessions").then(all=>setSessions(all.filter(s=>s.employeeId===user._id)))},[user._id]);
   const session=sessions.find(s=>s._id===activeId)||null;
   const saveSession=async s=>{
@@ -1241,37 +1244,80 @@ function TestePage({ctx}){
         {hashSN:ex?.hashSN0||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN1||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN2||"",status:"",photoKey:null}
-      ],controladora:"",fonte:"",fans:"",photoKey:null,updatedAt:stamp()};
+      ],controladora:"",fonte:"",fans:"",photoKey:null,adminNotes:[],updatedAt:stamp()};
     await saveSession(s);setActiveId(id);
   };
 
   const closeSession=async(id)=>{await fbDel("sessions",id);setSessions(prev=>prev.filter(x=>x._id!==id));if(activeId===id){setActiveId(null);setMacInput("")}};
 
-  const setSlotSN=async(i,sn)=>{
-    if(!session)return;
-    const newSlots=[...session.slots];newSlots[i]={...newSlots[i],hashSN:sn};
-    const upperSn=sn.toUpperCase().trim();
-    const existing=upperSn?data.hashes.find(x=>x.sn===upperSn):null;
+  const applySlotSN=async(i,upperSn,existing,extraNote)=>{
+    const newSlots=[...session.slots];
+    const wasBad=newSlots[i].status==="bad";
+    newSlots[i]={...newSlots[i],hashSN:upperSn,status:(wasBad&&upperSn)?"":newSlots[i].status};
     let newSession={...session,slots:newSlots,updatedAt:stamp()};
     // Nunca deixa ir pra revisão com a carcaça de um modelo e a HASH de outro
     // — corrige o modelo da máquina sozinho pro modelo da HASH bipada.
     if(existing&&existing.model&&existing.model!==session.model){
       newSession={...newSession,model:existing.model};
     }
+    if(extraNote)newSession={...newSession,adminNotes:[...(newSession.adminNotes||[]),extraNote]};
     await saveSession(newSession);
     // SN bipado que ainda não existe em lugar nenhum — cadastra a HASH na
     // hora e já avisa a planilha (vai pra aba "HASH", não "REPARO DE HASH")
-    if(upperSn&&!existing){
+    if(upperSn&&!existing&&!recentlyCreated.current.has(upperSn)){
+      recentlyCreated.current.add(upperSn);
       const hid=uid();const hd={sn:upperSn,model:newSession.model,status:"TESTAR",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
       await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}]);
       syncSheet(webhookUrl,"hashDiscovered",{sn:upperSn,model:newSession.model,employeeName:user.name,employeeCode:user.code});
     }
+    // Bipou rápido? Já pula pro próximo slot sozinho, sem precisar clicar
+    if(upperSn)setTimeout(()=>{slotRefs.current[i+1]?.focus()},50);
+  };
+
+  const setSlotSN=async(i,sn)=>{
+    if(!session)return;
+    const upperSn=sn.toUpperCase().trim();
+    setErr("");
+    if(upperSn){
+      // Nunca deixa repetir o mesmo SN em outro slot desta máquina, nem em
+      // outra máquina que já esteja em teste ao mesmo tempo.
+      const usedHere=session.slots.some((s,idx)=>idx!==i&&s.hashSN&&s.hashSN.toUpperCase()===upperSn);
+      const usedElsewhere=sessions.some(s2=>s2._id!==session._id&&s2.slots.some(s=>s.hashSN&&s.hashSN.toUpperCase()===upperSn));
+      if(usedHere||usedElsewhere){setErr(`⚠️ SN ${upperSn} já está sendo usado em outra máquina em teste agora — não pode repetir.`);return}
+    }
+    const existing=upperSn?data.hashes.find(x=>x.sn===upperSn):null;
+    // A HASH já está instalada em OUTRA máquina — pergunta se quer desvincular
+    if(existing&&existing.status==="NA MAQUINA"&&existing.machineSN&&existing.machineSN!==session.machineSN){
+      setUnlinkPrompt({slotIndex:i,sn:upperSn,hash:existing});
+      return;
+    }
+    await applySlotSN(i,upperSn,existing);
+  };
+
+  const confirmUnlink=async()=>{
+    if(!unlinkPrompt)return;
+    const{slotIndex,sn,hash}=unlinkPrompt;
+    const oldMachineSN=hash.machineSN;
+    const oldMachine=data.machines.find(m=>m.sn===oldMachineSN);
+    if(oldMachine){
+      const slotField=hash.slot===0?"hashSN0":hash.slot===1?"hashSN1":hash.slot===2?"hashSN2":null;
+      const statusField=hash.slot===0?"hash0":hash.slot===1?"hash1":hash.slot===2?"hash2":null;
+      const patch={};if(slotField)patch[slotField]="";if(statusField)patch[statusField]="OFF";
+      const oldUpd={...oldMachine,...patch,...audit(user)};
+      mutate("machines",arr=>arr.map(x=>x._id===oldMachine._id?oldUpd:x));await fbSet("machines",oldMachine._id,oldUpd);
+      if(slotField)syncSheet(webhookUrl,"updateMachine",{sn:oldMachineSN,field:slotField,to:"",employeeName:user.name,employeeCode:user.code});
+    }
+    const hUpd={...hash,machineSN:"",slot:-1,status:"TESTAR",changeLog:[{field:"status",label:"Status",from:"NA MAQUINA",to:"Desvinculada de "+oldMachineSN,by:user.name,at:stamp()},...(hash.changeLog||[])].slice(0,80),...audit(user)};
+    mutate("hashes",arr=>arr.map(x=>x._id===hash._id?hUpd:x));await fbSet("hashes",hash._id,hUpd);
+    syncSheet(webhookUrl,"hashUnlinked",{sn:hash.sn,employeeName:user.name,employeeCode:user.code});
+    setUnlinkPrompt(null);
+    await applySlotSN(slotIndex,sn,hUpd,`HASH ${sn} foi desvinculada da máquina ${oldMachineSN} pra usar aqui.`);
   };
 
   const markAllGood=async()=>{
     if(!session)return;
     if(!session.photoKey){setErr("Adicione a foto da tela primeiro!");return}
-    const newSlots=session.slots.map(s=>({...s,status:"good"}));
+    const newSlots=session.slots.map(s=>({...s,status:s.status==="bad"?"bad":"good"}));
     const s={...session,slots:newSlots,controladora:"ON",fonte:"ON",fans:"ON",updatedAt:stamp()};
     await saveSession(s);
     await doSubmit(s);
@@ -1286,7 +1332,7 @@ function TestePage({ctx}){
       slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
       controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending"};
     await fbSet("tests",id,rec);mutate("tests",t=>[...t,{...rec,_id:id}]);
-    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",...audit(user)};
+    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
     await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
     const exMac=data.machines.find(m=>m.sn===sess.machineSN);
     if(exMac){const u={...exMac,situacao:"AGUARD. REVISÃO",lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
@@ -1338,7 +1384,7 @@ function TestePage({ctx}){
             {slot.status==="bad"&&<Tag color={C.red}>✗ RUIM</Tag>}
             {!slot.status&&<Tag color={C.muted}>Aguardando</Tag>}
           </div>
-          <input value={slot.hashSN||""} onChange={e=>setSlotSN(i,e.target.value.toUpperCase())} placeholder="Bipe o SN da HASH..." list={"hash-list-"+i} style={{...inp,marginBottom:6}}/>
+          <input ref={el=>slotRefs.current[i]=el} value={slot.hashSN||""} onChange={e=>setSlotSN(i,e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&slotRefs.current[i+1]?.focus()} placeholder="Bipe o SN da HASH..." list={"hash-list-"+i} style={{...inp,marginBottom:6}}/>
           <datalist id={"hash-list-"+i}>{data.hashes.map(x=><option key={x._id} value={x.sn||""}>{x.model} — {x.status}</option>)}</datalist>
           {h&&<div style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:C.card2,borderRadius:8,marginBottom:6}}>
             <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}</span>
@@ -1370,6 +1416,19 @@ function TestePage({ctx}){
       {!session.photoKey&&<div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Adicione a foto para enviar</div>}
     </>}
 
+    {/* Pergunta de desvincular HASH que já está em outra máquina */}
+    {unlinkPrompt&&<Modal title="⚠️ HASH já está em uma máquina" onClose={()=>setUnlinkPrompt(null)}>
+      <div style={{marginBottom:16}}>
+        <div style={{fontWeight:800,fontSize:14,marginBottom:6}}>⚡ {unlinkPrompt.sn}</div>
+        <div style={{color:C.text,fontSize:13}}>Essa HASH já está instalada na máquina <b style={{color:C.accent}}>{unlinkPrompt.hash.machineSN}</b>.</div>
+        <div style={{color:C.muted,fontSize:12,marginTop:6}}>Se desvincular, ela sai daquela máquina (o slot lá fica vazio) e passa a ser testada nessa máquina agora.</div>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn v="s" onClick={()=>setUnlinkPrompt(null)} style={{flex:1}}>Cancelar</Btn>
+        <Btn v="y" onClick={confirmUnlink} style={{flex:1}}>🔓 Desvincular e usar aqui</Btn>
+      </div>
+    </Modal>}
+
     {/* RUIM Modal */}
     {ruimModal!==null&&<Modal title={"✗ Slot "+(ruimModal+1)+" RUIM"} onClose={()=>setRuimModal(null)}>
       <RuimSlotForm ctx={ctx} session={session} slotIndex={ruimModal} onSave={async(s)=>{await saveSession(s);setRuimModal(null)}}/>
@@ -1387,7 +1446,7 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
   const confirm=async()=>{
     if(!logPhoto&&!notes){setErr("Adicione foto ou descrição do erro");return}
     setSaving(true);
-    const newSlots=[...session.slots];newSlots[slotIndex]={...slot,status:"bad",logPhoto:logPhoto||"",logNotes:notes};
+    const newSlots=[...session.slots];newSlots[slotIndex]={...slot,hashSN:"",status:"bad",logPhoto:logPhoto||"",logNotes:notes};
     // Update hash status
     if(h){const u={...h,status:"REPARO",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");syncSheet(webhookUrl,"hashBad",{sn:h.sn,model:h.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});}
     // Notify repairer
