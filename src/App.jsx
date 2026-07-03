@@ -1638,8 +1638,13 @@ function MigrationPanel({ctx}){
 }
 
 function CfgPage({ctx}){
-  const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings}=ctx;
+  const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal}=ctx;
   const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
+  const exportBackup=()=>{
+    const backup={exportedAt:stamp(),employees:data.employees,machines:data.machines,hashes:data.hashes,repairs:data.repairs,tests:data.tests,feedbacks:data.feedbacks,approvals:data.approvals,customModels:data.customModels,pallets:data.pallets,clients:data.clients};
+    const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="hashstock-backup-"+TODAY()+".json";a.click();
+  };
   const[driveUrl,setDriveUrl]=useState(DRIVE_UPLOAD_URL),[driveTestRes,setDriveTestRes]=useState(null);
   const saveDriveUrl=()=>{localStorage.setItem("driveUploadUrl",driveUrl);DRIVE_UPLOAD_URL=driveUrl;alert("✓ URL do Drive salva!")};
   const testDriveUrl=async()=>{try{const r=await fetch(driveUrl+"?action=test");const d=await r.json();setDriveTestRes(d.status==="ok"?"✓ Conectado! "+d.time:"✗ "+JSON.stringify(d))}catch(e){setDriveTestRes("✗ Falha: "+e.message)}};
@@ -1658,11 +1663,76 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       {dataWarnings.map((w,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,color:"#ff9b9b"}}>{w.msg}<div style={{color:C.muted,fontSize:10}}>{fmtTS(w.at)}</div></div>)}
     </Card>}
     <MigrationPanel ctx={ctx}/>
+    <Card style={{marginBottom:14,border:`1px solid ${C.green}`}}>
+      <SL>💾 BACKUP (garantia extra)</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Baixa uma cópia completa de tudo (máquinas, HASHs, funcionários, histórico) num arquivo no seu computador. Recomendo baixar toda semana — se algum dia der algum problema no banco, você tem como recuperar tudo a partir desse arquivo.</div>
+      <Btn v="g" onClick={exportBackup} style={{width:"100%"}}>⬇️ Baixar Backup Completo Agora</Btn>
+    </Card>
     <Card style={{marginBottom:14}}><SL>📸 GOOGLE DRIVE (fotos)</SL><div style={{color:C.muted,fontSize:11,marginBottom:8}}>Cole aqui a URL do Apps Script que salva as fotos no Drive de vocês (arquivo google-apps-script-drive-upload.js)</div><Inp value={driveUrl} onChange={e=>setDriveUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"/>{driveTestRes&&<Alrt type={driveTestRes.startsWith("✓")?"ok":"err"}>{driveTestRes}</Alrt>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={testDriveUrl} style={{flex:1}}>🔗 Testar</Btn><Btn onClick={saveDriveUrl} style={{flex:1}}>💾 Salvar</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>GOOGLE SHEETS WEBHOOK</SL><Inp value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..."/>{testRes&&<Alrt type={testRes.startsWith("✓")?"ok":"err"}>{testRes}</Alrt>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={testWh} style={{flex:1}}>🔗 Testar</Btn><Btn onClick={saveWh} style={{flex:1}}>💾 Salvar</Btn></div></Card>
-    <Card style={{marginBottom:14}}><SL>IMPORTAR PLANILHA EXISTENTE</SL>{importRes&&<Alrt type={importRes.startsWith("✓")?"ok":"err"}>{importRes}</Alrt>}{importProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {importProg}</div>}<div style={{display:"flex",gap:8}}><Btn v="b" onClick={doImportMachines} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"📥 Máquinas"}</Btn><Btn v="p" onClick={doImportHashes} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"⚡ HASHs (REPARO)"}</Btn></div></Card>
+    <Card style={{marginBottom:14}}><SL>IMPORTAR PLANILHA EXISTENTE</SL>{importRes&&<Alrt type={importRes.startsWith("✓")?"ok":"err"}>{importRes}</Alrt>}{importProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {importProg}</div>}<div style={{display:"flex",gap:8,marginBottom:8}}><Btn v="b" onClick={doImportMachines} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"📥 Máquinas"}</Btn><Btn v="p" onClick={doImportHashes} disabled={importing} style={{flex:1,fontSize:12}}>{importing?"...":"⚡ HASHs (REPARO)"}</Btn></div>
+      <div style={{color:C.muted,fontSize:10,marginBottom:8}}>⚠️ Os botões acima importam TUDO de novo (pode duplicar). Prefira o botão abaixo — ele só mostra o que é realmente novo na planilha.</div>
+      <Btn v="y" onClick={()=>setModal(<Modal title="🔍 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} disabled={!url} style={{width:"100%"}}>🔍 Comparar com Planilha (só mostra o que é novo)</Btn>
+    </Card>
     <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS</SL>{data.customModels.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
     <Card><div style={{fontWeight:800,color:C.blue,marginBottom:10}}>📖 Como configurar</div>{[["1","Abra sua planilha no Google Sheets"],["2","Extensões → Apps Script"],["3","Cole o código do arquivo hashstock-apps-script.js"],["4","Implantar → App da Web → Qualquer pessoa"],["5","Copie a URL e cole acima"]].map(([n,t])=><div key={n} style={{display:"flex",gap:10,marginBottom:8}}><div style={{width:22,height:22,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,flexShrink:0,color:"#fff"}}>{n}</div><div style={{fontSize:13,paddingTop:2}}>{t}</div></div>)}</Card>
+  </div>;
+}
+
+// Compara a planilha com o que já existe no app: ignora tudo que já tem o
+// mesmo SN, e mostra só o que é realmente novo, com checkbox pra escolher o
+// que importar.
+function SheetCompareReview({ctx,onClose}){
+  const{data,mutate,webhookUrl}=ctx;
+  const[loading,setLoading]=useState(true),[newMachines,setNewMachines]=useState([]),[newHashes,setNewHashes]=useState([]),[selectedM,setSelectedM]=useState(new Set()),[selectedH,setSelectedH]=useState(new Set()),[saving,setSaving]=useState(false),[err,setErr]=useState("");
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const[sheetMachines,sheetHashes]=await Promise.all([importMachinesFromSheet(webhookUrl),importHashesFromSheet(webhookUrl)]);
+        const existingMSN=new Set(data.machines.map(m=>(m.sn||"").toUpperCase()).filter(Boolean));
+        const existingHSN=new Set(data.hashes.map(h=>(h.sn||"").toUpperCase()).filter(Boolean));
+        const nm=sheetMachines.filter(m=>m.sn&&!existingMSN.has(m.sn.toUpperCase()));
+        const nh=sheetHashes.filter(h=>h.sn&&!existingHSN.has(h.sn.toUpperCase()));
+        setNewMachines(nm);setNewHashes(nh);
+        setSelectedM(new Set(nm.map((_,i)=>i)));
+        setSelectedH(new Set(nh.map((_,i)=>i)));
+      }catch(e){setErr(e.message)}
+      setLoading(false);
+    })();
+  },[]);
+  const toggle=(set,setSet,i)=>{const n=new Set(set);n.has(i)?n.delete(i):n.add(i);setSet(n)};
+  const importSelected=async()=>{
+    setSaving(true);
+    const mToImport=newMachines.filter((_,i)=>selectedM.has(i));
+    const hToImport=newHashes.filter((_,i)=>selectedH.has(i));
+    const mWrites=mToImport.map(m=>({c:"machines",id:uid(),d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}));
+    const hWrites=hToImport.map(h=>{let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});
+    const writes=[...mWrites,...hWrites];
+    for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));
+    if(mWrites.length)mutate("machines",arr=>[...arr,...mWrites.map(w=>({...w.d,_id:w.id}))]);
+    if(hWrites.length)mutate("hashes",arr=>[...arr,...hWrites.map(w=>({...w.d,_id:w.id}))]);
+    await markChanged("machines");await markChanged("hashes");
+    setSaving(false);onClose();
+  };
+  if(loading)return<div style={{textAlign:"center",padding:30,color:C.muted}}>🔍 Comparando com a planilha...</div>;
+  if(err)return<Alrt type="err">✗ {err}</Alrt>;
+  const totalNew=newMachines.length+newHashes.length;
+  if(totalNew===0)return<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada novo — a planilha já está toda refletida no app.</div>;
+  return<div>
+    <div style={{color:C.muted,fontSize:12,marginBottom:14}}>Achei {newMachines.length} máquina(s) e {newHashes.length} HASH(s) na planilha que ainda não estão no app (tudo que já existe foi ignorado). Escolhe o que quer importar:</div>
+    {newMachines.length>0&&<><SL>🖥️ MÁQUINAS NOVAS ({newMachines.length})</SL>
+      {newMachines.map((m,i)=><div key={i} onClick={()=>toggle(selectedM,setSelectedM,i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+        <div><span style={{fontWeight:700,fontSize:13}}>{m.sn}</span><span style={{color:C.muted,fontSize:11}}> · {m.model} · {m.addedAt?fmtDate(m.addedAt):""}</span></div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}><SP s={m.situacao}/><input type="checkbox" checked={selectedM.has(i)} readOnly style={{width:16,height:16}}/></div>
+      </div>)}
+    </>}
+    {newHashes.length>0&&<><SL mt={14}>⚡ HASHs NOVAS ({newHashes.length})</SL>
+      {newHashes.map((h,i)=><div key={i} onClick={()=>toggle(selectedH,setSelectedH,i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+        <div><span style={{fontWeight:700,fontSize:13}}>{h.sn}</span><span style={{color:C.muted,fontSize:11}}> · {h.model} · {h.situacao} · {h.addedAt?fmtDate(h.addedAt):""}</span></div>
+        <input type="checkbox" checked={selectedH.has(i)} readOnly style={{width:16,height:16}}/>
+      </div>)}
+    </>}
+    <Btn v="g" onClick={importSelected} disabled={saving||(selectedM.size+selectedH.size===0)} style={{width:"100%",marginTop:14}}>{saving?"Importando...":`💾 Importar ${selectedM.size+selectedH.size} selecionado(s)`}</Btn>
   </div>;
 }
 
