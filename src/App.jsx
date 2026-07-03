@@ -71,12 +71,14 @@ async function fbSet(c,id,obj){
   const table=tableName(c);
   const row={id,...toDBRow(obj)};
   const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
-  if(error){console.error(`fbSet(${c},${id}):`,error.message);throw new Error(`fbSet(${c}): ${error.message}`)}
+  if(error){console.error(`fbSet(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui salvar em "${c}": ${error.message}`);return{ok:false,error:error.message}}
+  return{ok:true};
 }
 async function fbDel(c,id){
   const table=tableName(c);
   const{error}=await supabase.from(table).delete().eq("id",id);
-  if(error){console.warn(`fbDel(${c},${id}):`,error.message);throw new Error(`fbDel(${c}): ${error.message}`)}
+  if(error){console.warn(`fbDel(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui apagar de "${c}": ${error.message}`);return{ok:false,error:error.message}}
+  return{ok:true};
 }
 async function fbBatch(writes){
   const byCol={};
@@ -89,7 +91,8 @@ async function fbBatch(writes){
       if(error){console.error(`fbBatch(${c}):`,error.message);errors.push(`${c}: ${error.message}`)}
     }
   }
-  if(errors.length)throw new Error(errors.join(" | "));
+  if(errors.length){onSyncSheetError?.("Lote não salvou tudo: "+errors.join(" | "));return{ok:false,errors}}
+  return{ok:true,errors:[]};
 }
 // Supabase Realtime substitui o sistema de polling + carimbo de tempo (_meta)
 // que existia no Firebase — não precisa mais "marcar" nada manualmente.
@@ -476,7 +479,7 @@ export default function App(){
   const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,dataWarnings};
   if(loading)return<Splash/>;
   if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
-  if(!user)return<LoginPage employees={data.employees} onLogin={setUser}/>;
+  if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
 
   const p=user.permissions||{};const isAdmin=p.admin;const isSuperAdmin=user.code==="019";
   const canSeeEmp=id=>isAdmin||(user.allowedEmployees||[]).includes(id);
@@ -504,18 +507,18 @@ export default function App(){
         {isAdmin&&pendingApprs.length>0&&<Tag color={C.blue}>✅{pendingApprs.length}</Tag>}
         {isAdmin&&dataWarnings.length>0&&<Tag color={C.red} title="Avisos de integridade de dados">🛡️{dataWarnings.length}</Tag>}
       </div>
-      <button onClick={()=>setUser(null)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Sair</button>
+      <button onClick={()=>{setUser(null);setTab("home")}} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Sair</button>
     </div>
     {isAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
     <div style={{padding:"14px 12px 100px"}}>
       {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
-      {tab==="mac"&&<MacPage ctx={ctx}/>}
-      {tab==="hsh"&&<HashPage ctx={ctx}/>}
-      {tab==="conserto"&&<ConsertaPage ctx={ctx}/>}
-      {tab==="teste"&&<TestePage ctx={ctx}/>}
-      {tab==="hist"&&<HistPage ctx={ctx}/>}
-      {tab==="pal"&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&<ApprovalsPage ctx={ctx}/>}
-      {tab==="team"&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+      {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
+      {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
+      {tab==="conserto"&&p.repairs&&!isAdmin&&<ConsertaPage ctx={ctx}/>}
+      {tab==="teste"&&p.testing&&!isAdmin&&<TestePage ctx={ctx}/>}
+      {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+      {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&isAdmin&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&isAdmin&&<ApprovalsPage ctx={ctx}/>}
+      {tab==="team"&&isAdmin&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
       {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
     </div>
     <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:680,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
@@ -768,7 +771,7 @@ function BulkMachineAction({ctx,action,machines,onDone}){
     }else if(action==="client"&&clientId){
       const cl=data.clients.find(c=>c._id===clientId);if(cl){
         const sns=machines.map(m=>m.sn).filter(Boolean);
-        for(const m of machines){const mHashes=data.hashes.filter(h=>h.machineSN===m.sn);for(const h of mHashes){const uh={...h,status:"SAIDA",location:"Vendida: "+cl.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?uh:x));await fbSet("hashes",h._id,uh)}const um={...m,situacao:"SAIDA",destino:cl.name,...audit(user)};mutate("machines",arr=>arr.map(x=>x._id===m._id?um:x));await fbSet("machines",m._id,um)}
+        for(const m of machines){const mHashes=data.hashes.filter(h=>h.machineSN===m.sn);for(const h of mHashes){const uh={...h,status:"SAIDA",location:"Vendida: "+cl.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?uh:x));await fbSet("hashes",h._id,uh);syncSheet(webhookUrl,"hashSaida",{sn:uh.sn,machineSN:m.sn,employeeName:user.name,employeeCode:user.code})}const um={...m,situacao:"SAIDA",destino:cl.name,...audit(user)};mutate("machines",arr=>arr.map(x=>x._id===m._id?um:x));await fbSet("machines",m._id,um);syncSheet(webhookUrl,"updateMachine",{sn:m.sn,field:"situacao",to:"SAIDA",employeeName:user.name,employeeCode:user.code})}
         const ns=[...new Set([...(cl.machinesSN||[]),...sns])];const updc={...cl,machinesSN:ns,...audit(user)};mutate("clients",arr=>arr.map(x=>x._id===clientId?updc:x));await fbSet("clients",clientId,updc);
         await markChanged("machines");await markChanged("hashes");await markChanged("clients");
       }
@@ -1247,7 +1250,22 @@ function TestePage({ctx}){
   const setSlotSN=async(i,sn)=>{
     if(!session)return;
     const newSlots=[...session.slots];newSlots[i]={...newSlots[i],hashSN:sn};
-    await saveSession({...session,slots:newSlots,updatedAt:stamp()});
+    const upperSn=sn.toUpperCase().trim();
+    const existing=upperSn?data.hashes.find(x=>x.sn===upperSn):null;
+    let newSession={...session,slots:newSlots,updatedAt:stamp()};
+    // Nunca deixa ir pra revisão com a carcaça de um modelo e a HASH de outro
+    // — corrige o modelo da máquina sozinho pro modelo da HASH bipada.
+    if(existing&&existing.model&&existing.model!==session.model){
+      newSession={...newSession,model:existing.model};
+    }
+    await saveSession(newSession);
+    // SN bipado que ainda não existe em lugar nenhum — cadastra a HASH na
+    // hora e já avisa a planilha (vai pra aba "HASH", não "REPARO DE HASH")
+    if(upperSn&&!existing){
+      const hid=uid();const hd={sn:upperSn,model:newSession.model,status:"TESTAR",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
+      await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}]);
+      syncSheet(webhookUrl,"hashDiscovered",{sn:upperSn,model:newSession.model,employeeName:user.name,employeeCode:user.code});
+    }
   };
 
   const markAllGood=async()=>{
@@ -1360,7 +1378,7 @@ function TestePage({ctx}){
 }
 
 function RuimSlotForm({ctx,session,slotIndex,onSave}){
-  const{data,mutate,user}=ctx;
+  const{data,mutate,user,webhookUrl}=ctx;
   const[logPhoto,setLogPhoto]=useState(null),[notes,setNotes]=useState(""),[saving,setSaving]=useState(false),[err,setErr]=useState("");
   const slot=session.slots[slotIndex];
   const h=slot.hashSN?data.hashes.find(x=>x.sn===slot.hashSN.toUpperCase()):null;
@@ -1371,7 +1389,7 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     setSaving(true);
     const newSlots=[...session.slots];newSlots[slotIndex]={...slot,status:"bad",logPhoto:logPhoto||"",logNotes:notes};
     // Update hash status
-    if(h){const u={...h,status:"REPARO",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");}
+    if(h){const u={...h,status:"REPARO",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");syncSheet(webhookUrl,"hashBad",{sn:h.sn,model:h.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});}
     // Notify repairer
     if(lastRep?.employeeId&&slot.hashSN){const fid=uid();const fdb={hashSN:slot.hashSN,machineSN:session.machineSN,originalRepairerId:lastRep.employeeId,testedBy:user._id,...audit(user),date:TODAY(),logPhotoKey:logPhoto||"",notes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);}
     await onSave({...session,slots:newSlots,updatedAt:stamp()});
@@ -1420,10 +1438,12 @@ function SlotModal({ctx,session,slotIndex,onSave,onClose}){
 }
 
 /* ═══ HISTÓRICO ═════════════════════════════════════════════════ */
-function HistPage({ctx}){
+function HistPage({ctx,canSeeEmp}){
   const{data,user}=ctx;const[filter,setFilter]=useState("mine");
-  const reps=filter==="mine"?data.repairs.filter(r=>r.employeeId===user._id||r._by===user._id):data.repairs;
-  const tsts=filter==="mine"?data.tests.filter(t=>t.employeeId===user._id||t._by===user._id):data.tests;
+  const ownerId=r=>r.employeeId||r._by;
+  const visible=id=>id===user._id||canSeeEmp(id);
+  const reps=filter==="mine"?data.repairs.filter(r=>r.employeeId===user._id||r._by===user._id):data.repairs.filter(r=>visible(ownerId(r)));
+  const tsts=filter==="mine"?data.tests.filter(t=>t.employeeId===user._id||t._by===user._id):data.tests.filter(t=>visible(ownerId(t)));
   const all=[...reps.map(r=>({...r,_type:"repair"})),...tsts.map(t=>({...t,_type:"test"}))].sort((a,b)=>a.date<b.date?1:-1);
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,TODAY())}>📋 Relatório</Btn></div>
@@ -1439,19 +1459,34 @@ function HistPage({ctx}){
 
 /* ═══ APPROVALS ════════════════════════════════════════════════ */
 function ApprovalsPage({ctx}){
-  const{data,mutate,user,webhookUrl}=ctx;
+  const{data,mutate,user,webhookUrl,setModal}=ctx;
   const[notes,setNotes]=useState({}),[processing,setProcessing]=useState(null);
   const pending=data.approvals.filter(a=>a.status==="pending");
   const approve=async(appr)=>{
     setProcessing(appr._id);const test=data.tests.find(t=>t._id===appr.testId);if(!test){setProcessing(null);return}
     const tUpd={...test,status:"approved",overallResult:"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
-    if(exMac){const mUpd={...exMac,situacao:"BOA",hash0:test.slot0HashSN?"ON":"OFF",hash1:test.slot1HashSN?"ON":"OFF",hash2:test.slot2HashSN?"ON":"OFF",hashSN0:test.slot0HashSN,hashSN1:test.slot1HashSN,hashSN2:test.slot2HashSN,...audit(user)};await fbSet("machines",exMac._id,mUpd);mutate("machines",m=>m.map(x=>x._id===exMac._id?mUpd:x))}
+    if(exMac){
+      const mUpd={...exMac,situacao:"BOA",model:test.model||exMac.model,hash0:test.slot0HashSN?"ON":"OFF",hash1:test.slot1HashSN?"ON":"OFF",hash2:test.slot2HashSN?"ON":"OFF",hashSN0:test.slot0HashSN,hashSN1:test.slot1HashSN,hashSN2:test.slot2HashSN,...audit(user)};
+      await fbSet("machines",exMac._id,mUpd);mutate("machines",m=>m.map(x=>x._id===exMac._id?mUpd:x));
+      syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
+      if(test.model&&test.model!==exMac.model)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"model",to:test.model,employeeName:user.name,employeeCode:user.code});
+    }
     let newH=[...data.hashes];
     // Quando a máquina é aprovada com as 3 HASHs boas, o status da HASH vira
     // "NA MAQUINA" — ela deixa de aparecer como "solta" no estoque de HASHs,
-    // porque agora está fisicamente dentro dessa máquina específica.
-    for(const sn of[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].filter(Boolean)){const h=newH.find(x=>x.sn===sn);if(h){const u={...h,status:"NA MAQUINA",machineSN:appr.machineSN,slot:[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].indexOf(sn),changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};newH=newH.map(x=>x._id===h._id?u:x);await fbSet("hashes",h._id,u);syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:"NA MAQUINA",machineSN:appr.machineSN,employeeName:user.name,employeeCode:user.code})}}
+    // porque agora está fisicamente dentro dessa máquina específica. E na
+    // planilha, o SN dela vai pro slot certo (SLOT01/02/03) da máquina.
+    const slotSNs=[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN];
+    for(const sn of slotSNs.filter(Boolean)){
+      const h=newH.find(x=>x.sn===sn);
+      const slotIdx=slotSNs.indexOf(sn);
+      if(h){
+        const u={...h,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+        newH=newH.map(x=>x._id===h._id?u:x);await fbSet("hashes",h._id,u);
+        syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
+      }
+    }
     mutate("hashes",()=>newH);
     await fbSet("pendingApprovals",appr._id,{...appr,status:"approved",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"approved"}:x));
     syncSheet(webhookUrl,"test",{...test,overallResult:"good",employeeCode:appr.employeeCode,employeeName:appr.employeeName});
@@ -1474,7 +1509,9 @@ function ApprovalsPage({ctx}){
         {test&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>{[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].map((sn,i)=>sn&&<span key={i} style={{background:"#0c1a2e",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",fontSize:10,color:C.blue}}>S{i}: {sn}</span>)}</div>}
         {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginBottom:10,maxHeight:150}}/>}
         <Inp label="Observação para rejeição (opcional)" value={notes[appr._id]||""} onChange={e=>setNotes({...notes,[appr._id]:e.target.value})} placeholder="Ex: rever HASH 2..."/>
-        <div style={{display:"flex",gap:8}}><Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → BOA"}</Btn></div>
+        <div style={{display:"flex",gap:8}}>
+          {data.machines.find(m=>m.sn===appr.machineSN)&&<Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={data.machines.find(m=>m.sn===appr.machineSN)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>}
+          <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
     {data.approvals.filter(a=>a.status!=="pending").length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending").slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag></div>)}</>}
   </div>;
@@ -1639,8 +1676,10 @@ function MigrationPanel({ctx}){
         }
         setLog(l=>l.map(x=>x.c===c?{c,msg:`Encontrados ${docs.length}. Salvando no Supabase...`}:x));
         const writes=docs.map(d=>{const{_id,_deleted,_deletedAt,_originalId,...rest}=d;return{c,id:_id,d:rest}});
-        for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));
-        setLog(l=>l.map(x=>x.c===c?{c,msg:`✓ ${docs.length} migrados com sucesso`}:x));
+        const batchErrors=[];
+        for(let i=0;i<writes.length;i+=500){const r=await fbBatch(writes.slice(i,i+500));if(!r.ok)batchErrors.push(...r.errors)}
+        if(batchErrors.length)setLog(l=>l.map(x=>x.c===c?{c,msg:"✗ Erro: "+batchErrors.join(" | ")}:x));
+        else setLog(l=>l.map(x=>x.c===c?{c,msg:`✓ ${docs.length} migrados com sucesso`}:x));
       }catch(e){
         setLog(l=>l.map(x=>x.c===c?{c,msg:"✗ Erro: "+e.message}:x));
       }
@@ -1705,29 +1744,42 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
 // mesmo SN, e mostra só o que é realmente novo, com checkbox pra escolher o
 // que importar.
 function SheetCompareReview({ctx,onClose}){
-  const{data,mutate,webhookUrl}=ctx;
-  const[loading,setLoading]=useState(true),[newMachines,setNewMachines]=useState([]),[newHashes,setNewHashes]=useState([]),[selectedM,setSelectedM]=useState(new Set()),[selectedH,setSelectedH]=useState(new Set()),[saving,setSaving]=useState(false),[err,setErr]=useState("");
+  const{data,mutate,webhookUrl,user}=ctx;
+  const[loading,setLoading]=useState(true);
+  const[newInSheetM,setNewInSheetM]=useState([]),[newInSheetH,setNewInSheetH]=useState([]);
+  const[extraInAppM,setExtraInAppM]=useState([]),[extraInAppH,setExtraInAppH]=useState([]);
+  const[selSheetM,setSelSheetM]=useState(new Set()),[selSheetH,setSelSheetH]=useState(new Set());
+  const[selAppM,setSelAppM]=useState(new Set()),[selAppH,setSelAppH]=useState(new Set());
+  const[saving,setSaving]=useState(false),[err,setErr]=useState("");
   useEffect(()=>{
     (async()=>{
       try{
         const sheetMachines=await importMachinesFromSheet(webhookUrl);
         const sheetHashes=await importHashesFromSheet(webhookUrl);
-        const existingMSN=new Set(data.machines.map(m=>(m.sn||"").toUpperCase()).filter(Boolean));
-        const existingHSN=new Set(data.hashes.map(h=>(h.sn||"").toUpperCase()).filter(Boolean));
-        const nm=sheetMachines.filter(m=>m.sn&&!existingMSN.has(m.sn.toUpperCase()));
-        const nh=sheetHashes.filter(h=>h.sn&&!existingHSN.has(h.sn.toUpperCase()));
-        setNewMachines(nm);setNewHashes(nh);
-        setSelectedM(new Set(nm.map((_,i)=>i)));
-        setSelectedH(new Set(nh.map((_,i)=>i)));
+        const sheetMSN=new Set(sheetMachines.map(m=>(m.sn||"").toUpperCase()).filter(Boolean));
+        const sheetHSN=new Set(sheetHashes.map(h=>(h.sn||"").toUpperCase()).filter(Boolean));
+        const appMSN=new Set(data.machines.map(m=>(m.sn||"").toUpperCase()).filter(Boolean));
+        const appHSN=new Set(data.hashes.map(h=>(h.sn||"").toUpperCase()).filter(Boolean));
+        // Planilha tem, app não tem
+        const nm=sheetMachines.filter(m=>m.sn&&!appMSN.has(m.sn.toUpperCase()));
+        const nh=sheetHashes.filter(h=>h.sn&&!appHSN.has(h.sn.toUpperCase()));
+        // App tem, planilha não tem
+        const em=data.machines.filter(m=>m.sn&&!sheetMSN.has(m.sn.toUpperCase()));
+        const eh=data.hashes.filter(h=>h.sn&&!sheetHSN.has(h.sn.toUpperCase()));
+        setNewInSheetM(nm);setNewInSheetH(nh);setExtraInAppM(em);setExtraInAppH(eh);
+        setSelSheetM(new Set(nm.map((_,i)=>i)));setSelSheetH(new Set(nh.map((_,i)=>i)));
+        setSelAppM(new Set(em.map((_,i)=>i)));setSelAppH(new Set(eh.map((_,i)=>i)));
       }catch(e){setErr(e.message)}
       setLoading(false);
     })();
   },[]);
   const toggle=(set,setSet,i)=>{const n=new Set(set);n.has(i)?n.delete(i):n.add(i);setSet(n)};
-  const importSelected=async()=>{
+
+  // Traz da planilha pro app (o que a planilha tem a mais)
+  const importFromSheet=async()=>{
     setSaving(true);
-    const mToImport=newMachines.filter((_,i)=>selectedM.has(i));
-    const hToImport=newHashes.filter((_,i)=>selectedH.has(i));
+    const mToImport=newInSheetM.filter((_,i)=>selSheetM.has(i));
+    const hToImport=newInSheetH.filter((_,i)=>selSheetH.has(i));
     const mWrites=mToImport.map(m=>({c:"machines",id:uid(),d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}));
     const hWrites=hToImport.map(h=>{let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});
     const writes=[...mWrites,...hWrites];
@@ -1737,25 +1789,53 @@ function SheetCompareReview({ctx,onClose}){
     await markChanged("machines");await markChanged("hashes");
     setSaving(false);onClose();
   };
+  // Manda pra planilha o que o app tem a mais
+  const sendToSheet=async()=>{
+    setSaving(true);
+    const mToSend=extraInAppM.filter((_,i)=>selAppM.has(i));
+    const hToSend=extraInAppH.filter((_,i)=>selAppH.has(i));
+    mToSend.forEach(m=>syncSheet(webhookUrl,"addMachine",{sn:m.sn,model:m.model,th:m.th,situacao:m.situacao,employeeName:user.name,employeeCode:user.code}));
+    hToSend.forEach(h=>syncSheet(webhookUrl,"addHash",{sn:h.sn,model:h.model,status:h.status,employeeName:user.name,employeeCode:user.code}));
+    setSaving(false);onClose();
+  };
+
   if(loading)return<div style={{textAlign:"center",padding:30,color:C.muted}}>🔍 Comparando com a planilha...</div>;
   if(err)return<Alrt type="err">✗ {err}</Alrt>;
-  const totalNew=newMachines.length+newHashes.length;
-  if(totalNew===0)return<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada novo — a planilha já está toda refletida no app.</div>;
+  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length;
+  if(totalDiff===0)return<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente — app e planilha estão iguais.</div>;
   return<div>
-    <div style={{color:C.muted,fontSize:12,marginBottom:14}}>Achei {newMachines.length} máquina(s) e {newHashes.length} HASH(s) na planilha que ainda não estão no app (tudo que já existe foi ignorado). Escolhe o que quer importar:</div>
-    {newMachines.length>0&&<><SL>🖥️ MÁQUINAS NOVAS ({newMachines.length})</SL>
-      {newMachines.map((m,i)=><div key={i} onClick={()=>toggle(selectedM,setSelectedM,i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
-        <div><span style={{fontWeight:700,fontSize:13}}>{m.sn}</span><span style={{color:C.muted,fontSize:11}}> · {m.model} · {m.addedAt?fmtDate(m.addedAt):""}</span></div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}><SP s={m.situacao}/><input type="checkbox" checked={selectedM.has(i)} readOnly style={{width:16,height:16}}/></div>
-      </div>)}
-    </>}
-    {newHashes.length>0&&<><SL mt={14}>⚡ HASHs NOVAS ({newHashes.length})</SL>
-      {newHashes.map((h,i)=><div key={i} onClick={()=>toggle(selectedH,setSelectedH,i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
-        <div><span style={{fontWeight:700,fontSize:13}}>{h.sn}</span><span style={{color:C.muted,fontSize:11}}> · {h.model} · {h.situacao} · {h.addedAt?fmtDate(h.addedAt):""}</span></div>
-        <input type="checkbox" checked={selectedH.has(i)} readOnly style={{width:16,height:16}}/>
-      </div>)}
-    </>}
-    <Btn v="g" onClick={importSelected} disabled={saving||(selectedM.size+selectedH.size===0)} style={{width:"100%",marginTop:14}}>{saving?"Importando...":`💾 Importar ${selectedM.size+selectedH.size} selecionado(s)`}</Btn>
+    {(newInSheetM.length>0||newInSheetH.length>0)&&<div style={{marginBottom:20}}>
+      <div style={{color:C.blue,fontWeight:800,fontSize:13,marginBottom:8}}>⬇️ A PLANILHA TEM E O APP NÃO ({newInSheetM.length+newInSheetH.length})</div>
+      {newInSheetM.length>0&&<><SL>🖥️ Máquinas ({newInSheetM.length})</SL>
+        {newInSheetM.map((m,i)=><div key={i} onClick={()=>toggle(selSheetM,setSelSheetM,i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+          <div><span style={{fontWeight:700,fontSize:13}}>{m.sn}</span><span style={{color:C.muted,fontSize:11}}> · {m.model}</span></div>
+          <input type="checkbox" checked={selSheetM.has(i)} readOnly style={{width:16,height:16}}/>
+        </div>)}
+      </>}
+      {newInSheetH.length>0&&<><SL mt={10}>⚡ HASHs ({newInSheetH.length})</SL>
+        {newInSheetH.map((h,i)=><div key={i} onClick={()=>toggle(selSheetH,setSelSheetH,i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+          <div><span style={{fontWeight:700,fontSize:13}}>{h.sn}</span><span style={{color:C.muted,fontSize:11}}> · {h.model} · {h.situacao}</span></div>
+          <input type="checkbox" checked={selSheetH.has(i)} readOnly style={{width:16,height:16}}/>
+        </div>)}
+      </>}
+      <Btn v="g" onClick={importFromSheet} disabled={saving||(selSheetM.size+selSheetH.size===0)} style={{width:"100%",marginTop:10}}>{saving?"...":`⬇️ Trazer ${selSheetM.size+selSheetH.size} pro app`}</Btn>
+    </div>}
+    {(extraInAppM.length>0||extraInAppH.length>0)&&<div>
+      <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⬆️ O APP TEM E A PLANILHA NÃO ({extraInAppM.length+extraInAppH.length})</div>
+      {extraInAppM.length>0&&<><SL>🖥️ Máquinas ({extraInAppM.length})</SL>
+        {extraInAppM.map((m,i)=><div key={i} onClick={()=>toggle(selAppM,setSelAppM,i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+          <div><span style={{fontWeight:700,fontSize:13}}>{m.sn}</span><span style={{color:C.muted,fontSize:11}}> · {m.model}</span></div>
+          <input type="checkbox" checked={selAppM.has(i)} readOnly style={{width:16,height:16}}/>
+        </div>)}
+      </>}
+      {extraInAppH.length>0&&<><SL mt={10}>⚡ HASHs ({extraInAppH.length})</SL>
+        {extraInAppH.map((h,i)=><div key={i} onClick={()=>toggle(selAppH,setSelAppH,i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`,cursor:"pointer"}}>
+          <div><span style={{fontWeight:700,fontSize:13}}>{h.sn}</span><span style={{color:C.muted,fontSize:11}}> · {h.model} · {h.status}</span></div>
+          <input type="checkbox" checked={selAppH.has(i)} readOnly style={{width:16,height:16}}/>
+        </div>)}
+      </>}
+      <Btn v="y" onClick={sendToSheet} disabled={saving||(selAppM.size+selAppH.size===0)} style={{width:"100%",marginTop:10}}>{saving?"...":`⬆️ Mandar ${selAppM.size+selAppH.size} pra planilha`}</Btn>
+    </div>}
   </div>;
 }
 
@@ -1940,7 +2020,7 @@ function ClientDetail({ctx,client}){
       if(row.existing){
         const ex=data.machines.find(m=>m._id===row._id);if(!ex)continue;
         const mHashes=data.hashes.filter(h=>h.machineSN===row.sn);
-        for(const h of mHashes){const u={...h,status:"SAIDA",location:"Vendida: "+c.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u)}
+        for(const h of mHashes){const u={...h,status:"SAIDA",location:"Vendida: "+c.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);syncSheet(webhookUrl,"hashSaida",{sn:u.sn,machineSN:row.sn,employeeName:user.name,employeeCode:user.code})}
         const u={...ex,situacao:"SAIDA",destino:c.name,changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"SAIDA",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
         mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));await fbSet("machines",ex._id,u);
         syncSheet(webhookUrl,"updateMachine",{sn:row.sn,field:"situacao",to:"SAIDA",destino:c.name,employeeName:user.name,employeeCode:user.code});
