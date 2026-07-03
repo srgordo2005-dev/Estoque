@@ -336,6 +336,7 @@ export default function App(){
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
   const allModels=useCallback(()=>[...DEF_MODELS,...data.customModels].sort((a,b)=>a.m.localeCompare(b.m)),[data.customModels]);
   const gTH=useCallback(m=>{const f=[...DEF_MODELS,...data.customModels].find(x=>x.m===m);return f?.th||0},[data.customModels]);
+  const gChips=useCallback(m=>{const f=data.customModels.find(x=>x.m===m&&x.chips);return f?.chips||null},[data.customModels]);
   const[dataWarnings,setDataWarnings]=useState([]);
 
   // BLINDAGEM CONTRA PERDA DE DADOS:
@@ -505,7 +506,7 @@ export default function App(){
 
   useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
-  const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,dataWarnings,resetMaxCount};
+  const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount};
   if(loading)return<Splash/>;
   if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
   if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
@@ -876,7 +877,7 @@ function MachineDetail({ctx,machine}){
     syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:k,from:logEntry.from,to:v,employeeName:user.name,employeeCode:user.code});
   };
   const history=[];
-  data.tests.filter(t=>t.machineSN===m.sn&&m.sn).forEach(t=>{const emp=data.employees.find(e=>e._id===t.employeeId);history.push({date:t._at||t.date,text:"Testada por "+(emp?.name||"?")+" — "+(t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"),photoKey:t.testPhoto})});
+  data.tests.filter(t=>t.machineSN===m.sn&&m.sn).forEach(t=>{const emp=data.employees.find(e=>e._id===t.employeeId);history.push({date:t._at||t.date,text:"Testada por "+(emp?.name||t._byName||"?")+" — "+(t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"),photoKey:t.testPhoto})});
   (m.changeLog||[]).forEach(l=>history.push({date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
   history.sort((a,b)=>a.date<b.date?-1:1);
   const exitSits=["SAIDA","EXPORTADA","VENDIDA"];
@@ -990,7 +991,7 @@ function MachineDetail({ctx,machine}){
 
 /* ═══ HASHES ════════════════════════════════════════════════════ */
 function HashPage({ctx}){
-  const{data,setModal,mutate,user}=ctx;const[search,setSearch]=useState(""),[fS,setFS]=useState("all"),[modelFilters,setModelFilters]=useState(new Set()),[selected,setSelected]=useState(new Set()),[selMode,setSelMode]=useState(false),[bulkAction,setBulkAction]=useState(null);
+  const{data,setModal,mutate,user,gChips}=ctx;const[search,setSearch]=useState(""),[fS,setFS]=useState("all"),[modelFilters,setModelFilters]=useState(new Set()),[selected,setSelected]=useState(new Set()),[selMode,setSelMode]=useState(false),[bulkAction,setBulkAction]=useState(null);
   const toggleModel=mo=>setModelFilters(s=>{const n=new Set(s);n.has(mo)?n.delete(mo):n.add(mo);return n});
   const allModelsUsed=[...new Set(data.hashes.map(h=>h.model).filter(Boolean))].sort();
   const q=search.toLowerCase();
@@ -1019,7 +1020,7 @@ function HashPage({ctx}){
       :filtered.map(h=>{const mac=data.machines.find(m=>m.sn===h.machineSN);const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{position:"relative"}}>
       {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(h._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(h._id):s.delete(h._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
       <Card accent={HST_C[h.status]||C.border} onClick={()=>!selMode&&openDetail(h)} style={{paddingLeft:selMode?36:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:800,fontSize:14,color:h.status==="IRREPARAVEL"?"#9ca3af":C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{h.model}</div></div><HP s={h.status}/></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:800,fontSize:14,color:h.status==="IRREPARAVEL"?"#9ca3af":C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{h.model}{(h.chips||gChips(h.model))?` · ${h.chips||gChips(h.model)} chips`:""}</div></div><HP s={h.status}/></div>
         <div style={{display:"flex",gap:10,fontSize:11,color:C.muted,marginTop:5}}>{mac?<span style={{color:C.accent}}>🖥️ {mac.sn||"SEM SN"} · Slot {h.slot>=0?h.slot+1:"?"}</span>:<span>📦 Solta</span>}{repName&&<span>👷 {repName}</span>}</div>
         <By by={h._byName} at={h._at}/><LastMove log={h.changeLog}/>
       </Card></div>})}
@@ -1142,9 +1143,9 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
 // tela de Máquina (item 15) — mesma lógica de montagem do histórico do HashDetail.
 function buildHashHistory(data,h){
   const history=[];
-  data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${emp?.name||"?"} (já estava boa)`:`Consertada por ${emp?.name||"?"}${obs}`,notes:r.notes,photoKey:r.photoKey})});
-  data.tests.forEach(t=>{const si=[t.slot0HashSN,t.slot1HashSN,t.slot2HashSN].indexOf(h.sn);if(si<0||!h.sn)return;const emp=data.employees.find(e=>e._id===t.employeeId);const res=si===0?t.slot0Result:si===1?t.slot1Result:t.slot2Result;history.push({icon:"🧪",date:t._at||t.date,text:`Testada por ${emp?.name||"?"} — Máq.${t.machineSN||"s/n"} Slot${si+1} — ${res==="good"?"BOA ✓":"RUIM ✗"}`,photoKey:si===0?t.slot0Photo:si===1?t.slot1Photo:t.slot2Photo})});
-  data.feedbacks.filter(f=>f.hashSN===h.sn&&h.sn).forEach(f=>{const emp=data.employees.find(e=>e._id===f.originalRepairerId);history.push({icon:"⚠️",date:f._at||f.date,text:`Devolvida para ${emp?.name||"?"}`,notes:f.notes,photoKey:f.logPhotoKey})});
+  data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);const repName=emp?.name||r._byName||"?";let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${repName} (já estava boa)`:`Consertada por ${repName}${obs}`,notes:r.notes,photoKey:r.photoKey})});
+  data.tests.forEach(t=>{const si=[t.slot0HashSN,t.slot1HashSN,t.slot2HashSN].indexOf(h.sn);if(si<0||!h.sn)return;const emp=data.employees.find(e=>e._id===t.employeeId);const testName=emp?.name||t._byName||"?";const res=si===0?t.slot0Result:si===1?t.slot1Result:t.slot2Result;history.push({icon:"🧪",date:t._at||t.date,text:`Testada por ${testName} — Máq.${t.machineSN||"s/n"} Slot${si+1} — ${res==="good"?"BOA ✓":"RUIM ✗"}`,photoKey:si===0?t.slot0Photo:si===1?t.slot1Photo:t.slot2Photo})});
+  data.feedbacks.filter(f=>f.hashSN===h.sn&&h.sn).forEach(f=>{const emp=data.employees.find(e=>e._id===f.originalRepairerId);history.push({icon:"⚠️",date:f._at||f.date,text:`Devolvida para ${emp?.name||f._byName||"?"}`,notes:f.notes,photoKey:f.logPhotoKey})});
   (h.changeLog||[]).forEach(l=>history.push({icon:"✏️",date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
   history.sort((a,b)=>a.date<b.date?-1:1);
   return history;
@@ -1177,9 +1178,9 @@ function HashDetail({ctx,hash}){
     syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:u.status,location:u.location,field:k,from:logEntry.from,to:v,employeeName:user.name,employeeCode:user.code});
   };
   const history=[];
-  data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${emp?.name||"?"} (já estava boa)`:`Consertada por ${emp?.name||"?"}${obs}`,notes:r.notes,photoKey:r.photoKey})});
-  data.tests.forEach(t=>{const si=[t.slot0HashSN,t.slot1HashSN,t.slot2HashSN].indexOf(h.sn);if(si<0||!h.sn)return;const emp=data.employees.find(e=>e._id===t.employeeId);const res=si===0?t.slot0Result:si===1?t.slot1Result:t.slot2Result;history.push({icon:"🧪",date:t._at||t.date,text:`Testada por ${emp?.name||"?"} — Máq.${t.machineSN||"s/n"} Slot${si+1} — ${res==="good"?"BOA ✓":"RUIM ✗"}`,photoKey:si===0?t.slot0Photo:si===1?t.slot1Photo:t.slot2Photo})});
-  data.feedbacks.filter(f=>f.hashSN===h.sn&&h.sn).forEach(f=>{const emp=data.employees.find(e=>e._id===f.originalRepairerId);history.push({icon:"⚠️",date:f._at||f.date,text:`Devolvida para ${emp?.name||"?"}`,notes:f.notes,photoKey:f.logPhotoKey})});
+  data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);const repName=emp?.name||r._byName||"?";let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${repName} (já estava boa)`:`Consertada por ${repName}${obs}`,notes:r.notes,photoKey:r.photoKey})});
+  data.tests.forEach(t=>{const si=[t.slot0HashSN,t.slot1HashSN,t.slot2HashSN].indexOf(h.sn);if(si<0||!h.sn)return;const emp=data.employees.find(e=>e._id===t.employeeId);const testName=emp?.name||t._byName||"?";const res=si===0?t.slot0Result:si===1?t.slot1Result:t.slot2Result;history.push({icon:"🧪",date:t._at||t.date,text:`Testada por ${testName} — Máq.${t.machineSN||"s/n"} Slot${si+1} — ${res==="good"?"BOA ✓":"RUIM ✗"}`,photoKey:si===0?t.slot0Photo:si===1?t.slot1Photo:t.slot2Photo})});
+  data.feedbacks.filter(f=>f.hashSN===h.sn&&h.sn).forEach(f=>{const emp=data.employees.find(e=>e._id===f.originalRepairerId);history.push({icon:"⚠️",date:f._at||f.date,text:`Devolvida para ${emp?.name||f._byName||"?"}`,notes:f.notes,photoKey:f.logPhotoKey})});
   (h.changeLog||[]).forEach(l=>history.push({icon:"✏️",date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
   history.sort((a,b)=>a.date<b.date?-1:1);
   const mac=data.machines.find(m=>m.sn===h.machineSN);
@@ -1211,7 +1212,7 @@ function HashDetail({ctx,hash}){
 
 /* ═══ CONSERTO ══════════════════════════════════════════════════ */
 function ConsertaPage({ctx}){
-  const{data,mutate,user,allModels,webhookUrl}=ctx;const models=allModels();
+  const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
   const[f,setF]=useState({hashSN:"",model:models[0]?.m||"M30S",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
   const[photoKey,setPhotoKey]=useState(null),[saved,setSaved]=useState(null),[photoErr,setPhotoErr]=useState("");
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
@@ -1221,8 +1222,10 @@ function ConsertaPage({ctx}){
     if(!photoKey){setPhotoErr("Foto obrigatória!");return}
     setPhotoErr("");
     const sn=f.hashSN.toUpperCase().trim();const id=uid();
+    // Se o técnico não digitou a quantidade de chips, usa o padrão do modelo (Config → Chips por Modelo)
+    const chipsFinal=f.chips||gChips(f.model)||"";
     const rec={hashSN:sn,model:f.model,type,photoKey:photoKey||"",employeeId:user._id,...audit(user),date:TODAY(),status:"TESTAR"};
-    if(type==="repair"){Object.assign(rec,{chips:f.chips||"",sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
+    if(type==="repair"){Object.assign(rec,{chips:chipsFinal,sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
     await fbSet("repairs",id,rec);mutate("repairs",r=>[...r,{...rec,_id:id}]);
     // Hash → TESTAR
     const ex=data.hashes.find(h=>h.sn===sn);
@@ -1251,7 +1254,7 @@ function ConsertaPage({ctx}){
         <button onClick={()=>set("obsType","manual")} style={{flex:1,background:f.obsType==="manual"?C.accent:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"8px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>Descrição Livre</button>
       </div>
       {f.obsType==="quantity"?<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-        <Inp label="CHIPS" type="number" value={f.chips} onChange={e=>set("chips",e.target.value)} placeholder="0"/>
+        <Inp label="CHIPS" type="number" value={f.chips} onChange={e=>set("chips",e.target.value)} placeholder={gChips(f.model)?String(gChips(f.model))+" (padrão)":"0"}/>
         <Inp label="SENSORES" type="number" value={f.sensores} onChange={e=>set("sensores",e.target.value)} placeholder="0"/>
         <Inp label="LDOs" type="number" value={f.ldos} onChange={e=>set("ldos",e.target.value)} placeholder="0"/>
       </div>:<Inp label="DESCRIÇÃO DO CONSERTO" value={f.obsManual} onChange={e=>set("obsManual",e.target.value)} placeholder="Ex: 3 chips U3 trocados, reballing..."/>}
@@ -1587,21 +1590,26 @@ function SlotModal({ctx,session,slotIndex,onSave,onClose}){
 
 /* ═══ HISTÓRICO ═════════════════════════════════════════════════ */
 function HistPage({ctx,canSeeEmp}){
-  const{data,user}=ctx;const[filter,setFilter]=useState("mine");
+  const{data,user}=ctx;const[filter,setFilter]=useState("mine");const[dateFilter,setDateFilter]=useState("");
   const ownerId=r=>r.employeeId||r._by;
   const visible=id=>id===user._id||canSeeEmp(id);
   const reps=filter==="mine"?data.repairs.filter(r=>r.employeeId===user._id||r._by===user._id):data.repairs.filter(r=>visible(ownerId(r)));
   const tsts=filter==="mine"?data.tests.filter(t=>t.employeeId===user._id||t._by===user._id):data.tests.filter(t=>visible(ownerId(t)));
-  const all=[...reps.map(r=>({...r,_type:"repair"})),...tsts.map(t=>({...t,_type:"test"}))].sort((a,b)=>a.date<b.date?1:-1);
+  const allRaw=[...reps.map(r=>({...r,_type:"repair"})),...tsts.map(t=>({...t,_type:"test"}))];
+  const byDate={};allRaw.forEach(item=>{const d=item.date;if(d)byDate[d]=(byDate[d]||0)+1});
+  const all=(dateFilter?allRaw.filter(item=>item.date===dateFilter):allRaw).sort((a,b)=>a.date<b.date?1:-1);
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,TODAY())}>📋 Relatório</Btn></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,dateFilter||TODAY())}>📋 Relatório</Btn></div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>{[["mine","Meus"],["all","Todos"]].map(([id,l])=><button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?C.accent:C.card,color:filter===id?"#fff":C.muted,border:"none",borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>)}</div>
-    {all.slice(0,50).map(item=>{const emp=data.employees.find(e=>e._id===item.employeeId);
-      if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:C.blue}}>{item.type==="already_good"?"✅":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {emp?.name} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><Tag color={item.type==="already_good"?C.green:C.purple} small>{item.type==="already_good"?"JÁ BOA":"CONSERTO"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="📅 FILTRAR POR DATA" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>{dateFilter&&<Btn v="s" onClick={()=>setDateFilter("")} style={{marginBottom:12}}>Limpar</Btn>}</div>
+    {all.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>{dateFilter?"Sem registros nesta data":"Sem histórico ainda"}</div>}
+    {all.slice(0,50).map(item=>{const emp=data.employees.find(e=>e._id===item.employeeId);const itemName=emp?.name||item._byName;
+      if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:C.blue}}>{item.type==="already_good"?"✅":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><Tag color={item.type==="already_good"?C.green:C.purple} small>{item.type==="already_good"?"JÁ BOA":"CONSERTO"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
       const stC=item.status==="pending"?C.blue:item.status==="rejected"?C.amber:item.overallResult==="good"?C.green:C.red;
       const stL=item.status==="pending"?"Aguard.Revisão":item.status==="rejected"?"REPROVADA":item.overallResult==="good"?"BOA":"RUIM";
-      return<Card key={item._id} accent={stC}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {item.machineSN||"s/máq"}</div><div style={{fontSize:11,color:C.muted}}>👷 {emp?.name} · {fmtTS(item._at)}</div></div><Tag color={stC} small>{stL}</Tag></div><By by={item._byName} at={item._at}/></Card>;
+      return<Card key={item._id} accent={stC}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {item.machineSN||"s/máq"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div></div><Tag color={stC} small>{stL}</Tag></div><By by={item._byName} at={item._at}/></Card>;
     })}
+    {!dateFilter&&Object.keys(byDate).length>0&&<><SL mt={16}>DIAS COM MOVIMENTAÇÃO</SL>{Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13,cursor:"pointer"}}><span>{fmtDate(d)}</span><Tag color={C.accent} small>{byDate[d]} itens</Tag></div>)}</>}
   </div>;
 }
 
@@ -1869,7 +1877,7 @@ function MigrationPanel({ctx}){
 }
 
 function CfgPage({ctx}){
-  const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal,resetMaxCount}=ctx;
+  const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal,resetMaxCount,gTH}=ctx;
   const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
   const recalcProtection=()=>{
     resetMaxCount("machines",data.machines.length);
@@ -1891,6 +1899,15 @@ const doImportMachines=async()=>{if(!url){alert("Configure o webhook");return}se
 const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);try{const hashes=await importHashesFromSheet(url);if(!hashes.length){setImportRes("Nenhuma HASH na aba REPARO DE HASH.");setImporting(false);return}const writes=hashes.map(h=>{const id=uid();let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id,d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));mutate("hashes",existing=>[...existing,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("hashes");setImportRes(`✓ ${hashes.length} HASHs importadas!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false)};
   const addModel=async()=>{if(!newModel.trim()||!newTH)return;const id=uid();const d={m:newModel.trim(),th:Number(newTH)};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}]);setNewModel("");setNewTH("")};
   const delModel=async m=>{await fbDel("customModels",m._id);mutate("customModels",arr=>arr.filter(x=>x._id!==m._id))};
+  const[chipsModel,setChipsModel]=useState(""),[chipsVal,setChipsVal]=useState("");
+  const allModelsForChips=[...new Set([...DEF_MODELS.map(m=>m.m),...data.customModels.map(m=>m.m)])].sort();
+  const setChipsForModel=async()=>{
+    if(!chipsModel||!chipsVal)return;
+    const existing=data.customModels.find(m=>m.m===chipsModel);
+    if(existing){const u={...existing,chips:Number(chipsVal)};await fbSet("customModels",existing._id,u);mutate("customModels",arr=>arr.map(x=>x._id===existing._id?u:x))}
+    else{const id=uid();const d={m:chipsModel,th:gTH(chipsModel),chips:Number(chipsVal)};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}])}
+    setChipsModel("");setChipsVal("");
+  };
   return<div>
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
     {dataWarnings.length>0&&<Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
@@ -1912,6 +1929,15 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       <Btn v="y" onClick={()=>setModal(<Modal title="🔍 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} disabled={!url} style={{width:"100%"}}>🔍 Comparar com Planilha (só mostra o que é novo)</Btn>
     </Card>
     <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS</SL>{data.customModels.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
+    <Card style={{marginBottom:14}}><SL>⚡ CHIPS POR MODELO</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Quantidade padrão de chips de cada modelo de HASH — aparece nos cards e é usada automaticamente quando não for informado na hora do conserto.</div>
+      {data.customModels.filter(m=>m.chips).map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><span style={{color:C.blue,fontSize:12,fontWeight:700}}>{m.chips} chips</span></div>)}
+      <div style={{display:"flex",gap:8,marginTop:12}}>
+        <Sel value={chipsModel} onChange={e=>setChipsModel(e.target.value)} style={{flex:2,marginBottom:0}}><option value="">Modelo...</option>{allModelsForChips.map(mo=><option key={mo}>{mo}</option>)}</Sel>
+        <Inp type="number" value={chipsVal} onChange={e=>setChipsVal(e.target.value)} placeholder="Chips" style={{width:80,marginBottom:0}}/>
+        <Btn onClick={setChipsForModel}>💾</Btn>
+      </div>
+    </Card>
     <Card><div style={{fontWeight:800,color:C.blue,marginBottom:10}}>📖 Como configurar</div>{[["1","Abra sua planilha no Google Sheets"],["2","Extensões → Apps Script"],["3","Cole o código do arquivo hashstock-apps-script.js"],["4","Implantar → App da Web → Qualquer pessoa"],["5","Copie a URL e cole acima"]].map(([n,t])=><div key={n} style={{display:"flex",gap:10,marginBottom:8}}><div style={{width:22,height:22,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,flexShrink:0,color:"#fff"}}>{n}</div><div style={{fontSize:13,paddingTop:2}}>{t}</div></div>)}</Card>
   </div>;
 }
