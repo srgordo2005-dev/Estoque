@@ -134,7 +134,26 @@ async function uploadPhoto(b64,path){
   }catch(e){console.error("uploadPhoto:",e);return null}
 }
 let wQ=[],wT=null;
-function syncSheet(url,action,payload){if(!url)return;wQ.push({action,payload});clearTimeout(wT);wT=setTimeout(()=>{if(!wQ.length)return;const b=[...wQ];wQ=[];fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({batch:b}),mode:"no-cors"}).catch(()=>{})},1500);}
+let onSyncSheetError=null; // o App registra isso no boot pra mostrar erros de sincronização com a planilha na tela
+function syncSheet(url,action,payload){
+  if(!url)return;
+  wQ.push({action,payload});
+  clearTimeout(wT);
+  wT=setTimeout(async()=>{
+    if(!wQ.length)return;
+    const b=[...wQ];wQ=[];
+    try{
+      // Sem mode:"no-cors" — assim conseguimos LER a resposta e saber se
+      // realmente funcionou, em vez de disparar às cegas e nunca saber.
+      const r=await fetch(url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({batch:b})});
+      const d=await r.json().catch(()=>({}));
+      if(d.error){console.error("syncSheet erro:",d.error);onSyncSheetError?.(`Planilha não salvou "${b[0]?.action}": ${d.error}`)}
+    }catch(e){
+      console.error("syncSheet falhou:",e);
+      onSyncSheetError?.(`Planilha não respondeu pra "${b[0]?.action}": ${e.message}`);
+    }
+  },1500);
+}
 async function importMachinesFromSheet(url,onProgress){
   if(onProgress)onProgress(0,0);
   const r=await fetch(`${url}?action=getMachines`);
@@ -418,6 +437,7 @@ export default function App(){
     setLoading(false);
   },[]);
   useEffect(()=>{bootLoad()},[bootLoad]);
+  useEffect(()=>{onSyncSheetError=(msg)=>setDataWarnings(w=>[{msg:"⚠️ "+msg,at:stamp()},...w].slice(0,20))},[]);
   // Supabase Realtime: qualquer mudança em qualquer tabela avisa todo mundo
   // na hora (substitui o polling de 15 em 15 minutos do Firebase). Como o
   // Supabase não cobra por leitura, não tem problema reler a coleção inteira
