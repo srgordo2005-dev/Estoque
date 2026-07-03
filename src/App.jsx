@@ -71,23 +71,25 @@ async function fbSet(c,id,obj){
   const table=tableName(c);
   const row={id,...toDBRow(obj)};
   const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
-  if(error)console.error(`fbSet(${c},${id}):`,error.message);
+  if(error){console.error(`fbSet(${c},${id}):`,error.message);throw new Error(`fbSet(${c}): ${error.message}`)}
 }
 async function fbDel(c,id){
   const table=tableName(c);
   const{error}=await supabase.from(table).delete().eq("id",id);
-  if(error)console.warn(`fbDel(${c},${id}):`,error.message);
+  if(error){console.warn(`fbDel(${c},${id}):`,error.message);throw new Error(`fbDel(${c}): ${error.message}`)}
 }
 async function fbBatch(writes){
   const byCol={};
   for(const w of writes){(byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(w.d)})}
+  const errors=[];
   for(const[c,rows]of Object.entries(byCol)){
     const table=tableName(c);
     for(let i=0;i<rows.length;i+=500){
       const{error}=await supabase.from(table).upsert(rows.slice(i,i+500),{onConflict:"id"});
-      if(error)console.error(`fbBatch(${c}):`,error.message);
+      if(error){console.error(`fbBatch(${c}):`,error.message);errors.push(`${c}: ${error.message}`)}
     }
   }
+  if(errors.length)throw new Error(errors.join(" | "));
 }
 // Supabase Realtime substitui o sistema de polling + carimbo de tempo (_meta)
 // que existia no Firebase — não precisa mais "marcar" nada manualmente.
