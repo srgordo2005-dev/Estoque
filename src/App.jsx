@@ -855,7 +855,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     <div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={f.model} onChange={e=>{set("model",e.target.value);set("th",gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={f.th} onChange={e=>set("th",e.target.value)} style={{width:70}}/></div>
     <div style={{display:"flex",gap:8}}><Sel label="TIPO" value={f.type} onChange={e=>set("type",e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={f.situacao} onChange={e=>set("situacao",e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div>
     <PalletLocationPicker pallets={data.pallets} value={f.location} onChange={v=>set("location",v)}/>
-    {f.type==="complete"&&<>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span><input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/><select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>}
+    <>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span><input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/><select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
     <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"💾 Salvar"}</Btn></div>
   </div>;
@@ -863,7 +863,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
 
 const FIELD_LABELS={situacao:"Situação",sn:"SN",location:"Localização",model:"Modelo",th:"T/H",hash0:"Hash slot 1",hash1:"Hash slot 2",hash2:"Hash slot 3",hashSN0:"SN slot 1",hashSN1:"SN slot 2",hashSN2:"SN slot 3",controladora:"Controladora",fonte:"Fonte",fans:"Fans",status:"Status",destino:"Destino"};
 function MachineDetail({ctx,machine}){
-  const{data,mutate,setModal,user,webhookUrl}=ctx;
+  const{data,mutate,setModal,user,webhookUrl,allModels,gTH}=ctx;const models=allModels();
   const[m,setM]=useState(machine);
   const upd=async(k,v)=>{
     if(m[k]===v)return;
@@ -898,8 +898,14 @@ function MachineDetail({ctx,machine}){
     // automaticamente. Pra qualquer outro status, fica livre (pode salvar
     // parcial: só 1 HASH boa, só a controladora, só o fan, etc.).
     if(s==="BOA"){
-      for(const k of["hash0","hash1","hash2","controladora","fonte","fans"]){
-        if(m[k]!=="ON")await upd(k,"ON");
+      const patch={hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"};
+      const changedFields=Object.keys(patch).filter(k=>m[k]!==patch[k]);
+      if(changedFields.length){
+        const newLog=changedFields.map(k=>({field:k,label:FIELD_LABELS[k]||k,from:m[k]??"",to:patch[k],by:user.name,at:stamp()}));
+        const u={...m,...patch,changeLog:[...newLog,...(m.changeLog||[])].slice(0,80),...audit(user)};
+        setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));
+        await fbSet("machines",m._id,u);await markChanged("machines");
+        changedFields.forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:k,to:patch[k],employeeName:user.name,employeeCode:user.code}));
       }
     }
   };
@@ -908,7 +914,7 @@ function MachineDetail({ctx,machine}){
       <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}><SP s={m.situacao}/>{m.type==="shell"&&<Tag color={C.muted}>CARCAÇA</Tag>}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
-          <div><div style={{color:C.muted,fontSize:10}}>MODELO</div><div style={{fontWeight:700}}>{m.model}</div></div>
+          <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div><select value={m.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select></div>
           <div><div style={{color:C.muted,fontSize:10}}>T/H</div><div style={{fontWeight:700}}>{m.th}</div></div>
         </div>
         <By by={m._byName} at={m._at}/>
@@ -1394,12 +1400,14 @@ function TestePage({ctx}){
     {sessions.length>0&&<div style={{marginBottom:12}}>
       <SL>🖥️ MÁQUINAS EM TESTE ({sessions.length})</SL>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {sessions.map(s=><button key={s._id} onClick={()=>{setActiveId(s._id);setMacInput(s.machineSN)}} style={{background:s._id===activeId?C.accent:C.card,color:"#fff",border:`1px solid ${s._id===activeId?C.accent:C.border}`,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          🖥️ {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
+        {sessions.map(s=><button key={s._id} onClick={()=>{setActiveId(s._id);setMacInput(s.machineSN)}} style={{background:s._id===activeId?C.accent:(s.rejected?"#3a0a0a":C.card),color:"#fff",border:`1px solid ${s._id===activeId?C.accent:(s.rejected?C.red:C.border)}`,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          {s.rejected?"❌":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
           <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900}}>✕</span>
         </button>)}
       </div>
     </div>}
+
+    {session?.rejected&&<Alrt type="err">{(session.adminNotes||[]).join(" · ")||"❌ Essa máquina foi reprovada na revisão. Corrija e envie de novo."}</Alrt>}
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
@@ -1632,6 +1640,21 @@ function ApprovalsPage({ctx}){
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
     if(exMac){const u={...exMac,situacao:"REVISAR",adminNote:n||"Admin solicitou revisão",_reviewedByName:user.name,_reviewedAt:stamp(),...audit(user)};await fbSet("machines",exMac._id,u);mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x))}
     await fbSet("pendingApprovals",appr._id,{...appr,status:"rejected",adminNote:n,...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"rejected"}:x));
+    // Devolve pro tester original como sessão REPROVADA — ele corrige e reenvia.
+    // A planilha só é atualizada quando a revisão finalmente aprovar de verdade.
+    const test=data.tests.find(t=>t._id===appr.testId);
+    if(test){
+      const sid=uid();
+      const s={_id:sid,employeeId:appr.employeeId,machineSN:appr.machineSN,model:test.model,th:test.th,
+        slots:[
+          {hashSN:test.slot0HashSN||"",status:test.slot0Result||"",photoKey:test.slot0Photo||null},
+          {hashSN:test.slot1HashSN||"",status:test.slot1Result||"",photoKey:test.slot1Photo||null},
+          {hashSN:test.slot2HashSN||"",status:test.slot2Result||"",photoKey:test.slot2Photo||null},
+        ],controladora:test.controladora||"",fonte:test.fonte||"",fans:test.fans||"",photoKey:test.testPhoto||null,
+        adminNotes:[`❌ REPROVADA pelo Admin ${user.name}: ${n||"sem observação"}`],
+        rejected:true,updatedAt:stamp()};
+      await fbSet("sessions",sid,s);
+    }
     await markChanged("approvals");await markChanged("machines");setProcessing(null);
   };
   return<div>
