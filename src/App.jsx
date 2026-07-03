@@ -276,8 +276,21 @@ function SmartScanInput({onDetect,placeholder,autoFocus,disabled}){
 function PhotoCapture({label,photoKey,onChange,folder="photos",required}){
   const[src,setSrc]=useState(null),[up,setUp]=useState(false);const ref=useRef();
   useEffect(()=>{if(!photoKey){setSrc(null);return}if(photoKey.startsWith("http")||photoKey.startsWith("data:"))setSrc(photoKey);else setSrc(localStorage.getItem("ph:"+photoKey))},[photoKey]);
-  const pick=async f=>{setUp(true);const b64=await compress(f);setSrc(b64);const url=await uploadPhoto(b64,`${folder}/${uid()}.jpg`);onChange(url||b64);setUp(false)};
-  return<div style={{marginBottom:14}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>{label}{required&&<span style={{color:C.red}}> *</span>}</div>}{up&&<div style={{color:C.amber,fontSize:12,marginBottom:6}}>⏳ Enviando...</div>}{src?<div style={{position:"relative"}}><img src={src} alt="" style={{width:"100%",borderRadius:10,maxHeight:220,objectFit:"cover"}}/><button onClick={()=>{setSrc(null);onChange(null)}} style={{position:"absolute",top:6,right:6,background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>✕</button></div>:<div style={{display:"flex",gap:8}}><button onClick={()=>ref.current.click()} style={{flex:1,background:"#080e17",border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>📷 {required?"(Obrigatória)":"Foto"}</button><button onClick={async()=>{try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(t=>t.startsWith("image/"));if(type){const blob=await item.getType(type);const file=new File([blob],"paste.jpg",{type});await pick(file);return}}alert("Nenhuma imagem no clipboard")}catch{alert("Copie uma imagem (print screen) e toque Colar")}}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.blue,borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}} title="Colar print">📋 Colar</button></div>}<input ref={ref} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&pick(e.target.files[0])}/></div>;
+  const[failed,setFailed]=useState(false);
+  const pick=async f=>{
+    setUp(true);setFailed(false);
+    const b64=await compress(f);
+    setSrc(b64); // mostra a prévia na hora, mas não salva isso no banco
+    const url=await uploadPhoto(b64,`${folder}/${uid()}.jpg`);
+    if(url){onChange(url)}
+    else{
+      // Nunca salva a foto em base64 direto no banco — isso lotaria o Supabase.
+      // Se o Drive falhar, avisa e deixa sem foto (o aviso 🛡️ já mostra o erro).
+      setFailed(true);setSrc(null);onChange(null);
+    }
+    setUp(false);
+  };
+  return<div style={{marginBottom:14}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>{label}{required&&<span style={{color:C.red}}> *</span>}</div>}{up&&<div style={{color:C.amber,fontSize:12,marginBottom:6}}>⏳ Enviando pro Drive...</div>}{failed&&<div style={{color:C.red,fontSize:12,marginBottom:6}}>✗ Não consegui enviar a foto pro Drive. Confere a conexão e tenta de novo (não salva no banco pra não lotar).</div>}{src?<div style={{position:"relative"}}><img src={src} alt="" style={{width:"100%",borderRadius:10,maxHeight:220,objectFit:"cover"}}/><button onClick={()=>{setSrc(null);onChange(null)}} style={{position:"absolute",top:6,right:6,background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>✕</button></div>:<div style={{display:"flex",gap:8}}><button onClick={()=>ref.current.click()} style={{flex:1,background:"#080e17",border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>📷 {required?"(Obrigatória)":"Foto"}</button><button onClick={async()=>{try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(t=>t.startsWith("image/"));if(type){const blob=await item.getType(type);const file=new File([blob],"paste.jpg",{type});await pick(file);return}}alert("Nenhuma imagem no clipboard")}catch{alert("Copie uma imagem (print screen) e toque Colar")}}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.blue,borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}} title="Colar print">📋 Colar</button></div>}<input ref={ref} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&pick(e.target.files[0])}/></div>;
 }
 function PhotoView({photoKey,style}){
   const[src,setSrc]=useState(null);
@@ -779,7 +792,13 @@ function BulkMachineAction({ctx,action,machines,onDone}){
   const apply=async()=>{
     setSaving(true);
     if(action==="status"){
-      for(const m of machines){const u={...m,situacao:sit,changeLog:[{field:"situacao",label:"Situação",from:m.situacao,to:sit,by:user.name,at:stamp()},...(m.changeLog||[])].slice(0,80),...audit(user)};mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));await fbSet("machines",m._id,u);syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:sit,employeeName:user.name,employeeCode:user.code})}
+      for(const m of machines){
+        const forceOn=sit==="BOA";
+        const u={...m,situacao:sit,...(forceOn?{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"}:{}),changeLog:[{field:"situacao",label:"Situação",from:m.situacao,to:sit,by:user.name,at:stamp()},...(m.changeLog||[])].slice(0,80),...audit(user)};
+        mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));await fbSet("machines",m._id,u);
+        syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:sit,employeeName:user.name,employeeCode:user.code});
+        if(forceOn){["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}))}
+      }
       await markChanged("machines");
     }else if(action==="pallet"&&palletId){
       const pl=data.pallets.find(p=>p._id===palletId);if(pl){const sns=machines.map(m=>m.sn).filter(Boolean);const ns=[...new Set([...(pl.machinesSN||[]),...sns])];const upd={...pl,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===palletId?upd:x));await fbSet("pallets",palletId,upd);await markChanged("pallets")}
@@ -827,7 +846,7 @@ function BatchNoSNForm({ctx,onClose}){
 
 function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
-  const[f,setF]=useState({sn:initSN,model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),type:"complete",hash0:"OFF",hash1:"OFF",hash2:"OFF",hashSN0:"",hashSN1:"",hashSN2:"",controladora:"OFF",fonte:"OFF",fans:"OFF",situacao:"STOCK",destino:""});
+  const[f,setF]=useState({sn:initSN,model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),type:"complete",hash0:"OFF",hash1:"OFF",hash2:"OFF",hashSN0:"",hashSN1:"",hashSN2:"",controladora:"OFF",fonte:"OFF",fans:"OFF",situacao:"STOCK",destino:"",location:""});
   const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const save=async()=>{setSaving(true);const id=uid();const d={...f,th:Number(f.th),sn:f.sn.toUpperCase().trim(),...audit(user),addedAt:TODAY(),photoKey:photoKey||""};await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);await markChanged("machines");syncSheet(webhookUrl,"addMachine",{sn:d.sn,model:d.model,th:d.th,situacao:d.situacao,employeeName:user.name,employeeCode:user.code});setSaving(false);onClose()};
@@ -835,6 +854,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     <SNInput label="SN" value={f.sn} onChange={v=>set("sn",v)} placeholder="Deixe vazio se não tiver"/>
     <div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={f.model} onChange={e=>{set("model",e.target.value);set("th",gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={f.th} onChange={e=>set("th",e.target.value)} style={{width:70}}/></div>
     <div style={{display:"flex",gap:8}}><Sel label="TIPO" value={f.type} onChange={e=>set("type",e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={f.situacao} onChange={e=>set("situacao",e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div>
+    <PalletLocationPicker pallets={data.pallets} value={f.location} onChange={v=>set("location",v)}/>
     {f.type==="complete"&&<>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span><input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/><select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>}
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
     <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"💾 Salvar"}</Btn></div>
@@ -874,6 +894,14 @@ function MachineDetail({ctx,machine}){
       }
     }
     await upd("situacao",s);
+    // Marcar como BOA = máquina 100% funcionando — todas as peças ficam ON
+    // automaticamente. Pra qualquer outro status, fica livre (pode salvar
+    // parcial: só 1 HASH boa, só a controladora, só o fan, etc.).
+    if(s==="BOA"){
+      for(const k of["hash0","hash1","hash2","controladora","fonte","fans"]){
+        if(m[k]!=="ON")await upd(k,"ON");
+      }
+    }
   };
   return(
     <div>
@@ -1077,13 +1105,13 @@ function HashBatchSNForm({ctx,onClose}){
 
 function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
   const{data,mutate,user,allModels,webhookUrl}=ctx;const models=allModels();
-  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[status,setStatus]=useState("REPARO"),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null);
+  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[status,setStatus]=useState("REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null);
   const checkSN=v=>{setSN(v);const s=v.toUpperCase().trim();if(!s){setSnInfo(null);return}const ex=data.hashes.find(h=>h.sn===s);if(ex)setSnInfo({type:"exists",item:ex});else{const mac=data.machines.find(m=>m.sn===s);if(mac)setSnInfo({type:"mac",item:mac});else setSnInfo(null)}};
   const save=async()=>{
     const s=sn.toUpperCase().trim();
     if(s&&data.hashes.find(h=>h.sn===s)){alert("SN já cadastrado!");return}
     const id=uid();
-    const d={sn:s,model,status,obs,...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,repairedBy:"",photoKey:photoKey||""};
+    const d={sn:s,model,status,location,obs,...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,repairedBy:"",photoKey:photoKey||""};
     await fbSet("hashes",id,d);
     mutate("hashes",h=>[...h,{...d,_id:id}]);
     await markChanged("hashes");
@@ -1096,6 +1124,7 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
     {snInfo?.type==="mac"&&<div style={{background:"#3a2a0a",border:"1px solid "+C.amber,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.amber,fontWeight:800}}>📌 SN é de uma Máquina</div><div style={{fontSize:12,color:C.muted}}>{snInfo.item.model} · <SP s={snInfo.item.situacao}/></div></div>}
     <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
     <Sel label="STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
+    <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
     <Inp label="Observação" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: Chip U3 trocado, Chain Break corrigida..."/>
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
     <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={snInfo?.type==="exists"} style={{flex:1}}>Salvar</Btn></div>
@@ -1449,6 +1478,26 @@ function TestePage({ctx}){
   </div>;
 }
 
+// Lista de paletes existentes pra escolher, com opção de digitar outro local
+// livre — usado em Adicionar Máquina, Adicionar HASH, e Marcar RUIM.
+function PalletLocationPicker({pallets,value,onChange}){
+  const[custom,setCustom]=useState(false);
+  const palletNames=[...new Set((pallets||[]).map(p=>p.name).filter(Boolean))];
+  const isKnown=palletNames.includes(value);
+  return<div style={{marginBottom:12}}>
+    <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>ONDE VAI FICAR (PALETE/LOCAL)</div>
+    {!custom?<select value={isKnown?value:""} onChange={e=>{if(e.target.value==="__custom__"){setCustom(true);onChange("")}else onChange(e.target.value)}} style={{...inp}}>
+      <option value="">Selecionar palete...</option>
+      {palletNames.map(n=><option key={n} value={n}>{n}</option>)}
+      <option value="__custom__">✏️ Digitar outro local...</option>
+    </select>
+    :<div style={{display:"flex",gap:8}}>
+      <input value={value} onChange={e=>onChange(e.target.value.toUpperCase())} placeholder="Ex: PRATELEIRA REPARO" style={{...inp,flex:1}}/>
+      {palletNames.length>0&&<button onClick={()=>setCustom(false)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:8,padding:"0 12px",cursor:"pointer"}} title="Voltar pra lista de paletes">📦</button>}
+    </div>}
+  </div>;
+}
+
 function RuimSlotForm({ctx,session,slotIndex,onSave}){
   const{data,mutate,user,webhookUrl}=ctx;
   const[logPhoto,setLogPhoto]=useState(null),[notes,setNotes]=useState(""),[location,setLocation]=useState(""),[saving,setSaving]=useState(false),[err,setErr]=useState("");
@@ -1483,7 +1532,7 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     </div>
     <PhotoCapture label="📸 Foto do Log de Erro (opcional)" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste"/>
     <Inp label="Descrição do Erro" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected, Chain Break..."/>
-    <Inp label="Onde essa HASH vai ficar (palete/prateleira)" value={location} onChange={e=>setLocation(e.target.value.toUpperCase())} placeholder="Ex: PALETE 03 · PRATELEIRA REPARO"/>
+    <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
     {err&&<Alrt type="err">{err}</Alrt>}
     <div style={{display:"flex",gap:8}}>
       <Btn v="s" onClick={()=>onSave(session)} style={{flex:1}}>Cancelar</Btn>
