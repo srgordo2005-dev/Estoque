@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { jsPDF } from "jspdf";
 
 /* ═══ SUPABASE ═══════════════════════════════════════════════════ */
 const SUPABASE_URL="https://paelbarlmayswqilhoxa.supabase.co";
@@ -207,6 +208,58 @@ const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"—";
 const fmtTS=s=>s?new Date(s).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
 const fmtTime=s=>s?new Date(s).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"";
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const downloadPhoto=(url,filename)=>{
+  const a=document.createElement("a");
+  a.href=url;a.download=filename||"foto.jpg";a.target="_blank";a.rel="noopener noreferrer";
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+};
+// Carrega uma foto (URL do Drive) e converte pra base64, pra poder colar
+// dentro do PDF. Se falhar (CORS, foto não existe mais etc), não quebra o
+// relatório — só segue sem a imagem daquele item.
+async function loadImageAsDataURL(url){
+  try{
+    const res=await fetch(url);const blob=await res.blob();
+    return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onloadend=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob)});
+  }catch{return null}
+}
+async function generateClientPDF(client,macsF,hshsF,data,onProgress){
+  const doc=new jsPDF();
+  const pageH=280;let y=20;
+  doc.setFontSize(18);doc.setFont(undefined,"bold");doc.text(`Relatório — ${client.name}`,14,y);y+=8;
+  doc.setFont(undefined,"normal");doc.setFontSize(10);doc.setTextColor(120);
+  doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")} · ${macsF.length} máquina(s) · ${hshsF.length} HASH(s) avulsa(s)`,14,y);y+=10;
+  doc.setTextColor(0);
+  let done=0;const total=macsF.length+hshsF.length;
+  for(const m of macsF){
+    if(y>pageH-20){doc.addPage();y=20}
+    doc.setFontSize(13);doc.setFont(undefined,"bold");
+    doc.text(`🖥️ ${m.sn||"SEM SN"} — ${m.model}`,14,y);y+=6;
+    doc.setFont(undefined,"normal");doc.setFontSize(10);
+    doc.text(`Enviada em: ${m._at?fmtTS(m._at):"—"}`,14,y);y+=5;
+    const slots=[m.hashSN0,m.hashSN1,m.hashSN2].filter(Boolean);
+    if(slots.length){doc.text(`HASHs instaladas: ${slots.join(", ")}`,14,y);y+=5}
+    const test=[...data.tests].reverse().find(t=>t.machineSN===m.sn&&t.overallResult==="good");
+    if(test?.testPhoto){
+      const img=await loadImageAsDataURL(test.testPhoto);
+      if(img){
+        if(y>pageH-70){doc.addPage();y=20}
+        try{doc.addImage(img,"JPEG",14,y,80,60);y+=65}catch{y+=4}
+      }
+    }
+    y+=6;done++;onProgress?.(done,total);
+  }
+  if(hshsF.length){
+    if(y>pageH-30){doc.addPage();y=20}
+    doc.setFontSize(13);doc.setFont(undefined,"bold");doc.text("⚡ HASHs avulsas",14,y);y+=8;
+    doc.setFont(undefined,"normal");doc.setFontSize(10);
+    for(const h of hshsF){
+      if(y>pageH-10){doc.addPage();y=20}
+      doc.text(`${h.sn||"SEM SN"} — ${h.model} — ${h.status} — ${h._at?fmtTS(h._at):"—"}`,14,y);y+=6;
+      done++;onProgress?.(done,total);
+    }
+  }
+  doc.save(`relatorio-${client.name.replace(/[^a-z0-9]/gi,"_")}.pdf`);
+}
 const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Teste de Máquinas"},{key:"machines",label:"Estoque de Máquinas"},{key:"hashes",label:"Estoque de HASHs"},{key:"admin",label:"Admin (acesso total)"}];
 
 /* ═══ UI PRIMITIVES ═════════════════════════════════════════════ */
@@ -336,7 +389,10 @@ export default function App(){
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
   const allModels=useCallback(()=>[...DEF_MODELS,...data.customModels].sort((a,b)=>a.m.localeCompare(b.m)),[data.customModels]);
   const gTH=useCallback(m=>{const f=[...DEF_MODELS,...data.customModels].find(x=>x.m===m);return f?.th||0},[data.customModels]);
-  const gChips=useCallback(m=>{const f=data.customModels.find(x=>x.m===m&&x.chips);return f?.chips||null},[data.customModels]);
+  const gChips=useCallback((m,material)=>{
+    if(material){const exact=data.customModels.find(x=>x.m===m&&x.material===material&&x.chips);if(exact)return exact.chips}
+    const f=data.customModels.find(x=>x.m===m&&x.chips);return f?.chips||null;
+  },[data.customModels]);
   const[dataWarnings,setDataWarnings]=useState([]);
 
   // BLINDAGEM CONTRA PERDA DE DADOS:
@@ -1020,7 +1076,7 @@ function HashPage({ctx}){
       :filtered.map(h=>{const mac=data.machines.find(m=>m.sn===h.machineSN);const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{position:"relative"}}>
       {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(h._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(h._id):s.delete(h._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
       <Card accent={HST_C[h.status]||C.border} onClick={()=>!selMode&&openDetail(h)} style={{paddingLeft:selMode?36:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:800,fontSize:14,color:h.status==="IRREPARAVEL"?"#9ca3af":C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{h.model}{(h.chips||gChips(h.model))?` · ${h.chips||gChips(h.model)} chips`:""}</div></div><HP s={h.status}/></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:800,fontSize:14,color:h.status==="IRREPARAVEL"?"#9ca3af":C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{h.model}{h.material?` · ${h.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{(h.chips||gChips(h.model,h.material))?` · ${h.chips||gChips(h.model,h.material)} chips`:""}</div></div><HP s={h.status}/></div>
         <div style={{display:"flex",gap:10,fontSize:11,color:C.muted,marginTop:5}}>{mac?<span style={{color:C.accent}}>🖥️ {mac.sn||"SEM SN"} · Slot {h.slot>=0?h.slot+1:"?"}</span>:<span>📦 Solta</span>}{repName&&<span>👷 {repName}</span>}</div>
         <By by={h._byName} at={h._at}/><LastMove log={h.changeLog}/>
       </Card></div>})}
@@ -1111,15 +1167,25 @@ function HashBatchSNForm({ctx,onClose}){
   </div>;
 }
 
+// Toggle Fibra/Alumínio — usado em Adicionar HASH, Editar HASH e Conserto
+function MaterialPicker({value,onChange}){
+  return<div style={{marginBottom:12}}>
+    <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>MATERIAL DA PLACA</div>
+    <div style={{display:"flex",gap:8}}>
+      {[["","Não especificado"],["FIBRA","🔵 Fibra"],["ALUMINIO","🟠 Alumínio"]].map(([v,l])=><button key={v} type="button" onClick={()=>onChange(v)} style={{flex:1,background:value===v?(v==="FIBRA"?C.blue:v==="ALUMINIO"?C.amber:C.accent):"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"8px 0",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>)}
+    </div>
+  </div>;
+}
+
 function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
-  const{data,mutate,user,allModels,webhookUrl}=ctx;const models=allModels();
-  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[status,setStatus]=useState("REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null);
+  const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
+  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[material,setMaterial]=useState(""),[status,setStatus]=useState("REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null);
   const checkSN=v=>{setSN(v);const s=v.toUpperCase().trim();if(!s){setSnInfo(null);return}const ex=data.hashes.find(h=>h.sn===s);if(ex)setSnInfo({type:"exists",item:ex});else{const mac=data.machines.find(m=>m.sn===s);if(mac)setSnInfo({type:"mac",item:mac});else setSnInfo(null)}};
   const save=async()=>{
     const s=sn.toUpperCase().trim();
     if(s&&data.hashes.find(h=>h.sn===s)){alert("SN já cadastrado!");return}
     const id=uid();
-    const d={sn:s,model,status,location,obs,...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,repairedBy:"",photoKey:photoKey||""};
+    const d={sn:s,model,material,status,location,obs,...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,repairedBy:"",photoKey:photoKey||""};
     await fbSet("hashes",id,d);
     mutate("hashes",h=>[...h,{...d,_id:id}]);
     await markChanged("hashes");
@@ -1131,6 +1197,8 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
     {snInfo?.type==="exists"&&<div style={{background:"#3a0a0a",border:"1px solid "+C.red,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.red,fontWeight:800}}>⚠️ SN já existe!</div><div style={{fontSize:12,color:C.muted}}>{snInfo.item.model} · <HP s={snInfo.item.status}/></div></div>}
     {snInfo?.type==="mac"&&<div style={{background:"#3a2a0a",border:"1px solid "+C.amber,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.amber,fontWeight:800}}>📌 SN é de uma Máquina</div><div style={{fontSize:12,color:C.muted}}>{snInfo.item.model} · <SP s={snInfo.item.situacao}/></div></div>}
     <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+    <MaterialPicker value={material} onChange={setMaterial}/>
+    {gChips(model,material)&&<div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>Padrão pra esse modelo/material: {gChips(model,material)} chips</div>}
     <Sel label="STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
     <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
     <Inp label="Observação" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: Chip U3 trocado, Chain Break corrigida..."/>
@@ -1143,7 +1211,7 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
 // tela de Máquina (item 15) — mesma lógica de montagem do histórico do HashDetail.
 function buildHashHistory(data,h){
   const history=[];
-  data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);const repName=emp?.name||r._byName||"?";let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${repName} (já estava boa)`:`Consertada por ${repName}${obs}`,notes:r.notes,photoKey:r.photoKey})});
+  data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);const repName=emp?.name||r._byName||"?";let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":r.type==="rework"?"🔁":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${repName} (já estava boa)`:r.type==="rework"?`RETRABALHO — Consertada de novo por ${repName}${obs}`:`Consertada por ${repName}${obs}`,notes:r.notes,photoKey:r.photoKey})});
   data.tests.forEach(t=>{const si=[t.slot0HashSN,t.slot1HashSN,t.slot2HashSN].indexOf(h.sn);if(si<0||!h.sn)return;const emp=data.employees.find(e=>e._id===t.employeeId);const testName=emp?.name||t._byName||"?";const res=si===0?t.slot0Result:si===1?t.slot1Result:t.slot2Result;history.push({icon:"🧪",date:t._at||t.date,text:`Testada por ${testName} — Máq.${t.machineSN||"s/n"} Slot${si+1} — ${res==="good"?"BOA ✓":"RUIM ✗"}`,photoKey:si===0?t.slot0Photo:si===1?t.slot1Photo:t.slot2Photo})});
   data.feedbacks.filter(f=>f.hashSN===h.sn&&h.sn).forEach(f=>{const emp=data.employees.find(e=>e._id===f.originalRepairerId);history.push({icon:"⚠️",date:f._at||f.date,text:`Devolvida para ${emp?.name||f._byName||"?"}`,notes:f.notes,photoKey:f.logPhotoKey})});
   (h.changeLog||[]).forEach(l=>history.push({icon:"✏️",date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
@@ -1168,7 +1236,7 @@ function HashPhotoQuick({ctx,hash}){
 }
 
 function HashDetail({ctx,hash}){
-  const{data,mutate,setModal,user,webhookUrl}=ctx;const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
+  const{data,mutate,setModal,user,webhookUrl,allModels}=ctx;const models=allModels();const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
   const upd=async(k,v)=>{
     if(h[k]===v)return;
     const logEntry={field:k,label:FIELD_LABELS[k]||k,from:h[k]??"",to:v??"",by:user.name,at:stamp()};
@@ -1178,7 +1246,7 @@ function HashDetail({ctx,hash}){
     syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:u.status,location:u.location,field:k,from:logEntry.from,to:v,employeeName:user.name,employeeCode:user.code});
   };
   const history=[];
-  data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);const repName=emp?.name||r._byName||"?";let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${repName} (já estava boa)`:`Consertada por ${repName}${obs}`,notes:r.notes,photoKey:r.photoKey})});
+  data.repairs.filter(r=>r.hashSN===h.sn&&h.sn).forEach(r=>{const emp=data.employees.find(e=>e._id===r.employeeId);const repName=emp?.name||r._byName||"?";let obs="";if(r.chips)obs+=` · Chips:${r.chips}`;if(r.sensores)obs+=` · Sens:${r.sensores}`;if(r.ldos)obs+=` · LDOs:${r.ldos}`;if(r.obsManual)obs+=` · ${r.obsManual}`;history.push({icon:r.type==="already_good"?"✅":r.type==="rework"?"🔁":"🔧",date:r._at||r.date,text:r.type==="already_good"?`Verificada OK por ${repName} (já estava boa)`:r.type==="rework"?`RETRABALHO — Consertada de novo por ${repName}${obs}`:`Consertada por ${repName}${obs}`,notes:r.notes,photoKey:r.photoKey})});
   data.tests.forEach(t=>{const si=[t.slot0HashSN,t.slot1HashSN,t.slot2HashSN].indexOf(h.sn);if(si<0||!h.sn)return;const emp=data.employees.find(e=>e._id===t.employeeId);const testName=emp?.name||t._byName||"?";const res=si===0?t.slot0Result:si===1?t.slot1Result:t.slot2Result;history.push({icon:"🧪",date:t._at||t.date,text:`Testada por ${testName} — Máq.${t.machineSN||"s/n"} Slot${si+1} — ${res==="good"?"BOA ✓":"RUIM ✗"}`,photoKey:si===0?t.slot0Photo:si===1?t.slot1Photo:t.slot2Photo})});
   data.feedbacks.filter(f=>f.hashSN===h.sn&&h.sn).forEach(f=>{const emp=data.employees.find(e=>e._id===f.originalRepairerId);history.push({icon:"⚠️",date:f._at||f.date,text:`Devolvida para ${emp?.name||f._byName||"?"}`,notes:f.notes,photoKey:f.logPhotoKey})});
   (h.changeLog||[]).forEach(l=>history.push({icon:"✏️",date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
@@ -1188,21 +1256,43 @@ function HashDetail({ctx,hash}){
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
       <HP s={h.status}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10,fontSize:12}}>
-        <div><div style={{color:C.muted,fontSize:10}}>MODELO</div><div style={{fontWeight:700}}>{h.model}</div></div>
+        <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div><select value={h.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select></div>
         <div><div style={{color:C.muted,fontSize:10}}>LOCALIZAÇÃO</div>
           {mac?<button onClick={()=>setModal(<Modal title={`🖥️ ${mac.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={mac}/></Modal>)} style={{background:"none",border:"none",color:C.green,fontWeight:700,fontSize:12,cursor:"pointer",padding:0,textAlign:"left"}}>🖥️ Slot{h.slot>=0?h.slot+1:"?"} → {mac.sn?.slice(0,10)} ↗</button>
           :<div style={{color:C.muted,fontSize:11}}>
-            {editLoc?<div style={{display:"flex",gap:4}}><input value={locVal} onChange={e=>setLocVal(e.target.value.toUpperCase())} style={{...inp,fontSize:11,padding:"4px 8px",flex:1}} placeholder="Ex: PRATELEIRA 1"/><button onClick={async()=>{await upd("location",locVal);setEditLoc(false)}} style={{background:C.green,border:"none",borderRadius:6,color:"#fff",padding:"4px 8px",cursor:"pointer",fontWeight:700}}>✓</button></div>
+            {editLoc?<div><PalletLocationPicker pallets={data.pallets} value={locVal} onChange={setLocVal}/><Btn v="g" onClick={async()=>{
+              await upd("location",locVal);
+              // Se o valor escolhido é o nome de um palete de verdade, vincula a
+              // HASH na lista dele também (tira de qualquer outro palete antes)
+              const picked=data.pallets.find(pl=>pl.name===locVal);
+              for(const pl of data.pallets){
+                const has=(pl.hashesSN||[]).includes(h.sn);
+                const shouldHave=picked&&pl._id===picked._id;
+                if(has&&!shouldHave){const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);const u2={...pl,hashesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u2:x));await fbSet("pallets",pl._id,u2)}
+                else if(!has&&shouldHave){const ns=[...(pl.hashesSN||[]),h.sn];const u2={...pl,hashesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u2:x));await fbSet("pallets",pl._id,u2)}
+              }
+              await markChanged("pallets");
+              setEditLoc(false)
+            }} style={{width:"100%"}}>✓ Salvar Local</Btn></div>
             :<button onClick={()=>{setEditLoc(true);setLocVal(h.location||"")}} style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:6,color:h.location?C.text:C.muted,padding:"3px 8px",cursor:"pointer",fontSize:11,width:"100%",textAlign:"left"}}>{h.location||"⊕ Definir local..."}</button>}
           </div>}
         </div>
       </div>
       {mac&&<div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap"}}><SP s={mac.situacao}/><span style={{fontSize:11,color:C.muted}}>{mac.model} · {mac.th}TH</span></div>}
-      {(data.pallets||[]).filter(pl=>(pl.machinesSN||[]).includes(h.sn)).map(pl=><div key={pl._id} style={{fontSize:11,color:C.blue,marginTop:4}}>📦 {pl.name}{pl.location?` — ${pl.location}`:""}</div>)}
+      {(data.pallets||[]).filter(pl=>(pl.hashesSN||[]).includes(h.sn)).map(pl=><div key={pl._id} style={{fontSize:11,color:C.blue,marginTop:4}}>📦 {pl.name}{pl.location?` — ${pl.location}`:""}</div>)}
       <By by={h._byName} at={h._at}/>
     </div>
     <SL>STATUS</SL><div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>{["ON","OFF","TESTAR","REPARO","STOCK","NA MAQUINA"].map(s=><button key={s} onClick={()=>upd("status",s)} style={{background:h.status===s?HST_C[s]:"#080e17",color:"#fff",border:`1px solid ${HST_C[s]}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}}>{s}</button>)}</div>
     <SNInput label="SN (editar)" value={h.sn||""} onChange={v=>upd("sn",v)} placeholder="Digite o SN" err=""/>
+    <MaterialPicker value={h.material||""} onChange={v=>upd("material",v)}/>
+    <SL mt={8}>📷 FOTO DA HASH</SL>
+    {h.photoKey?<div style={{marginBottom:14}}>
+      <PhotoView photoKey={h.photoKey} style={{maxHeight:220,marginBottom:8}}/>
+      <div style={{display:"flex",gap:8}}>
+        <Btn v="b" onClick={()=>downloadPhoto(h.photoKey,`${h.sn||"hash"}.jpg`)} style={{flex:1}}>⬇️ Baixar</Btn>
+        <Btn v="d" onClick={()=>upd("photoKey",null)} style={{flex:1}}>🗑️ Excluir (pra colocar outra)</Btn>
+      </div>
+    </div>:<PhotoCapture photoKey={null} onChange={k=>upd("photoKey",k)}/>}
     {!confirmIrrep?<Btn v="d" onClick={()=>setConfirmIrrep(true)} style={{width:"100%",marginBottom:12}}>💀 Marcar como Irreparável</Btn>:<div style={{background:"#1a0a0a",border:`1px solid ${C.red}`,borderRadius:10,padding:14,marginBottom:12}}><div style={{fontWeight:800,color:C.red,marginBottom:8}}>⚠️ Confirmar Irreparável?</div><div style={{fontSize:12,color:C.text,marginBottom:12}}>Marcada para retirada de peças.</div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>setConfirmIrrep(false)} style={{flex:1}}>Cancelar</Btn><Btn v="d" onClick={async()=>{await upd("status","IRREPARAVEL");setConfirmIrrep(false)}} style={{flex:1}}>Confirmar</Btn></div></div>}
     <SL mt={8}>📋 HISTÓRICO COMPLETO</SL>
     {history.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Sem histórico</div>:history.map((ev,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:12}}><div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><div style={{width:24,height:24,borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0}}>{ev.icon}</div>{i<history.length-1&&<div style={{width:2,flex:1,background:C.border,marginTop:4}}/>}</div><div style={{flex:1,paddingBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{ev.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(ev.date)}</div>{ev.notes&&<div style={{fontSize:11,color:C.subtle,marginTop:2}}>{ev.notes}</div>}{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:100}}/>}</div></div>)}
@@ -1213,7 +1303,7 @@ function HashDetail({ctx,hash}){
 /* ═══ CONSERTO ══════════════════════════════════════════════════ */
 function ConsertaPage({ctx}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
-  const[f,setF]=useState({hashSN:"",model:models[0]?.m||"M30S",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
+  const[f,setF]=useState({hashSN:"",model:models[0]?.m||"M30S",material:"",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
   const[photoKey,setPhotoKey]=useState(null),[saved,setSaved]=useState(null),[photoErr,setPhotoErr]=useState("");
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
@@ -1222,18 +1312,23 @@ function ConsertaPage({ctx}){
     if(!photoKey){setPhotoErr("Foto obrigatória!");return}
     setPhotoErr("");
     const sn=f.hashSN.toUpperCase().trim();const id=uid();
-    // Se o técnico não digitou a quantidade de chips, usa o padrão do modelo (Config → Chips por Modelo)
-    const chipsFinal=f.chips||gChips(f.model)||"";
-    const rec={hashSN:sn,model:f.model,type,photoKey:photoKey||"",employeeId:user._id,...audit(user),date:TODAY(),status:"TESTAR"};
+    // Se o técnico não digitou a quantidade de chips, usa o padrão do modelo+material (Config → Chips por Modelo)
+    const chipsFinal=f.chips||gChips(f.model,f.material)||"";
+    // Se essa HASH já tinha sido consertada antes (voltou RUIM depois de um
+    // conserto anterior), esse conserto novo entra como RETRABALHO no
+    // histórico — mesmo fluxo de status, só muda o rótulo pra rastrear isso.
+    const wasRepairedBefore=type==="repair"&&data.repairs.some(r=>r.hashSN===sn&&r.type==="repair");
+    const recType=wasRepairedBefore?"rework":type;
+    const rec={hashSN:sn,model:f.model,material:f.material,type:recType,photoKey:photoKey||"",employeeId:user._id,...audit(user),date:TODAY(),status:"TESTAR"};
     if(type==="repair"){Object.assign(rec,{chips:chipsFinal,sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
     await fbSet("repairs",id,rec);mutate("repairs",r=>[...r,{...rec,_id:id}]);
     // Hash → TESTAR
     const ex=data.hashes.find(h=>h.sn===sn);
-    if(ex){const u={...ex,status:"TESTAR",repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}
-    else{const hid=uid();const hd={sn,model:f.model,status:"TESTAR",repairedBy:type==="repair"?user._id:"",repairedByName:type==="repair"?user.name:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}])}
+    if(ex){const u={...ex,status:"TESTAR",material:f.material||ex.material,repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}
+    else{const hid=uid();const hd={sn,model:f.model,material:f.material,status:"TESTAR",repairedBy:type==="repair"?user._id:"",repairedByName:type==="repair"?user.name:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}])}
     syncSheet(webhookUrl,type==="repair"?"repair":"alreadyGood",{...rec,employeeCode:user.code,employeeName:user.name,tecnico:user.name});
     await markChanged("repairs");await markChanged("hashes");
-    setF({hashSN:"",model:f.model,obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});setPhotoKey(null);
+    setF({hashSN:"",model:f.model,material:f.material,obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});setPhotoKey(null);
     setSaved(type);setTimeout(()=>setSaved(null),2500);
   };
 
@@ -1247,6 +1342,8 @@ function ConsertaPage({ctx}){
       <SNInput label="SN DA HASHBOARD" value={f.hashSN} onChange={v=>set("hashSN",v)} placeholder="Bipe, escaneie ou digite" list="hsh-rep"/>
       <datalist id="hsh-rep">{data.hashes.filter(h=>["REPARO","OFF"].includes(h.status)).map(h=><option key={h._id} value={h.sn||""}>{h.sn||"SEM SN"} — {h.model}</option>)}</datalist>
       <Sel label="MODELO" value={f.model} onChange={e=>set("model",e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+      <MaterialPicker value={f.material} onChange={v=>set("material",v)}/>
+      {gChips(f.model,f.material)&&<div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>Padrão pra esse modelo/material: {gChips(f.model,f.material)} chips</div>}
       {/* Observation type */}
       <SL mt={4}>TIPO DE OBSERVAÇÃO DO CONSERTO</SL>
       <div style={{display:"flex",gap:8,marginBottom:12}}>
@@ -1604,7 +1701,7 @@ function HistPage({ctx,canSeeEmp}){
     <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="📅 FILTRAR POR DATA" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>{dateFilter&&<Btn v="s" onClick={()=>setDateFilter("")} style={{marginBottom:12}}>Limpar</Btn>}</div>
     {all.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>{dateFilter?"Sem registros nesta data":"Sem histórico ainda"}</div>}
     {all.slice(0,50).map(item=>{const emp=data.employees.find(e=>e._id===item.employeeId);const itemName=emp?.name||item._byName;
-      if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:C.blue}}>{item.type==="already_good"?"✅":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><Tag color={item.type==="already_good"?C.green:C.purple} small>{item.type==="already_good"?"JÁ BOA":"CONSERTO"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
+      if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}}>{item.type==="already_good"?"✅":item.type==="rework"?"🔁":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><Tag color={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.purple} small>{item.type==="already_good"?"JÁ BOA":item.type==="rework"?"RETRABALHO":"CONSERTO"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
       const stC=item.status==="pending"?C.blue:item.status==="rejected"?C.amber:item.overallResult==="good"?C.green:C.red;
       const stL=item.status==="pending"?"Aguard.Revisão":item.status==="rejected"?"REPROVADA":item.overallResult==="good"?"BOA":"RUIM";
       return<Card key={item._id} accent={stC}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {item.machineSN||"s/máq"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div></div><Tag color={stC} small>{stL}</Tag></div><By by={item._byName} at={item._at}/></Card>;
@@ -1614,6 +1711,27 @@ function HistPage({ctx,canSeeEmp}){
 }
 
 /* ═══ APPROVALS ════════════════════════════════════════════════ */
+// Mostra tudo que aconteceu numa revisão já processada (aprovada ou
+// reprovada): quem testou, quando, os SNs/resultado de cada slot, a foto e o
+// motivo da reprovação (se foi o caso).
+function ApprovalDetail({ctx,appr}){
+  const{data}=ctx;
+  const test=data.tests.find(t=>t._id===appr.testId);
+  return<div>
+    <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
+      <div style={{fontWeight:800,fontSize:15}}>{appr.model} · {appr.th}TH</div>
+      <div style={{color:C.muted,fontSize:12,marginTop:4}}>👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
+      <Tag color={appr.status==="approved"?C.green:C.red} style={{marginTop:8}}>{appr.status==="approved"?"✓ Aprovada":"✗ Reprovada"}</Tag>
+    </div>
+    {appr.adminNote&&<Alrt type={appr.status==="approved"?"ok":"err"}>{appr.adminNote}</Alrt>}
+    {test&&<>
+      <SL>SLOTS TESTADOS</SL>
+      {[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].map((sn,i)=>sn&&<div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>⚡ Slot {i+1}: {sn}</span><Tag color={(i===0?test.slot0Result:i===1?test.slot1Result:test.slot2Result)==="good"?C.green:C.red} small>{(i===0?test.slot0Result:i===1?test.slot1Result:test.slot2Result)==="good"?"BOA":"RUIM"}</Tag></div>)}
+      {test.testPhoto&&<><SL mt={12}>FOTO DO TESTE</SL><PhotoView photoKey={test.testPhoto} style={{maxHeight:220}}/></>}
+    </>}
+  </div>;
+}
+
 function ApprovalsPage({ctx}){
   const{data,mutate,user,webhookUrl,setModal}=ctx;
   const[notes,setNotes]=useState({}),[processing,setProcessing]=useState(null);
@@ -1691,7 +1809,7 @@ function ApprovalsPage({ctx}){
           {data.machines.find(m=>m.sn===appr.machineSN)&&<Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={data.machines.find(m=>m.sn===appr.machineSN)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>}
           <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
-    {data.approvals.filter(a=>a.status!=="pending").length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending").slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag></div>)}</>}
+    {data.approvals.filter(a=>a.status!=="pending").length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending").slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div></div>)}</>}
   </div>;
 }
 
@@ -1785,7 +1903,7 @@ function EmpProfile({ctx,emp}){
       <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📋</Btn>
     </div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
-      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:C.blue}><div style={{fontWeight:700,fontSize:13,color:r.type==="already_good"?C.green:C.blue}}>{r.type==="already_good"?"✅":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(r._at)}</div>{r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}</Card>)}
+      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}><div style={{fontWeight:700,fontSize:13,color:r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}}>{r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(r._at)}</div>{r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}</Card>)}
       {dayT.map(t=>{const stC=t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red;return<Card key={t._id} accent={stC}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(t._at)}</div><Tag color={stC} small>{t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"}</Tag></Card>})}
     </>}
     <SL mt={12}>HISTÓRICO</SL>
@@ -1899,14 +2017,18 @@ const doImportMachines=async()=>{if(!url){alert("Configure o webhook");return}se
 const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);try{const hashes=await importHashesFromSheet(url);if(!hashes.length){setImportRes("Nenhuma HASH na aba REPARO DE HASH.");setImporting(false);return}const writes=hashes.map(h=>{const id=uid();let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id,d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));mutate("hashes",existing=>[...existing,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("hashes");setImportRes(`✓ ${hashes.length} HASHs importadas!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false)};
   const addModel=async()=>{if(!newModel.trim()||!newTH)return;const id=uid();const d={m:newModel.trim(),th:Number(newTH)};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}]);setNewModel("");setNewTH("")};
   const delModel=async m=>{await fbDel("customModels",m._id);mutate("customModels",arr=>arr.filter(x=>x._id!==m._id))};
-  const[chipsModel,setChipsModel]=useState(""),[chipsVal,setChipsVal]=useState("");
+  const[chipsModel,setChipsModel]=useState(""),[chipsMaterial,setChipsMaterial]=useState(""),[chipsVal,setChipsVal]=useState("");
   const allModelsForChips=[...new Set([...DEF_MODELS.map(m=>m.m),...data.customModels.map(m=>m.m)])].sort();
+  // Fica numa lista separada dos "Modelos Customizados" (TH) — nunca mistura
+  // os dois. Uma HASH do mesmo modelo pode ter placa de Fibra ou Alumínio,
+  // com quantidade de chips diferente, então guarda por modelo+material.
+  const chipEntries=data.customModels.filter(m=>m.chips);
   const setChipsForModel=async()=>{
     if(!chipsModel||!chipsVal)return;
-    const existing=data.customModels.find(m=>m.m===chipsModel);
+    const existing=data.customModels.find(m=>m.m===chipsModel&&(m.material||"")===(chipsMaterial||""));
     if(existing){const u={...existing,chips:Number(chipsVal)};await fbSet("customModels",existing._id,u);mutate("customModels",arr=>arr.map(x=>x._id===existing._id?u:x))}
-    else{const id=uid();const d={m:chipsModel,th:gTH(chipsModel),chips:Number(chipsVal)};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}])}
-    setChipsModel("");setChipsVal("");
+    else{const id=uid();const d={m:chipsModel,th:0,chips:Number(chipsVal),material:chipsMaterial||""};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}])}
+    setChipsModel("");setChipsVal("");setChipsMaterial("");
   };
   return<div>
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
@@ -1928,13 +2050,16 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       <div style={{color:C.muted,fontSize:10,marginBottom:8}}>⚠️ Os botões acima importam TUDO de novo (pode duplicar). Prefira o botão abaixo — ele só mostra o que é realmente novo na planilha.</div>
       <Btn v="y" onClick={()=>setModal(<Modal title="🔍 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} disabled={!url} style={{width:"100%"}}>🔍 Comparar com Planilha (só mostra o que é novo)</Btn>
     </Card>
-    <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS</SL>{data.customModels.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
-    <Card style={{marginBottom:14}}><SL>⚡ CHIPS POR MODELO</SL>
-      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Quantidade padrão de chips de cada modelo de HASH — aparece nos cards e é usada automaticamente quando não for informado na hora do conserto.</div>
-      {data.customModels.filter(m=>m.chips).map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><span style={{color:C.blue,fontSize:12,fontWeight:700}}>{m.chips} chips</span></div>)}
+    <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS (T/H)</SL>{data.customModels.filter(m=>!m.chips).map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
+    <Card style={{marginBottom:14}}><SL>⚡ CHIPS POR MODELO (E MATERIAL)</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Lista separada dos modelos de T/H. Um mesmo modelo pode ter placa de Fibra ou Alumínio, com quantidade de chips diferente — aparece nos cards e é usada automaticamente no conserto quando não for informado.</div>
+      {chipEntries.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:8}}>Nenhum cadastrado ainda</div>:chipEntries.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}{m.material?<Tag color={m.material==="FIBRA"?C.blue:C.amber} small style={{marginLeft:6}}>{m.material}</Tag>:null}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.blue,fontSize:12,fontWeight:700}}>{m.chips} chips</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}
       <div style={{display:"flex",gap:8,marginTop:12}}>
         <Sel value={chipsModel} onChange={e=>setChipsModel(e.target.value)} style={{flex:2,marginBottom:0}}><option value="">Modelo...</option>{allModelsForChips.map(mo=><option key={mo}>{mo}</option>)}</Sel>
-        <Inp type="number" value={chipsVal} onChange={e=>setChipsVal(e.target.value)} placeholder="Chips" style={{width:80,marginBottom:0}}/>
+        <Sel value={chipsMaterial} onChange={e=>setChipsMaterial(e.target.value)} style={{flex:1,marginBottom:0}}><option value="">Sem material</option><option value="FIBRA">Fibra</option><option value="ALUMINIO">Alumínio</option></Sel>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <Inp type="number" value={chipsVal} onChange={e=>setChipsVal(e.target.value)} placeholder="Quantidade de chips" style={{flex:1,marginBottom:0}}/>
         <Btn onClick={setChipsForModel}>💾</Btn>
       </div>
     </Card>
@@ -2238,55 +2363,85 @@ function AddClientForm({ctx,onClose}){
 }
 function ClientDetail({ctx,client}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
-  const[c,setC]=useState(client),[pending,setPending]=useState([]),[removeInput,setRemoveInput]=useState(""),[saving,setSaving]=useState(false);
+  const[c,setC]=useState(client),[itemType,setItemType]=useState("machine"),[pending,setPending]=useState([]),[removeInput,setRemoveInput]=useState(""),[saving,setSaving]=useState(false),[blockMsg,setBlockMsg]=useState("");
   const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
+  const hshs=(c.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
   // Item 1+2: bipagem em lote — cada SN bipado entra numa lista mostrando se
   // já existe (modelo/status) ou se é novo; só grava tudo quando aperta Salvar.
   const addToPending=(raw)=>{
     const sn=raw.toUpperCase().trim();if(!sn)return;
-    if((c.machinesSN||[]).includes(sn)||pending.some(p=>p.sn===sn))return;
-    const ex=data.machines.find(m=>m.sn===sn);
-    setPending(p=>[...p,ex?{sn,existing:true,model:ex.model,situacao:ex.situacao,_id:ex._id}:{sn,existing:false}]);
+    setBlockMsg("");
+    const already=itemType==="machine"?(c.machinesSN||[]).includes(sn):(c.hashesSN||[]).includes(sn);
+    if(already||pending.some(p=>p.sn===sn))return;
+    if(itemType==="machine"){
+      const ex=data.machines.find(m=>m.sn===sn);
+      setPending(p=>[...p,ex?{sn,type:"machine",existing:true,model:ex.model,situacao:ex.situacao,_id:ex._id}:{sn,type:"machine",existing:false}]);
+    }else{
+      const ex=data.hashes.find(h=>h.sn===sn);
+      // Uma HASH que está dentro de uma máquina (NA MAQUINA) não pode ir
+      // avulsa pro cliente — ela sai junto quando a máquina for vendida.
+      if(ex&&ex.status==="NA MAQUINA"){setBlockMsg(`⚠️ Essa HASH está dentro da máquina ${ex.machineSN} — ela sai vendendo a máquina, não avulsa.`);return}
+      setPending(p=>[...p,ex?{sn,type:"hash",existing:true,model:ex.model,status:ex.status,_id:ex._id}:{sn,type:"hash",existing:false}]);
+    }
   };
   const removeFromPending=sn=>setPending(p=>p.filter(x=>x.sn!==sn));
   const saveAll=async()=>{
     if(!pending.length)return;setSaving(true);
-    const newSNs=[...(c.machinesSN||[])];
+    const newMSNs=[...(c.machinesSN||[])];const newHSNs=[...(c.hashesSN||[])];
     for(const row of pending){
-      if(row.existing){
-        const ex=data.machines.find(m=>m._id===row._id);if(!ex)continue;
-        const mHashes=data.hashes.filter(h=>h.machineSN===row.sn);
-        for(const h of mHashes){const u={...h,status:"SAIDA",location:"Vendida: "+c.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);syncSheet(webhookUrl,"hashSaida",{sn:u.sn,machineSN:row.sn,employeeName:user.name,employeeCode:user.code})}
-        const u={...ex,situacao:"SAIDA",destino:c.name,changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"SAIDA",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
-        mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));await fbSet("machines",ex._id,u);
-        syncSheet(webhookUrl,"updateMachine",{sn:row.sn,field:"situacao",to:"SAIDA",destino:c.name,employeeName:user.name,employeeCode:user.code});
+      if(row.type==="machine"){
+        if(row.existing){
+          const ex=data.machines.find(m=>m._id===row._id);if(!ex)continue;
+          const mHashes=data.hashes.filter(h=>h.machineSN===row.sn);
+          for(const h of mHashes){const u={...h,status:"SAIDA",location:"Vendida: "+c.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);syncSheet(webhookUrl,"hashSaida",{sn:u.sn,machineSN:row.sn,employeeName:user.name,employeeCode:user.code})}
+          const u={...ex,situacao:"SAIDA",destino:c.name,changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"SAIDA",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
+          mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));await fbSet("machines",ex._id,u);
+          syncSheet(webhookUrl,"updateMachine",{sn:row.sn,field:"situacao",to:"SAIDA",destino:c.name,employeeName:user.name,employeeCode:user.code});
+        }else{
+          const id=uid();const d={sn:row.sn,model:"M30S",th:86,type:"complete",situacao:"SAIDA",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",destino:c.name,...audit(user),addedAt:TODAY()};
+          await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);
+          syncSheet(webhookUrl,"addMachine",{sn:row.sn,model:d.model,situacao:"SAIDA",destino:c.name,employeeName:user.name,employeeCode:user.code});
+        }
+        newMSNs.push(row.sn);
       }else{
-        const id=uid();const d={sn:row.sn,model:"M30S",th:86,type:"complete",situacao:"SAIDA",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",destino:c.name,...audit(user),addedAt:TODAY()};
-        await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);
-        syncSheet(webhookUrl,"addMachine",{sn:row.sn,model:d.model,situacao:"SAIDA",destino:c.name,employeeName:user.name,employeeCode:user.code});
+        if(row.existing){
+          const ex=data.hashes.find(h=>h._id===row._id);if(!ex)continue;
+          const u={...ex,status:"SAIDA",location:"Vendida: "+c.name,changeLog:[{field:"status",label:"Status",from:ex.status,to:"SAIDA",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
+          mutate("hashes",arr=>arr.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u);
+          syncSheet(webhookUrl,"hashSaida",{sn:row.sn,employeeName:user.name,employeeCode:user.code});
+        }else{
+          const id=uid();const d={sn:row.sn,model:"M30S",status:"SAIDA",location:"Vendida: "+c.name,machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
+          await fbSet("hashes",id,d);mutate("hashes",h=>[...h,{...d,_id:id}]);
+          syncSheet(webhookUrl,"addHash",{sn:row.sn,model:d.model,status:"SAIDA",employeeName:user.name,employeeCode:user.code});
+        }
+        newHSNs.push(row.sn);
       }
-      newSNs.push(row.sn);
     }
-    const upd={...c,machinesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);
+    const upd={...c,machinesSN:newMSNs,hashesSN:newHSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);
     await markChanged("clients");await markChanged("machines");await markChanged("hashes");
     setPending([]);setSaving(false);
   };
   const remMac=async(sn)=>{const newSNs=(c.machinesSN||[]).filter(s=>s!==sn);const upd={...c,machinesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients")};
-  const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn)){remMac(sn)}setRemoveInput("")};
+  const remHash=async(sn)=>{const newSNs=(c.hashesSN||[]).filter(s=>s!==sn);const upd={...c,hashesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients")};
+  const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))remMac(sn);else if((c.hashesSN||[]).includes(sn))remHash(sn);setRemoveInput("")};
   const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
   return<div>
-    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}><div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}{c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}<div style={{marginTop:8,display:"flex",gap:8}}><div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:20}}>{c.machinesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>Total</div></div><div style={{background:C.red+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.red,fontSize:20}}>{macs.filter(m=>["SAIDA","VENDIDA","EXPORTADA"].includes(m.situacao)).length}</div><div style={{fontSize:10,color:C.muted}}>Saídas</div></div></div></div>
-    <div style={{color:C.amber,fontSize:11,marginBottom:8}}>⚠️ Ao salvar, máquina e HASHs internas vão para SAIDA</div>
+    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}><div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}{c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}<div style={{marginTop:8,display:"flex",gap:8}}><div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:20}}>{c.machinesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>Máquinas</div></div><div style={{background:C.purple+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.purple,fontSize:20}}>{c.hashesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>HASHs</div></div></div></div>
+    <Btn v="b" onClick={()=>setModal(<Modal title={`📋 Relatório — ${c.name}`} onClose={()=>setModal(null)}><ClientReport ctx={ctx} client={c}/></Modal>)} style={{width:"100%",marginBottom:14}}>📋 Relatório de Envios</Btn>
+    <div style={{color:C.amber,fontSize:11,marginBottom:8}}>⚠️ Ao salvar, vai tudo pra SAIDA (máquina e HASHs internas dela também)</div>
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
+      <SL>O QUE VOCÊ VAI ADICIONAR?</SL>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>{[["machine","🖥️ Máquina"],["hash","⚡ HASH avulsa"]].map(([v,l])=><button key={v} onClick={()=>setItemType(v)} style={{flex:1,background:itemType===v?C.accent:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}</div>
       <SL>BIPAR OU DIGITAR OS SNs</SL>
-      <SmartScanInput onDetect={addToPending} placeholder="SN da máquina..." autoFocus/>
+      <SmartScanInput onDetect={addToPending} placeholder={itemType==="machine"?"SN da máquina...":"SN da HASH..."} autoFocus/>
+      {blockMsg&&<Alrt type="err">{blockMsg}</Alrt>}
       <div style={{maxHeight:200,overflow:"auto",marginTop:10}}>
         {pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN ainda</div>:pending.map(p=><div key={p.sn} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-          <div><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{p.sn}</span>{p.existing?<Tag color={C.amber} small style={{marginLeft:6}}>{p.model} · {p.situacao}</Tag>:<Tag color={C.green} small style={{marginLeft:6}}>🆕 novo</Tag>}</div>
+          <div><span style={{fontSize:11,marginRight:4}}>{p.type==="machine"?"🖥️":"⚡"}</span><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{p.sn}</span>{p.existing?<Tag color={C.amber} small style={{marginLeft:6}}>{p.model} · {p.situacao||p.status}</Tag>:<Tag color={C.green} small style={{marginLeft:6}}>🆕 novo</Tag>}</div>
           <button onClick={()=>removeFromPending(p.sn)} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button>
         </div>)}
       </div>
-      <Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{width:"100%",marginTop:10}}>{saving?"Salvando...":"💾 Salvar "+pending.length+" máquina(s)"}</Btn>
+      <Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{width:"100%",marginTop:10}}>{saving?"Salvando...":"💾 Salvar "+pending.length+" item(s)"}</Btn>
     </div>
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
       <SL>REMOVER DO CLIENTE POR SN</SL>
@@ -2294,7 +2449,53 @@ function ClientDetail({ctx,client}){
     </div>
     <SL>Máquinas ({macs.length})</SL>
     {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma máquina</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div><div style={{fontSize:10,color:C.muted}}>{m.model} · {m.th}TH</div></div><button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div>)}
+    <SL mt={14}>HASHs avulsas ({hshs.length})</SL>
+    {hshs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma HASH avulsa</div>:hshs.map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"} <HP s={h.status}/></div><div style={{fontSize:10,color:C.muted}}>{h.model}</div></div><button onClick={()=>remHash(h.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div>)}
     <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Cliente</Btn>
+  </div>;
+}
+
+// Relatório de tudo que foi enviado pra um cliente: máquinas (com SN das HASHs
+// e status delas dentro, e a foto tirada no teste) e HASHs avulsas — com
+// filtro por modelo e data.
+function ClientReport({ctx,client}){
+  const{data}=ctx;
+  const[modelFilter,setModelFilter]=useState(""),[dateFilter,setDateFilter]=useState(""),[gen,setGen]=useState(false),[genProg,setGenProg]=useState("");
+  const macs=(client.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
+  const hshs=(client.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
+  const allModelsUsed=[...new Set([...macs.map(m=>m.model),...hshs.map(h=>h.model)].filter(Boolean))].sort();
+  const macsF=macs.filter(m=>(!modelFilter||m.model===modelFilter)&&(!dateFilter||(m._at||"").slice(0,10)===dateFilter));
+  const hshsF=hshs.filter(h=>(!modelFilter||h.model===modelFilter)&&(!dateFilter||(h._at||"").slice(0,10)===dateFilter));
+  const baixarPDF=async()=>{
+    setGen(true);setGenProg("Montando...");
+    try{await generateClientPDF(client,macsF,hshsF,data,(done,total)=>setGenProg(`Montando... ${done}/${total}`))}
+    catch(e){alert("Erro ao gerar PDF: "+e.message)}
+    setGen(false);setGenProg("");
+  };
+  return<div>
+    <div style={{display:"flex",gap:8,marginBottom:10}}>
+      <Sel label="MODELO" value={modelFilter} onChange={e=>setModelFilter(e.target.value)} style={{flex:1}}><option value="">Todos</option>{allModelsUsed.map(m=><option key={m}>{m}</option>)}</Sel>
+      <Inp label="DATA" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)} style={{flex:1}}/>
+    </div>
+    <Btn v="g" onClick={baixarPDF} disabled={gen||(macsF.length+hshsF.length===0)} style={{width:"100%",marginBottom:10}}>{gen?genProg:"📄 Baixar PDF"}</Btn>
+    <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{macsF.length} máquina(s) · {hshsF.length} HASH(s) avulsa(s)</div>
+    {macsF.length>0&&<><SL>🖥️ MÁQUINAS</SL>
+      {macsF.map(m=>{
+        const test=[...data.tests].reverse().find(t=>t.machineSN===m.sn&&t.overallResult==="good");
+        return<Card key={m._id}>
+          <div style={{fontWeight:800,fontSize:13,color:C.accent}}>{m.sn} · {m.model}</div>
+          <div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {m._at?fmtTS(m._at):"—"}</div>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>
+            {[m.hashSN0,m.hashSN1,m.hashSN2].filter(Boolean).map((sn,i)=>{const h=data.hashes.find(x=>x.sn===sn);return<span key={i} style={{background:C.card2,borderRadius:6,padding:"2px 8px",fontSize:10}}>⚡ {sn} {h&&<HP s={h.status}/>}</span>})}
+          </div>
+          {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginTop:8,maxHeight:140}}/>}
+        </Card>;
+      })}
+    </>}
+    {hshsF.length>0&&<><SL mt={14}>⚡ HASHs AVULSAS</SL>
+      {hshsF.map(h=><Card key={h._id}><div style={{fontWeight:800,fontSize:13,color:C.blue}}>{h.sn} · {h.model}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {h._at?fmtTS(h._at):"—"} · <HP s={h.status}/></div></Card>)}
+    </>}
+    {macsF.length===0&&hshsF.length===0&&<div style={{textAlign:"center",color:C.muted,padding:24}}>Nada encontrado com esse filtro</div>}
   </div>;
 }
 
@@ -2310,7 +2511,7 @@ function EmpHistory({ctx,emp}){
     </div>
     <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="Data" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
-      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:C.blue}><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></Card>)}
+      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></Card>)}
       {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></Card>)}
     </>}
     <SL mt={12}>Por Dia</SL>
