@@ -165,11 +165,12 @@ function syncSheet(url,action,payload){
       const r=await fetch(url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({batch:b})});
       const d=await r.json().catch(()=>({}));
       if(d.error){console.error("syncSheet erro:",d.error);onSyncSheetError?.(`Planilha não salvou "${b[0]?.action}": ${d.error}`)}
+      else console.log(`✓ syncSheet: ${b.length} ação(ões) enviada(s) pra planilha`,b.map(x=>x.action));
     }catch(e){
       console.error("syncSheet falhou:",e);
       onSyncSheetError?.(`Planilha não respondeu pra "${b[0]?.action}": ${e.message}`);
     }
-  },1500);
+  },300);
 }
 async function importMachinesFromSheet(url,onProgress){
   if(onProgress)onProgress(0,0);
@@ -308,7 +309,7 @@ function generateReport(user,repairs,tests,date){
   const lines=[`📋 Relatório — ${user.name} #${user.code}`,`📅 ${d}`,``];
   if(dr.length){lines.push(`🔧 HASHs Consertadas (${dr.length}):`);dr.forEach(r=>{let obs="";if(r.chips)obs+=` | Chips:${r.chips}`;if(r.sensores)obs+=` | Sens:${r.sensores}`;if(r.ldos)obs+=` | LDOs:${r.ldos}`;if(r.obsManual)obs+=` | ${r.obsManual}`;lines.push(`• ${r.hashSN||"SEM SN"} — ${r.model}${obs} — ${fmtTime(r._at)}`)});lines.push("")}
   if(dg.length){lines.push(`✅ Já Estavam Boas (${dg.length}):`);dg.forEach(r=>lines.push(`• ${r.hashSN||"SEM SN"} — ${r.model} — ${fmtTime(r._at)}`));lines.push("")}
-  if(dt.length){lines.push(`🧪 Máquinas Testadas (${dt.length}):`);dt.forEach(t=>{const st=t.status==="pending"?"Aguard. Revisão":t.overallResult==="good"?"BOA":"RUIM";lines.push(`• ${t.machineSN||"SEM SN"} — ${t.model} — ${st} — ${fmtTime(t._at)}`)});lines.push("")}
+  if(dt.length){lines.push(`🧪 Máquinas Testadas (${dt.length}):`);dt.forEach(t=>{const st=t.status==="pending"?"Aguard. Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM";lines.push(`• ${t.machineSN||"SEM SN"} — ${t.model} — ${st} — ${fmtTime(t._at)}`)});lines.push("")}
   lines.push(`✅ Total consertos: ${dr.length} | Testes: ${dt.length}`);
   return lines.join("\n");
 }
@@ -875,7 +876,7 @@ function MachineDetail({ctx,machine}){
     syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:k,from:logEntry.from,to:v,employeeName:user.name,employeeCode:user.code});
   };
   const history=[];
-  data.tests.filter(t=>t.machineSN===m.sn&&m.sn).forEach(t=>{const emp=data.employees.find(e=>e._id===t.employeeId);history.push({date:t._at||t.date,text:"Testada por "+(emp?.name||"?")+" — "+(t.status==="pending"?"Aguard.Revisão":t.overallResult==="good"?"BOA":"RUIM"),photoKey:t.testPhoto})});
+  data.tests.filter(t=>t.machineSN===m.sn&&m.sn).forEach(t=>{const emp=data.employees.find(e=>e._id===t.employeeId);history.push({date:t._at||t.date,text:"Testada por "+(emp?.name||"?")+" — "+(t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"),photoKey:t.testPhoto})});
   (m.changeLog||[]).forEach(l=>history.push({date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
   history.sort((a,b)=>a.date<b.date?-1:1);
   const exitSits=["SAIDA","EXPORTADA","VENDIDA"];
@@ -982,7 +983,7 @@ function MachineDetail({ctx,machine}){
           </div>
         ))}</>
       )}
-      <Btn v="d" onClick={async()=>{mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)}} style={{width:"100%",marginTop:14}}>🗑 Remover</Btn>
+      <Btn v="d" onClick={async()=>{syncSheet(webhookUrl,"trashMachine",{sn:m.sn,model:m.model,removedBy:user.name});mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)}} style={{width:"100%",marginTop:14}}>🗑 Remover</Btn>
     </div>
   );
 }
@@ -1204,7 +1205,7 @@ function HashDetail({ctx,hash}){
     {!confirmIrrep?<Btn v="d" onClick={()=>setConfirmIrrep(true)} style={{width:"100%",marginBottom:12}}>💀 Marcar como Irreparável</Btn>:<div style={{background:"#1a0a0a",border:`1px solid ${C.red}`,borderRadius:10,padding:14,marginBottom:12}}><div style={{fontWeight:800,color:C.red,marginBottom:8}}>⚠️ Confirmar Irreparável?</div><div style={{fontSize:12,color:C.text,marginBottom:12}}>Marcada para retirada de peças.</div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>setConfirmIrrep(false)} style={{flex:1}}>Cancelar</Btn><Btn v="d" onClick={async()=>{await upd("status","IRREPARAVEL");setConfirmIrrep(false)}} style={{flex:1}}>Confirmar</Btn></div></div>}
     <SL mt={8}>📋 HISTÓRICO COMPLETO</SL>
     {history.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Sem histórico</div>:history.map((ev,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:12}}><div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><div style={{width:24,height:24,borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0}}>{ev.icon}</div>{i<history.length-1&&<div style={{width:2,flex:1,background:C.border,marginTop:4}}/>}</div><div style={{flex:1,paddingBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{ev.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(ev.date)}</div>{ev.notes&&<div style={{fontSize:11,color:C.subtle,marginTop:2}}>{ev.notes}</div>}{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:100}}/>}</div></div>)}
-    <Btn v="d" onClick={async()=>{mutate("hashes",arr=>arr.filter(x=>x._id!==h._id));await fbDel("hashes",h._id);await markChanged("hashes");setModal(null)}} style={{width:"100%",marginTop:8}}>🗑 Remover</Btn>
+    <Btn v="d" onClick={async()=>{syncSheet(webhookUrl,"trashHash",{sn:h.sn,model:h.model,removedBy:user.name});mutate("hashes",arr=>arr.filter(x=>x._id!==h._id));await fbDel("hashes",h._id);await markChanged("hashes");setModal(null)}} style={{width:"100%",marginTop:8}}>🗑 Remover</Btn>
   </div>;
 }
 
@@ -1275,7 +1276,16 @@ function TestePage({ctx}){
   const[sessions,setSessions]=useState([]),[activeId,setActiveId]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false),[unlinkPrompt,setUnlinkPrompt]=useState(null);
   const slotRefs=useRef([]);
   const recentlyCreated=useRef(new Set());
-  useEffect(()=>{fbList("sessions").then(all=>setSessions(all.filter(s=>s.employeeId===user._id)))},[user._id]);
+  const reloadSessions=useCallback(()=>{fbList("sessions").then(all=>setSessions(all.filter(s=>s.employeeId===user._id)))},[user._id]);
+  useEffect(()=>{reloadSessions()},[reloadSessions]);
+  // Tempo real: se o Admin reprovar um teste (ou qualquer outra sessão mudar),
+  // o testador vê na hora, sem precisar recarregar a página.
+  useEffect(()=>{
+    const channel=supabase.channel("hashstock-sessions-"+user._id);
+    channel.on("postgres_changes",{event:"*",schema:"public",table:"sessions"},()=>{reloadSessions()});
+    channel.subscribe();
+    return()=>{supabase.removeChannel(channel)};
+  },[user._id,reloadSessions]);
   const session=sessions.find(s=>s._id===activeId)||null;
   const saveSession=async s=>{
     await fbSet("sessions",s._id,s);
@@ -1588,8 +1598,8 @@ function HistPage({ctx,canSeeEmp}){
     <div style={{display:"flex",gap:6,marginBottom:12}}>{[["mine","Meus"],["all","Todos"]].map(([id,l])=><button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?C.accent:C.card,color:filter===id?"#fff":C.muted,border:"none",borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>)}</div>
     {all.slice(0,50).map(item=>{const emp=data.employees.find(e=>e._id===item.employeeId);
       if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:C.blue}}>{item.type==="already_good"?"✅":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {emp?.name} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><Tag color={item.type==="already_good"?C.green:C.purple} small>{item.type==="already_good"?"JÁ BOA":"CONSERTO"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
-      const stC=item.status==="pending"?C.blue:item.overallResult==="good"?C.green:C.red;
-      const stL=item.status==="pending"?"Aguard.Revisão":item.overallResult==="good"?"BOA":"RUIM";
+      const stC=item.status==="pending"?C.blue:item.status==="rejected"?C.amber:item.overallResult==="good"?C.green:C.red;
+      const stL=item.status==="pending"?"Aguard.Revisão":item.status==="rejected"?"REPROVADA":item.overallResult==="good"?"BOA":"RUIM";
       return<Card key={item._id} accent={stC}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {item.machineSN||"s/máq"}</div><div style={{fontSize:11,color:C.muted}}>👷 {emp?.name} · {fmtTS(item._at)}</div></div><Tag color={stC} small>{stL}</Tag></div><By by={item._byName} at={item._at}/></Card>;
     })}
   </div>;
@@ -1644,6 +1654,8 @@ function ApprovalsPage({ctx}){
     // A planilha só é atualizada quando a revisão finalmente aprovar de verdade.
     const test=data.tests.find(t=>t._id===appr.testId);
     if(test){
+      const tUpd={...test,status:"rejected",adminNote:n,...audit(user)};
+      await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
       const sid=uid();
       const s={_id:sid,employeeId:appr.employeeId,machineSN:appr.machineSN,model:test.model,th:test.th,
         slots:[
@@ -1766,7 +1778,7 @@ function EmpProfile({ctx,emp}){
     </div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
       {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:C.blue}><div style={{fontWeight:700,fontSize:13,color:r.type==="already_good"?C.green:C.blue}}>{r.type==="already_good"?"✅":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(r._at)}</div>{r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}</Card>)}
-      {dayT.map(t=>{const stC=t.status==="pending"?C.blue:t.overallResult==="good"?C.green:C.red;return<Card key={t._id} accent={stC}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(t._at)}</div><Tag color={stC} small>{t.status==="pending"?"Aguard.Revisão":t.overallResult==="good"?"BOA":"RUIM"}</Tag></Card>})}
+      {dayT.map(t=>{const stC=t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red;return<Card key={t._id} accent={stC}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(t._at)}</div><Tag color={stC} small>{t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"}</Tag></Card>})}
     </>}
     <SL mt={12}>HISTÓRICO</SL>
     {Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13,cursor:"pointer"}}><span style={{color:d===dateFilter?C.accent:C.text}}>{fmtDate(d)}</span><span style={{fontWeight:700,color:C.accent}}>{byDate[d]} itens</span></div>)}
@@ -2273,7 +2285,7 @@ function EmpHistory({ctx,emp}){
     <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="Data" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
       {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:C.blue}><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></Card>)}
-      {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.overallResult==="good"?C.green:C.red}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></Card>)}
+      {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></Card>)}
     </>}
     <SL mt={12}>Por Dia</SL>
     {Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid "+C.border,fontSize:12,cursor:"pointer"}}><span style={{color:d===dateFilter?C.accent:C.text}}>{fmtDate(d)}</span><Tag color={C.accent} small>{byDate[d]}</Tag></div>)}
