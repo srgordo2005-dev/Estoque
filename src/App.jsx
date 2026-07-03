@@ -123,7 +123,11 @@ const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 /* ═══ STORAGE ════════════════════════════════════════════════════ */
 // Fotos agora vão pro Google Drive de vocês (via Apps Script), não mais pro
 // Supabase Storage — evita estourar o limite de 1GB grátis do Supabase.
-let DRIVE_UPLOAD_URL=localStorage.getItem("driveUploadUrl")||"";
+// URLs padrão (funcionam mesmo se o navegador não tiver salvo nada ainda —
+// útil porque cada deploy novo do Vercel pode gerar uma URL diferente, e o
+// localStorage é por site). Ainda dá pra trocar em Config se precisar.
+const DEFAULT_DRIVE_UPLOAD_URL="https://script.google.com/macros/s/AKfycbwtbyy8Khgh50KWk9Cmj4MyXB33it08WQF0IJlrPOuq8-ujmvDOShye4SkPFvKEp_OE5A/exec";
+let DRIVE_UPLOAD_URL=localStorage.getItem("driveUploadUrl")||DEFAULT_DRIVE_UPLOAD_URL;
 async function uploadPhoto(b64,path){
   if(!DRIVE_UPLOAD_URL){console.warn("Configure a URL do Drive em Config antes de enviar fotos.");return null}
   try{
@@ -213,41 +217,40 @@ function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
   return<div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<div style={{display:"flex",gap:8}}><input list={list} value={value} onChange={e=>onChange(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&onEnter?.()} placeholder={placeholder||"SN"} autoFocus={autoFocus} style={{...inp,flex:1,borderColor:err?C.red:C.border}}/><button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"10px 14px",cursor:"pointer",fontSize:20,flexShrink:0}} title="Escanear">📷</button></div>{err&&<div style={{color:C.red,fontSize:11,marginTop:3}}>⚠️ {err}</div>}{sc&&<BarcodeScanner onScan={v=>{onChange(v.toUpperCase());setSc(false);onEnter?.()}} onClose={()=>setSc(false)}/>}</div>;
 }
 
-/* ═══ BIPAGEM INTELIGENTE EM LOTE ══════════════════════════════
+/* ═══ BIPAGEM EM LOTE (Bipar / Digitar separados) ═══════════════
    Componente reutilizável usado em Clientes, Paletes e Lote de HASHs/Máquinas.
-   Detecta pela velocidade das teclas se o SN está sendo BIPADO (leitor de
-   código de barras — rajada de caracteres em poucos milissegundos) ou
-   DIGITADO manualmente devagar:
-   - Bipado: assim que a rajada para (pequena pausa), confirma sozinho e
-     limpa o campo pra já poder bipar o próximo, sem precisar Enter/clique.
-   - Manual: espera Enter ou o botão "+", pra não atrapalhar quem digita.
+   Antes o app tentava ADIVINHAR se o SN estava sendo bipado ou digitado pela
+   velocidade das teclas — isso é instável (varia de leitor pra leitor).
+   Agora são dois modos explícitos que você escolhe:
+   - 📡 Bipar: o leitor de código de barras manda "Enter" sozinho ao fim de
+     cada leitura — só confia nisso, confirma na hora e mantém o foco pronto
+     pro próximo bipe.
+   - ⌨️ Digitar: digitação manual, sem nada automático — só confirma com
+     Enter ou clicando no botão "+".
 */
 function SmartScanInput({onDetect,placeholder,autoFocus,disabled}){
+  const[mode,setMode]=useState("scan");
   const[val,setVal]=useState("");
-  const lastKeyTime=useRef(0);
-  const wasFast=useRef(true);
-  const pauseTimer=useRef(null);
-  const commit=(v,fast)=>{
-    const s=v.trim();
+  const inputRef=useRef();
+  const commit=()=>{
+    const s=val.trim();
     if(!s)return;
-    onDetect(s,fast);
+    onDetect(s,mode==="scan");
     setVal("");
-    wasFast.current=true;
-    lastKeyTime.current=0;
+    if(mode==="scan")setTimeout(()=>inputRef.current?.focus(),30);
   };
-  const handleChange=e=>{
-    const now=Date.now();
-    const gap=lastKeyTime.current?now-lastKeyTime.current:0;
-    lastKeyTime.current=now;
-    if(gap>150&&val.length>0)wasFast.current=false; // pausa grande = digitação manual
-    const v=e.target.value.toUpperCase();
-    setVal(v);
-    clearTimeout(pauseTimer.current);
-    // Se a digitação inteira foi rápida (bipe) e agora parou por um instante, confirma sozinho
-    pauseTimer.current=setTimeout(()=>{if(wasFast.current&&v.trim().length>=4)commit(v,true)},200);
-  };
-  const handleKeyDown=e=>{if(e.key==="Enter"){clearTimeout(pauseTimer.current);commit(val,wasFast.current)}};
-  return<input value={val} onChange={handleChange} onKeyDown={handleKeyDown} onFocus={()=>{wasFast.current=true;lastKeyTime.current=0}} placeholder={placeholder||"Bipe ou digite o SN e Enter..."} autoFocus={autoFocus} disabled={disabled} style={{...inp}}/>;
+  const handleKeyDown=e=>{if(e.key==="Enter"){e.preventDefault();commit()}};
+  return<div>
+    <div style={{display:"flex",gap:6,marginBottom:6}}>
+      <button type="button" onClick={()=>setMode("scan")} style={{flex:1,background:mode==="scan"?C.blue:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>📡 Bipar</button>
+      <button type="button" onClick={()=>setMode("manual")} style={{flex:1,background:mode==="manual"?C.accent:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>⌨️ Digitar</button>
+    </div>
+    <div style={{display:"flex",gap:8}}>
+      <input ref={inputRef} value={val} onChange={e=>setVal(e.target.value.toUpperCase())} onKeyDown={handleKeyDown} placeholder={mode==="scan"?"Aponte o leitor e bipe...":(placeholder||"Digite o SN...")} autoFocus={autoFocus} disabled={disabled} style={{...inp,flex:1}}/>
+      {mode==="manual"&&<button type="button" onClick={commit} style={{background:C.accent,border:"none",color:"#fff",borderRadius:8,padding:"0 18px",cursor:"pointer",fontWeight:900,fontSize:16}}>+</button>}
+    </div>
+    {mode==="scan"&&<div style={{color:C.muted,fontSize:10,marginTop:4}}>O leitor confirma sozinho ao terminar de bipar (ele já manda Enter)</div>}
+  </div>;
 }
 
 /* ═══ PHOTO ═════════════════════════════════════════════════════ */
@@ -294,7 +297,8 @@ export default function App(){
   const[user,setUser]=useState(null);
   const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
-  const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||"");
+  const DEFAULT_WEBHOOK_URL="https://script.google.com/macros/s/AKfycbxZ1WpUhjvKWYEUAvQdaRHuu-mb1WLorVMOreihxvSJlMrddJYa-U1obUlu5tGtRjBv/exec";
+  const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||DEFAULT_WEBHOOK_URL);
   const setCol=(col,val)=>setData(d=>({...d,[col]:val}));
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
   const allModels=useCallback(()=>[...DEF_MODELS,...data.customModels].sort((a,b)=>a.m.localeCompare(b.m)),[data.customModels]);
@@ -468,7 +472,7 @@ export default function App(){
   if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
   if(!user)return<LoginPage employees={data.employees} onLogin={setUser}/>;
 
-  const p=user.permissions||{};const isAdmin=p.admin;
+  const p=user.permissions||{};const isAdmin=p.admin;const isSuperAdmin=user.code==="019";
   const canSeeEmp=id=>isAdmin||(user.allowedEmployees||[]).includes(id);
   const pendingApprs=data.approvals.filter(a=>a.status==="pending");
   const myFdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===user._id);
@@ -481,7 +485,7 @@ export default function App(){
     ...(p.repairs&&!isAdmin?[{id:"conserto",icon:"🔧",label:"Conserto"}]:[]),
     ...(p.testing&&!isAdmin?[{id:"teste",icon:"🧪",label:"Teste"}]:[]),
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
-    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"},{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
+    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:680,margin:"0 auto"}}>
@@ -506,7 +510,7 @@ export default function App(){
       {tab==="hist"&&<HistPage ctx={ctx}/>}
       {tab==="pal"&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&<ApprovalsPage ctx={ctx}/>}
       {tab==="team"&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
-      {tab==="cfg"&&<CfgPage ctx={ctx}/>}
+      {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
     </div>
     <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:680,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
       {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,background:"none",border:"none",padding:"8px 2px 12px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:tab===t.id?C.accent:C.muted}}><span style={{fontSize:17}}>{t.icon}</span><span style={{fontSize:8,fontWeight:800}}>{t.label}</span></button>)}
@@ -1032,7 +1036,7 @@ function HashBatchSNForm({ctx,onClose}){
   return<div>
     <Sel label="MODELO (usado para os SNs novos)" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
-      <SL>BIPE OU DIGITE → detecta sozinho se foi bipado</SL>
+      <SL>BIPAR OU DIGITAR</SL>
       <SmartScanInput onDetect={addSN} placeholder="SN da HASH..." autoFocus/>
       <div style={{maxHeight:220,overflow:"auto",marginTop:10}}>
         {rows.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN ainda</div>:rows.map(r=><div key={r.sn} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
@@ -1888,7 +1892,7 @@ function PalletDetail({ctx,pallet}){
     <div style={{display:"flex",gap:6,marginBottom:10}}>
       {[["scan","📡 Bipagem"],["upload","📄 CSV"]].map(([id,l])=><button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"8px 4px",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>)}
     </div>
-    {mode==="scan"&&<div style={{marginBottom:8}}><SL>BIPE OU DIGITE → detecta sozinho se foi bipado</SL><SmartScanInput onDetect={addSN} placeholder={itemType==="hash"?"SN da HASH...":"SN da máquina..."} autoFocus/></div>}
+    {mode==="scan"&&<div style={{marginBottom:8}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder={itemType==="hash"?"SN da HASH...":"SN da máquina..."} autoFocus/></div>}
     {mode==="upload"&&<><input ref={fileRef} type="file" accept=".csv,.txt" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadCSV(e.target.files[0])}/><Btn v="b" onClick={()=>fileRef.current.click()} style={{width:"100%",marginBottom:8}}>📂 Escolher CSV</Btn><Btn v="s" onClick={()=>{const rows=["SN,Modelo,Situação"];macs.forEach(m=>rows.push((m.sn||"")+","+(m.model||"")+","+(m.situacao||"")));const blob=new Blob([rows.join("\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="palete-"+p.name+".csv";a.click()}} style={{width:"100%",marginBottom:8}}>⬇️ Exportar CSV</Btn></>}
     {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:8,marginBottom:10,maxHeight:100,overflow:"auto"}}>{log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:C.blue,padding:"2px 0"}}>{l.sn} — {l.msg}</div>)}</div>}
     <SL>Máquinas ({macs.length})</SL>
@@ -1963,7 +1967,7 @@ function ClientDetail({ctx,client}){
     <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}><div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}{c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}<div style={{marginTop:8,display:"flex",gap:8}}><div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:20}}>{c.machinesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>Total</div></div><div style={{background:C.red+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.red,fontSize:20}}>{macs.filter(m=>["SAIDA","VENDIDA","EXPORTADA"].includes(m.situacao)).length}</div><div style={{fontSize:10,color:C.muted}}>Saídas</div></div></div></div>
     <div style={{color:C.amber,fontSize:11,marginBottom:8}}>⚠️ Ao salvar, máquina e HASHs internas vão para SAIDA</div>
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
-      <SL>BIPE OU DIGITE OS SNs → detecta sozinho se foi bipado</SL>
+      <SL>BIPAR OU DIGITAR OS SNs</SL>
       <SmartScanInput onDetect={addToPending} placeholder="SN da máquina..." autoFocus/>
       <div style={{maxHeight:200,overflow:"auto",marginTop:10}}>
         {pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN ainda</div>:pending.map(p=><div key={p.sn} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
