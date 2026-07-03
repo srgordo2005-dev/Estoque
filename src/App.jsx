@@ -80,6 +80,14 @@ async function fbDel(c,id){
   const table=tableName(c);
   const{error}=await supabase.from(table).delete().eq("id",id);
   if(error){console.warn(`fbDel(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui apagar de "${c}": ${error.message}`);return{ok:false,error:error.message}}
+  // Quem apaga de propósito (lixo/duplicado) precisa que o "teto máximo" de
+  // segurança (guardCount) desça junto — senão fica avisando pra sempre que
+  // a contagem "diminuiu" mesmo sendo exatamente o que se pediu pra fazer.
+  if(c==="machines"||c==="hashes"){
+    const key="hs_maxcount_"+c;
+    const cur=Number(localStorage.getItem(key)||0);
+    if(cur>0)localStorage.setItem(key,String(cur-1));
+  }
   return{ok:true};
 }
 async function fbBatch(writes){
@@ -335,6 +343,11 @@ export default function App(){
     }
     return{use:freshArr,warn:null};
   };
+  // Chamado depois de uma exclusão DE PROPÓSITO (ex: limpar duplicatas na
+  // comparação com a planilha) — avisa a blindagem que o número novo (menor)
+  // é legítimo, pra ela não ficar "protegendo" dados que já foram apagados
+  // de verdade e acabar restaurando eles na tela.
+  const resetMaxCount=(col,newCount)=>{localStorage.setItem("hs_maxcount_"+col,String(newCount))};
 
   // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore
   const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients"};
@@ -478,7 +491,7 @@ export default function App(){
 
   useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
-  const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,dataWarnings};
+  const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,dataWarnings,resetMaxCount};
   if(loading)return<Splash/>;
   if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
   if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
@@ -1363,7 +1376,7 @@ function TestePage({ctx}){
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
       <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>SN DA MÁQUINA {session?"(sessão ativa)":"(nova)"}</div>
       <div style={{display:"flex",gap:8}}>
-        <input value={macInput} onChange={e=>{setMacInput(e.target.value.toUpperCase());clearTimeout(window._lt);window._lt=setTimeout(()=>loadMachine(e.target.value),1000)}} onKeyDown={e=>e.key==="Enter"&&loadMachine(macInput)} placeholder="Bipe ou escaneie o SN..." list="mac-list" style={{...inp,flex:1}}/>
+        <input value={macInput} onChange={e=>setMacInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&loadMachine(macInput)} placeholder="Bipe ou escaneie o SN e Enter..." list="mac-list" style={{...inp,flex:1}}/>
         <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
       </div>
       <datalist id="mac-list">{data.machines.map(m=><option key={m._id} value={m.sn||""}>{m.model}</option>)}</datalist>
@@ -1438,7 +1451,7 @@ function TestePage({ctx}){
 
 function RuimSlotForm({ctx,session,slotIndex,onSave}){
   const{data,mutate,user,webhookUrl}=ctx;
-  const[logPhoto,setLogPhoto]=useState(null),[notes,setNotes]=useState(""),[saving,setSaving]=useState(false),[err,setErr]=useState("");
+  const[logPhoto,setLogPhoto]=useState(null),[notes,setNotes]=useState(""),[location,setLocation]=useState(""),[saving,setSaving]=useState(false),[err,setErr]=useState("");
   const slot=session.slots[slotIndex];
   const h=slot.hashSN?data.hashes.find(x=>x.sn===slot.hashSN.toUpperCase()):null;
   const lastRep=slot.hashSN?[...data.repairs].reverse().find(r=>r.hashSN===slot.hashSN):null;
@@ -1448,12 +1461,12 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     const newSlots=[...session.slots];newSlots[slotIndex]={...slot,hashSN:"",status:"bad",logPhoto:logPhoto||"",logNotes:notes};
     if(h){
       // HASH já existia — só atualiza o status pra REPARO
-      const u={...h,status:"REPARO",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");
+      const u={...h,status:"REPARO",location:location||h.location||"",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");
       syncSheet(webhookUrl,"hashBad",{sn:h.sn,model:h.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});
     }else if(slot.hashSN){
       // HASH nova — só é criada agora que foi definido o resultado (RUIM)
       const sn=slot.hashSN.toUpperCase().trim();const hid=uid();
-      const hd={sn,model:session.model,status:"REPARO",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
+      const hd={sn,model:session.model,status:"REPARO",location:location||"",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
       await fbSet("hashes",hid,hd);mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
       syncSheet(webhookUrl,"hashBad",{sn,model:session.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});
     }
@@ -1470,6 +1483,7 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     </div>
     <PhotoCapture label="📸 Foto do Log de Erro (opcional)" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste"/>
     <Inp label="Descrição do Erro" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected, Chain Break..."/>
+    <Inp label="Onde essa HASH vai ficar (palete/prateleira)" value={location} onChange={e=>setLocation(e.target.value.toUpperCase())} placeholder="Ex: PALETE 03 · PRATELEIRA REPARO"/>
     {err&&<Alrt type="err">{err}</Alrt>}
     <div style={{display:"flex",gap:8}}>
       <Btn v="s" onClick={()=>onSave(session)} style={{flex:1}}>Cancelar</Btn>
@@ -1771,8 +1785,13 @@ function MigrationPanel({ctx}){
 }
 
 function CfgPage({ctx}){
-  const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal}=ctx;
+  const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal,resetMaxCount}=ctx;
   const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
+  const recalcProtection=()=>{
+    resetMaxCount("machines",data.machines.length);
+    resetMaxCount("hashes",data.hashes.length);
+    alert(`✓ Recalculado! Máquinas: ${data.machines.length} · HASHs: ${data.hashes.length}\nAgora esses números viram a nova referência — sem avisos falsos de "sumiço".`);
+  };
   const exportBackup=()=>{
     const backup={exportedAt:stamp(),employees:data.employees,machines:data.machines,hashes:data.hashes,repairs:data.repairs,tests:data.tests,feedbacks:data.feedbacks,approvals:data.approvals,customModels:data.customModels,pallets:data.pallets,clients:data.clients};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
@@ -1792,7 +1811,8 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
     {dataWarnings.length>0&&<Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
       <SL>🛡️ AVISOS DE INTEGRIDADE DE DADOS ({dataWarnings.length})</SL>
-      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Sempre que uma leitura do banco vier suspeitosamente menor que o normal, o app protege o que já está na tela e registra aqui em vez de apagar dados.</div>
+      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Sempre que uma leitura do banco vier suspeitosamente menor que o normal, o app protege o que já está na tela e registra aqui em vez de apagar dados. Se você mesmo apagou dados de propósito (ex: limpou duplicatas), clica no botão abaixo pra avisar o app que o número novo (menor) está certo.</div>
+      <Btn v="y" onClick={recalcProtection} style={{width:"100%",marginBottom:10}}>🔄 Recalcular proteção (o número atual está certo)</Btn>
       {dataWarnings.map((w,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,color:"#ff9b9b"}}>{w.msg}<div style={{color:C.muted,fontSize:10}}>{fmtTS(w.at)}</div></div>)}
     </Card>}
     <MigrationPanel ctx={ctx}/>
@@ -1816,7 +1836,7 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
 // mesmo SN, e mostra só o que é realmente novo, com checkbox pra escolher o
 // que importar.
 function SheetCompareReview({ctx,onClose}){
-  const{data,mutate,webhookUrl,user}=ctx;
+  const{data,mutate,webhookUrl,user,resetMaxCount}=ctx;
   const[loading,setLoading]=useState(true);
   const[newInSheetM,setNewInSheetM]=useState([]),[newInSheetH,setNewInSheetH]=useState([]);
   const[extraInAppM,setExtraInAppM]=useState([]),[extraInAppH,setExtraInAppH]=useState([]);
@@ -1853,12 +1873,26 @@ function SheetCompareReview({ctx,onClose}){
     const mToImport=newInSheetM.filter((_,i)=>selSheetM.has(i));
     const hToImport=newInSheetH.filter((_,i)=>selSheetH.has(i));
     const mWrites=mToImport.map(m=>({c:"machines",id:uid(),d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}));
-    const hWrites=hToImport.map(h=>{let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});
+    const hWrites=hToImport.map(h=>{
+      let status=h.status; // a aba "HASH" já manda o status pronto (TESTAR/NA MAQUINA/RUIM/SAIDA)
+      if(!status){const sit=String(h.situacao||"").toUpperCase();status="REPARO";if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";}
+      return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:h.machineSN||"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}};
+    });
     const writes=[...mWrites,...hWrites];
     for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));
     if(mWrites.length)mutate("machines",arr=>[...arr,...mWrites.map(w=>({...w.d,_id:w.id}))]);
     if(hWrites.length)mutate("hashes",arr=>[...arr,...hWrites.map(w=>({...w.d,_id:w.id}))]);
     await markChanged("machines");await markChanged("hashes");
+    setSaving(false);onClose();
+  };
+  // Apaga da PLANILHA os itens marcados (o que sobrou lá e você não quer trazer)
+  const deleteFromSheet=async()=>{
+    const mToDel=newInSheetM.filter((_,i)=>selSheetM.has(i));
+    const hToDel=newInSheetH.filter((_,i)=>selSheetH.has(i));
+    if(!confirm(`Excluir ${mToDel.length} máquina(s) e ${hToDel.length} HASH(s) da PLANILHA? Isso não pode ser desfeito.`))return;
+    setSaving(true);
+    mToDel.forEach(m=>syncSheet(webhookUrl,"deleteMachineRow",{sn:m.sn}));
+    hToDel.forEach(h=>syncSheet(webhookUrl,"deleteHashRow",{sn:h.sn}));
     setSaving(false);onClose();
   };
   // Manda pra planilha o que o app tem a mais
@@ -1878,6 +1912,10 @@ function SheetCompareReview({ctx,onClose}){
     setSaving(true);
     for(const m of mToDel){await fbDel("machines",m._id);mutate("machines",arr=>arr.filter(x=>x._id!==m._id))}
     for(const h of hToDel){await fbDel("hashes",h._id);mutate("hashes",arr=>arr.filter(x=>x._id!==h._id))}
+    // Avisa a blindagem de dados que essa contagem menor é de propósito —
+    // senão ela ia "proteger" e trazer de volta o que acabamos de apagar.
+    if(mToDel.length)resetMaxCount("machines",data.machines.length-mToDel.length);
+    if(hToDel.length)resetMaxCount("hashes",data.hashes.length-hToDel.length);
     setSaving(false);onClose();
   };
 
@@ -1900,7 +1938,10 @@ function SheetCompareReview({ctx,onClose}){
           <input type="checkbox" checked={selSheetH.has(i)} readOnly style={{width:16,height:16}}/>
         </div>)}
       </>}
-      <Btn v="g" onClick={importFromSheet} disabled={saving||(selSheetM.size+selSheetH.size===0)} style={{width:"100%",marginTop:10}}>{saving?"...":`⬇️ Trazer ${selSheetM.size+selSheetH.size} pro app`}</Btn>
+      <div style={{display:"flex",gap:8,marginTop:10}}>
+        <Btn v="g" onClick={importFromSheet} disabled={saving||(selSheetM.size+selSheetH.size===0)} style={{flex:1}}>{saving?"...":`⬇️ Trazer ${selSheetM.size+selSheetH.size} pro app`}</Btn>
+        <Btn v="d" onClick={deleteFromSheet} disabled={saving||(selSheetM.size+selSheetH.size===0)} style={{flex:1}}>🗑 Excluir da planilha</Btn>
+      </div>
     </div>}
     {(extraInAppM.length>0||extraInAppH.length>0)&&<div>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⬆️ O APP TEM E A PLANILHA NÃO ({extraInAppM.length+extraInAppH.length})</div>
