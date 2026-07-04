@@ -2,6 +2,24 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { jsPDF } from "jspdf";
 
+// Quando uma tela é aberta com setModal(<Componente ctx={ctx}/>), esse
+// elemento fica "congelado" no estado — se os dados mudarem depois (por
+// exemplo, você adiciona a máquina num palete), a tela aberta não via a
+// atualização até fechar e abrir de novo. Essa função percorre a árvore
+// guardada e troca o "ctx" congelado pelo mais atual, toda vez que a tela
+// é renderizada de novo — sem precisar mudar todos os lugares que abrem modal.
+function injectFreshCtx(element,ctx){
+  if(!React.isValidElement(element))return element;
+  const newProps={};
+  if("ctx" in element.props)newProps.ctx=ctx;
+  let children=element.props.children;
+  if(children!==undefined){
+    children=React.Children.map(children,child=>injectFreshCtx(child,ctx));
+    newProps.children=children;
+  }
+  return React.cloneElement(element,newProps);
+}
+
 /* ═══ SUPABASE ═══════════════════════════════════════════════════ */
 const SUPABASE_URL="https://paelbarlmayswqilhoxa.supabase.co";
 const SUPABASE_KEY="sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h"; // sb_publishable_...
@@ -262,13 +280,16 @@ async function generateClientPDF(client,macsF,hshsF,data,onProgress){
       const slots=[m.hashSN0,m.hashSN1,m.hashSN2].filter(Boolean);
       if(slots.length){doc.text(`HASHs instaladas: ${slots.join(", ")}`,marginX,y);y+=5}
       const test=[...data.tests].reverse().find(t=>t.machineSN===m.sn&&t.overallResult==="good");
-      if(test?.testPhoto){
-        const img=await loadImageAsDataURL(test.testPhoto);
+      const photoToUse=m.photoKey||test?.testPhoto;
+      const photoLabel=m.photoKey?"Foto da maquina":"Foto do teste";
+      const photoDate=m.photoKey?(m._at?fmtTS(m._at):"-"):(test?._at?fmtTS(test._at):"-");
+      if(photoToUse){
+        const img=await loadImageAsDataURL(photoToUse);
         if(img){
           ensureSpace(65);
           try{doc.addImage(img,"JPEG",marginX,y,70,52);
             doc.setFontSize(8);doc.setTextColor(140);
-            doc.text(`Foto do teste - ${test._at?fmtTS(test._at):"-"}`,marginX+74,y+30);
+            doc.text(`${photoLabel} - ${photoDate}`,marginX+74,y+30);
             doc.setTextColor(0);
             y+=58;
           }catch{y+=4}
@@ -675,7 +696,7 @@ export default function App(){
     </nav>
     <button onClick={()=>setCamOpen(true)} style={{position:"fixed",right:16,bottom:72,width:52,height:52,borderRadius:"50%",background:C.accent,border:"none",cursor:"pointer",fontSize:22,zIndex:99,boxShadow:"0 4px 16px rgba(249,115,22,.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>
     {camOpen&&<CamModal ctx={ctx} onClose={()=>setCamOpen(false)}/>}
-    {modal}
+    {modal&&injectFreshCtx(modal,ctx)}
   </div>;
 }
 
@@ -1171,7 +1192,13 @@ function MachineDetail({ctx,machine}){
           <Btn v="b" onClick={()=>downloadPhoto(m.photoKey,`${m.sn||"maquina"}.jpg`)} style={{flex:1}}>⬇️ Baixar</Btn>
           <Btn v="d" onClick={()=>{deleteDrivePhoto(m.photoKey);upd("photoKey",null)}} style={{flex:1}}>🗑️ Excluir (pra colocar outra)</Btn>
         </div>
-      </div>:<PhotoCapture photoKey={null} onChange={k=>upd("photoKey",k)} folder="maquinas" snHint={m.sn}/>}
+      </div>:(()=>{
+        const testPhoto=[...data.tests].reverse().find(t=>t.machineSN===m.sn&&t.overallResult==="good")?.testPhoto;
+        return<div style={{marginBottom:14}}>
+          {testPhoto&&<div style={{marginBottom:8}}><div style={{color:C.muted,fontSize:11,marginBottom:4}}>Foto do teste (some se você adicionar uma foto própria abaixo):</div><PhotoView photoKey={testPhoto} style={{maxHeight:180}}/></div>}
+          <PhotoCapture photoKey={null} onChange={k=>upd("photoKey",k)} folder="maquinas" snHint={m.sn}/>
+        </div>;
+      })()}
       {(()=>{const paletsComMac=(data.pallets||[]).filter(p=>(p.machinesSN||[]).includes(m.sn));const outrosPalets=(data.pallets||[]).filter(p=>!(p.machinesSN||[]).includes(m.sn));return<div>
         {paletsComMac.length>0&&<><SL>📦 Paletes desta máquina</SL>{paletsComMac.map(p=><div key={p._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+C.border,fontSize:12}}><span style={{color:C.blue}}>📦 {p.name}{p.location?" · "+p.location:""}</span><button onClick={async()=>{const ns=(p.machinesSN||[]).filter(s=>s!==m.sn);const upd2={...p,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd2:x));await fbSet("pallets",p._id,upd2);await markChanged("pallets");}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>✕</button></div>)}</>}
         {!m.sn&&<div style={{color:C.amber,fontSize:11,marginTop:4}}>⚠️ Essa máquina não tem SN — não dá pra vincular a um palete (o vínculo é feito pelo SN). Defina um SN primeiro.</div>}
@@ -1687,7 +1714,13 @@ function TestePage({ctx}){
         <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
       </div>
       <datalist id="mac-list">{data.machines.map(m=><option key={m._id} value={m.sn||""}>{m.model}</option>)}</datalist>
-      {session&&<div style={{marginTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontWeight:800,color:C.accent}}>{session.machineSN}</span><span style={{color:C.muted,fontSize:12}}>{session.model} · {session.th}TH</span></div>}
+      {session&&<div style={{marginTop:8}}>
+        <div style={{fontWeight:800,color:C.accent,marginBottom:6}}>{session.machineSN}</div>
+        <div style={{display:"flex",gap:8}}>
+          <Sel value={session.model} onChange={e=>{const newModel=e.target.value;saveSession({...session,model:newModel,th:gTH(newModel),updatedAt:stamp()})}} style={{flex:2,marginBottom:0}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+          <Inp type="number" value={session.th} onChange={e=>saveSession({...session,th:Number(e.target.value),updatedAt:stamp()})} placeholder="TH" style={{width:70,marginBottom:0}}/>
+        </div>
+      </div>}
       {!session&&macInput===""&&otherSessions.length>0&&<div style={{color:C.muted,fontSize:11,marginTop:6}}>Bipe outro SN pra abrir uma nova máquina em paralelo, sem perder as outras.</div>}
     </div>
 
@@ -1894,7 +1927,7 @@ function ApprovalDetail({ctx,appr}){
 }
 
 function ApprovalsPage({ctx}){
-  const{data,mutate,user,webhookUrl,setModal}=ctx;
+  const{data,mutate,user,webhookUrl,setModal,gTH}=ctx;
   const[notes,setNotes]=useState({}),[processing,setProcessing]=useState(null);
   const pending=data.approvals.filter(a=>a.status==="pending");
   const approve=async(appr)=>{
@@ -1902,15 +1935,26 @@ function ApprovalsPage({ctx}){
     const tUpd={...test,status:"approved",overallResult:"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
     if(exMac){
-      const mUpd={...exMac,situacao:"BOA",model:test.model||exMac.model,hash0:test.slot0HashSN?"ON":"OFF",hash1:test.slot1HashSN?"ON":"OFF",hash2:test.slot2HashSN?"ON":"OFF",hashSN0:test.slot0HashSN,hashSN1:test.slot1HashSN,hashSN2:test.slot2HashSN,...audit(user)};
+      // Quando o teste dá "TUDO BOA", TODOS os parâmetros ficam ON — mesmo os
+      // slots sem SN preenchido (a máquina toda foi aprovada como funcionando).
+      const mUpd={...exMac,situacao:"BOA",model:test.model||exMac.model,th:test.th||exMac.th,hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON",hashSN0:test.slot0HashSN||exMac.hashSN0||"",hashSN1:test.slot1HashSN||exMac.hashSN1||"",hashSN2:test.slot2HashSN||exMac.hashSN2||"",...audit(user)};
       await fbSet("machines",exMac._id,mUpd);mutate("machines",m=>m.map(x=>x._id===exMac._id?mUpd:x));
       syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
       if(test.model&&test.model!==exMac.model)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"model",to:test.model,employeeName:user.name,employeeCode:user.code});
+      if(test.th&&test.th!==exMac.th)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"th",to:test.th,employeeName:user.name,employeeCode:user.code});
+      ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}));
+      // Se o testador colocou um T/H diferente do padrão do modelo, guarda
+      // isso como modelo customizado — próximas máquinas desse modelo já
+      // vêm com o T/H certo.
+      if(test.model&&test.th&&test.th!==gTH(test.model)&&!data.customModels.find(cm=>cm.m===test.model&&cm.th===test.th)){
+        const cmid=uid();const cmd={m:test.model,th:test.th};
+        await fbSet("customModels",cmid,cmd);mutate("customModels",arr=>[...arr,{...cmd,_id:cmid}]);
+      }
     }else if(appr.machineSN){
       // Máquina testada que ainda não existia no estoque — cria agora, já como BOA
       const mid=uid();
       const mNew={sn:appr.machineSN,ref:appr.employeeCode||"",model:test.model,th:test.th||0,type:"complete",situacao:"BOA",
-        hash0:test.slot0HashSN?"ON":"OFF",hash1:test.slot1HashSN?"ON":"OFF",hash2:test.slot2HashSN?"ON":"OFF",
+        hash0:"ON",hash1:"ON",hash2:"ON",
         hashSN0:test.slot0HashSN||"",hashSN1:test.slot1HashSN||"",hashSN2:test.slot2HashSN||"",
         controladora:"ON",fonte:"ON",fans:"ON",location:"",destino:"",...audit(user),addedAt:TODAY()};
       await fbSet("machines",mid,mNew);mutate("machines",m=>[...m,{...mNew,_id:mid}]);
@@ -1978,6 +2022,9 @@ function ApprovalsPage({ctx}){
         <Inp label="Observação para rejeição (opcional)" value={notes[appr._id]||""} onChange={e=>setNotes({...notes,[appr._id]:e.target.value})} placeholder="Ex: rever HASH 2..."/>
         <div style={{display:"flex",gap:8}}>
           {data.machines.find(m=>m.sn===appr.machineSN)&&<Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={data.machines.find(m=>m.sn===appr.machineSN)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>}
+          <Btn v="b" onClick={()=>setModal(<Modal title={`📋 ${appr.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={appr}/></Modal>)} style={{flex:1}}>📋 Ver mais</Btn>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:8}}>
           <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
     {data.approvals.filter(a=>a.status!=="pending").length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending").slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div></div>)}</>}
@@ -2708,7 +2755,7 @@ function ClientReport({ctx,client}){
           <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>
             {[m.hashSN0,m.hashSN1,m.hashSN2].filter(Boolean).map((sn,i)=>{const h=data.hashes.find(x=>x.sn===sn);return<span key={i} style={{background:C.card2,borderRadius:6,padding:"2px 8px",fontSize:10}}>⚡ {sn} {h&&<HP s={h.status}/>}</span>})}
           </div>
-          {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginTop:8,maxHeight:140}}/>}
+          {(m.photoKey||test?.testPhoto)&&<PhotoView photoKey={m.photoKey||test?.testPhoto} style={{marginTop:8,maxHeight:140}}/>}
         </Card>;
       })}
     </>}
