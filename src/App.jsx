@@ -1137,11 +1137,11 @@ function MachineDetail({ctx,machine}){
   // editar nem apagar foto, só desvincular do cliente e voltar pro estoque.
   const locked=exitSits.includes(m.situacao)&&!!m.destino;
   const desvincular=async()=>{
-    if(!confirm(`Desvincular do cliente "${m.destino}" e devolver "${m.sn}" (e as HASHs dela) pro estoque normal?`))return;
-    const u={...m,situacao:"STOCK",destino:"",changeLog:[{field:"situacao",label:"Situação",from:m.situacao,to:"STOCK (desvinculada de "+m.destino+")",by:user.name,at:stamp()},...(m.changeLog||[])].slice(0,80),...audit(user)};
+    if(!confirm(`Desvincular do cliente "${m.destino}" e devolver "${m.sn}" (e as HASHs dela) pro estoque como BOA?`))return;
+    const u={...m,situacao:"BOA",destino:"",changeLog:[{field:"situacao",label:"Situação",from:m.situacao,to:"BOA (desvinculada de "+m.destino+")",by:user.name,at:stamp()},...(m.changeLog||[])].slice(0,80),...audit(user)};
     setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));
     await fbSet("machines",m._id,u);await markChanged("machines");
-    syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:"STOCK",employeeName:user.name,employeeCode:user.code});
+    syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
     syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
     // As HASHs que estavam dentro dessa máquina também voltam ao estoque —
     // senão ficavam "presas" como SAIDA pra sempre.
@@ -1149,7 +1149,7 @@ function MachineDetail({ctx,machine}){
     for(const h of mHashes){
       const hu={...h,status:"NA MAQUINA",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
       mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
-      syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"NA MAQUINA",employeeName:user.name,employeeCode:user.code});
+      syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"NA MAQUINA",machineSN:m.sn,employeeName:user.name,employeeCode:user.code});
     }
     if(mHashes.length)await markChanged("hashes");
   };
@@ -1280,7 +1280,7 @@ function MachineDetail({ctx,machine}){
         for(const h of mHashes){
           const hu={...h,status:"ON",machineSN:"",slot:-1,changeLog:[{field:"status",label:"Status",from:h.status,to:"ON (máquina "+m.sn+" removida)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
           mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
-          syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"ON",employeeName:user.name,employeeCode:user.code});
+          syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"ON",machineSN:"",employeeName:user.name,employeeCode:user.code});
         }
         if(mHashes.length)await markChanged("hashes");
         mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)
@@ -1503,9 +1503,9 @@ function HashDetail({ctx,hash}){
   const locked=h.status==="SAIDA"&&(h.location||"").toLowerCase().includes("vendida");
   const desvincularHash=async()=>{
     if(!confirm(`Desvincular essa HASH do cliente e devolver pro estoque normal?`))return;
-    const u={...h,status:"STOCK",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"STOCK (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+    const u={...h,status:"STOCK",location:"",machineSN:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"STOCK (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
     setH(u);mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");
-    syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:"STOCK",employeeName:user.name,employeeCode:user.code});
+    syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:"STOCK",machineSN:"",employeeName:user.name,employeeCode:user.code});
   };
   if(locked)return<div>
     <div style={{background:C.purple+"15",border:`1px solid ${C.purple}44`,borderRadius:10,padding:14,marginBottom:14}}>
@@ -1592,6 +1592,15 @@ function ConsertaPage({ctx}){
     if(ex){const u={...ex,status:"TESTAR",material:f.material||ex.material,repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}
     else{const hid=uid();const hd={sn,model:f.model,material:f.material,status:"TESTAR",repairedBy:type==="repair"?user._id:"",repairedByName:type==="repair"?user.name:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}])}
     syncSheet(webhookUrl,type==="repair"?"repair":"alreadyGood",{...rec,employeeCode:user.code,employeeName:user.name,tecnico:user.name});
+    // Se essa HASH tinha um aviso pendente pro técnico que consertou antes
+    // (porque voltou ruim), esse aviso some da tela dele agora — um outro
+    // técnico assumiu o conserto dela.
+    const openFdbs=data.feedbacks.filter(f=>!f.resolved&&f.hashSN===sn);
+    for(const fdb of openFdbs){
+      const fu={...fdb,resolved:true,...audit(user)};
+      mutate("feedbacks",arr=>arr.map(x=>x._id===fdb._id?fu:x));await fbSet("feedbacks",fdb._id,fu);
+    }
+    if(openFdbs.length)await markChanged("feedbacks");
     await markChanged("repairs");await markChanged("hashes");
     setF({hashSN:"",model:f.model,material:f.material,obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});setPhotoKey(null);
     setSaved(type);setTimeout(()=>setSaved(null),2500);
@@ -2078,6 +2087,31 @@ function ApprovalDetail({ctx,appr}){
   </div>;
 }
 
+// Deixa o Admin ajustar modelo/material/chips/observação de uma HASH ruim
+// ANTES de aprovar — útil quando o testador errou ou esqueceu algo.
+function EditHashBadApprovalForm({ctx,appr,onSaved}){
+  const{mutate,allModels,gChips}=ctx;const models=allModels();
+  const[model,setModel]=useState(appr.model||models[0]?.m||"M30S");
+  const[material,setMaterial]=useState(appr.material||"");
+  const[chips,setChips]=useState(appr.chips||"");
+  const[notes,setNotes]=useState(appr.notes||"");
+  const[location,setLocation]=useState(appr.location||"");
+  const save=async()=>{
+    const u={...appr,model,material,chips:chips||gChips(model,material)||"",notes,location};
+    await fbSet("pendingApprovals",appr._id,u);mutate("approvals",a=>a.map(x=>x._id===appr._id?u:x));
+    onSaved();
+  };
+  return<div>
+    <div style={{fontWeight:800,fontSize:14,marginBottom:12}}>⚡ {appr.sn}</div>
+    <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+    <MaterialPicker value={material} onChange={setMaterial}/>
+    <Inp label="Quantidade de Chips" type="number" value={chips} onChange={e=>setChips(e.target.value)} placeholder={gChips(model,material)?String(gChips(model,material)):"0"}/>
+    <Inp label="Descrição do Erro" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected..."/>
+    <Inp label="Local" value={location} onChange={e=>setLocation(e.target.value.toUpperCase())} placeholder="Ex: PALETE 03"/>
+    <Btn v="g" onClick={save} style={{width:"100%"}}>💾 Salvar</Btn>
+  </div>;
+}
+
 function ApprovalsPage({ctx}){
   const{data,mutate,user,webhookUrl,setModal,gTH}=ctx;
   const[notes,setNotes]=useState({}),[processing,setProcessing]=useState(null);
@@ -2241,6 +2275,9 @@ function ApprovalsPage({ctx}){
         {appr.location&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>📍 {appr.location}</div>}
         {appr.logPhoto&&<PhotoView photoKey={appr.logPhoto} style={{marginBottom:10,maxHeight:150}}/>}
         <div style={{display:"flex",gap:8}}>
+          <Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.sn}`} onClose={()=>setModal(null)}><EditHashBadApprovalForm ctx={ctx} appr={appr} onSaved={()=>setModal(null)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:8}}>
           <Btn v="d" onClick={()=>rejectHashBad(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn>
           <Btn v="g" onClick={()=>approveHashBad(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → REPARO"}</Btn>
         </div>
