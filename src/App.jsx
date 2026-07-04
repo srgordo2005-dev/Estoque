@@ -51,6 +51,8 @@ const FIELD_MAP={
   updatedAt:"updated_at",
   adminNotes:"admin_notes",
   newHashModel:"new_hash_model",newHashMaterial:"new_hash_material",newHashChips:"new_hash_chips",
+  newHashChars:"new_hash_chars",
+  existingId:"existing_id",logPhoto:"log_photo",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
@@ -1120,12 +1122,21 @@ function MachineDetail({ctx,machine}){
   // editar nem apagar foto, só desvincular do cliente e voltar pro estoque.
   const locked=exitSits.includes(m.situacao)&&!!m.destino;
   const desvincular=async()=>{
-    if(!confirm(`Desvincular do cliente "${m.destino}" e devolver "${m.sn}" pro estoque normal?`))return;
+    if(!confirm(`Desvincular do cliente "${m.destino}" e devolver "${m.sn}" (e as HASHs dela) pro estoque normal?`))return;
     const u={...m,situacao:"STOCK",destino:"",changeLog:[{field:"situacao",label:"Situação",from:m.situacao,to:"STOCK (desvinculada de "+m.destino+")",by:user.name,at:stamp()},...(m.changeLog||[])].slice(0,80),...audit(user)};
     setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));
     await fbSet("machines",m._id,u);await markChanged("machines");
     syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:"STOCK",employeeName:user.name,employeeCode:user.code});
     syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
+    // As HASHs que estavam dentro dessa máquina também voltam ao estoque —
+    // senão ficavam "presas" como SAIDA pra sempre.
+    const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
+    for(const h of mHashes){
+      const hu={...h,status:"NA MAQUINA",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+      mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
+      syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"NA MAQUINA",employeeName:user.name,employeeCode:user.code});
+    }
+    if(mHashes.length)await markChanged("hashes");
   };
   if(locked)return<div>
     <div style={{background:C.purple+"15",border:`1px solid ${C.purple}44`,borderRadius:10,padding:14,marginBottom:14}}>
@@ -1607,12 +1618,13 @@ function TestSlotSNInput({slotRefs,i,value,onCommit,listId}){
 
 // Características (modelo/material/chips) que vão valer pra TODAS as HASHs
 // novas bipadas nesse teste que ainda não existem no estoque.
-function NewHashCharsForm({ctx,unknownSlots,initial,onSave}){
+function NewHashCharsForm({ctx,unknownSlots,initial,templateHash,onSave}){
   const{data,allModels,gChips}=ctx;const models=allModels();
-  const[model,setModel]=useState(initial?.model||models[0]?.m||"M30S");
-  const[material,setMaterial]=useState(initial?.material||"");
-  const[chips,setChips]=useState(initial?.chips||"");
+  const[model,setModel]=useState(initial?.model||templateHash?.model||models[0]?.m||"M30S");
+  const[material,setMaterial]=useState(initial?.material||templateHash?.material||"");
+  const[chips,setChips]=useState(initial?.chips||templateHash?.chips||"");
   return<div>
+    {templateHash&&!initial&&<div style={{background:C.blue+"15",border:`1px solid ${C.blue}44`,borderRadius:8,padding:10,marginBottom:12,fontSize:12,color:C.blue}}>💡 Pré-preenchido igual à HASH existente nesse teste ({templateHash.sn}) — não muda nada nela, só usa como referência.</div>}
     <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essas características vão ser usadas ao cadastrar {unknownSlots.length} HASH(s) nova(s): {unknownSlots.map(s=>s.sn).join(", ")}</div>
     <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
     <MaterialPicker value={material} onChange={setMaterial}/>
@@ -1698,8 +1710,9 @@ function TestePage({ctx}){
       if(usedHere||usedElsewhere){setErr(`⚠️ SN ${upperSn} já está sendo usado em outra máquina em teste agora — não pode repetir.`);return}
     }
     const existing=upperSn?data.hashes.find(x=>x.sn===upperSn):null;
-    // A HASH já está instalada em OUTRA máquina — pergunta se quer desvincular
-    if(existing&&existing.status==="NA MAQUINA"&&existing.machineSN&&existing.machineSN!==session.machineSN){
+    // A HASH já está instalada em OUTRA máquina, ou já foi vendida pro
+    // cliente — pergunta se quer desvincular antes de usar aqui
+    if(existing&&(existing.status==="NA MAQUINA"||existing.status==="SAIDA")&&existing.machineSN!==session.machineSN){
       setUnlinkPrompt({slotIndex:i,sn:upperSn,hash:existing});
       return;
     }
@@ -1709,21 +1722,15 @@ function TestePage({ctx}){
   const confirmUnlink=async()=>{
     if(!unlinkPrompt)return;
     const{slotIndex,sn,hash}=unlinkPrompt;
-    const oldMachineSN=hash.machineSN;
-    const oldMachine=data.machines.find(m=>m.sn===oldMachineSN);
-    if(oldMachine){
-      const slotField=hash.slot===0?"hashSN0":hash.slot===1?"hashSN1":hash.slot===2?"hashSN2":null;
-      const statusField=hash.slot===0?"hash0":hash.slot===1?"hash1":hash.slot===2?"hash2":null;
-      const patch={};if(slotField)patch[slotField]="";if(statusField)patch[statusField]="OFF";
-      const oldUpd={...oldMachine,...patch,...audit(user)};
-      mutate("machines",arr=>arr.map(x=>x._id===oldMachine._id?oldUpd:x));await fbSet("machines",oldMachine._id,oldUpd);
-      if(slotField)syncSheet(webhookUrl,"updateMachine",{sn:oldMachineSN,field:slotField,to:"",employeeName:user.name,employeeCode:user.code});
-    }
-    const hUpd={...hash,machineSN:"",slot:-1,status:"TESTAR",changeLog:[{field:"status",label:"Status",from:"NA MAQUINA",to:"Desvinculada de "+oldMachineSN,by:user.name,at:stamp()},...(hash.changeLog||[])].slice(0,80),...audit(user)};
-    mutate("hashes",arr=>arr.map(x=>x._id===hash._id?hUpd:x));await fbSet("hashes",hash._id,hUpd);
-    syncSheet(webhookUrl,"hashUnlinked",{sn:hash.sn,employeeName:user.name,employeeCode:user.code});
+    const wasSaida=hash.status==="SAIDA";
+    const note=wasSaida
+      ? `HASH ${sn} será desvinculada do cliente e movida pra essa máquina quando o teste for aprovado (a máquina antiga continua como está).`
+      : `HASH ${sn} será desvinculada da máquina ${hash.machineSN} e movida pra essa quando o teste for aprovado.`;
     setUnlinkPrompt(null);
-    await applySlotSN(slotIndex,sn,hUpd,`HASH ${sn} foi desvinculada da máquina ${oldMachineSN} pra usar aqui.`);
+    // Não mexe em nada agora — só na aprovação é que a HASH realmente muda
+    // de máquina/sai do cliente. Assim o "desfazer" fica simples: é só
+    // cancelar essa sessão de teste sem aprovar.
+    await applySlotSN(slotIndex,sn,hash,note);
   };
 
   const markAllGood=async()=>{
@@ -1759,6 +1766,10 @@ function TestePage({ctx}){
   // SNs bipados que ainda não existem em lugar nenhum — precisa definir as
   // características (modelo/material/chips) deles antes de poder enviar.
   const unknownSlots=session?session.slots.map((s,i)=>({i,sn:s.hashSN})).filter(x=>x.sn&&!data.hashes.find(h=>h.sn===x.sn.toUpperCase())):[];
+  // Se tiver 1 HASH já existente nesse teste, usa as características dela
+  // como ponto de partida pra preencher as novas (não muda nada nela).
+  const existingHashesInSession=session?session.slots.map(s=>s.hashSN?data.hashes.find(h=>h.sn===s.hashSN.toUpperCase()):null).filter(Boolean):[];
+  const templateHash=existingHashesInSession.length===1?existingHashesInSession[0]:null;
   const needsChars=unknownSlots.length>0&&!session?.newHashChars;
 
   return<div>
@@ -1813,11 +1824,14 @@ function TestePage({ctx}){
           <TestSlotSNInput slotRefs={slotRefs} i={i} value={slot.hashSN||""} onCommit={sn=>setSlotSN(i,sn)} listId={"hash-list-"+i}/>
           <datalist id={"hash-list-"+i}>{data.hashes.map(x=><option key={x._id} value={x.sn||""}>{x.model} — {x.status}</option>)}</datalist>
           {h&&<div style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:C.card2,borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
-            <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}{gChips(h.model,h.material)?` · ${gChips(h.model,h.material)} chips`:""}</span>
+            <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}{h.material?` · ${h.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{gChips(h.model,h.material)?` · ${gChips(h.model,h.material)} chips`:""}</span>
             {h.location&&<span style={{fontSize:10,color:C.muted}}>📍{h.location}</span>}
             <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{marginLeft:"auto",background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️ Editar</button>
           </div>}
-          {!h&&slot.hashSN&&<div style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.red,fontWeight:700}}>❌ Essa HASH não existe ainda — defina as características abaixo antes de enviar</div>}
+          {!h&&slot.hashSN&&(session.newHashChars?
+            <div style={{background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.green,fontWeight:700}}>✓ HASH nova — {session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</div>
+            :<div style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.red,fontWeight:700}}>❌ Essa HASH não existe ainda — defina as características abaixo antes de enviar</div>
+          )}
           {modelMismatch&&<div style={{background:C.amber+"22",border:"1px solid "+C.amber+"44",borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.amber}}>⚠️ HASH é <b>{h.model}</b> mas máquina é <b>{session.model}</b></div>}
           {slot.status!=="bad"&&slot.hashSN&&<button onClick={()=>setRuimModal(i)} style={{background:C.red+"22",border:"1px solid "+C.red+"44",color:C.red,borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,width:"100%"}}>✗ Marcar como RUIM</button>}
         </div>;
@@ -1837,7 +1851,7 @@ function TestePage({ctx}){
       {unknownSlots.length>0&&<div style={{background:needsChars?C.red+"15":C.green+"15",border:`1px solid ${needsChars?C.red:C.green}44`,borderRadius:12,padding:14,marginBottom:12}}>
         <div style={{fontWeight:800,fontSize:13,color:needsChars?C.red:C.green,marginBottom:6}}>{needsChars?"⚠️":"✓"} {unknownSlots.length} HASH(s) nova(s) {needsChars?"— falta definir as características":"— características definidas"}</div>
         {!needsChars&&session.newHashChars&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>{session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</div>}
-        <Btn v={needsChars?"d":"s"} onClick={()=>setModal(<Modal title="Características das HASHs novas" onClose={()=>setModal(null)}><NewHashCharsForm ctx={ctx} unknownSlots={unknownSlots} initial={session.newHashChars} onSave={async(chars)=>{await saveSession({...session,newHashChars:chars,updatedAt:stamp()});setModal(null)}}/></Modal>)} style={{width:"100%"}}>{needsChars?"📋 Definir características (obrigatório)":"✏️ Editar características"}</Btn>
+        <Btn v={needsChars?"d":"s"} onClick={()=>setModal(<Modal title="Características das HASHs novas" onClose={()=>setModal(null)}><NewHashCharsForm ctx={ctx} unknownSlots={unknownSlots} initial={session.newHashChars} templateHash={templateHash} onSave={async(chars)=>{await saveSession({...session,newHashChars:chars,updatedAt:stamp()});setModal(null)}}/></Modal>)} style={{width:"100%"}}>{needsChars?"📋 Definir características (obrigatório)":"✏️ Editar características"}</Btn>
       </div>}
 
       <Btn v="g" onClick={markAllGood} disabled={submitting||!session.photoKey||needsChars} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
@@ -1852,11 +1866,13 @@ function TestePage({ctx}){
     </>}
 
     {/* Pergunta de desvincular HASH que já está em outra máquina */}
-    {unlinkPrompt&&<Modal title="⚠️ HASH já está em uma máquina" onClose={()=>setUnlinkPrompt(null)}>
+    {unlinkPrompt&&<Modal title={unlinkPrompt.hash.status==="SAIDA"?"⚠️ HASH já foi vendida":"⚠️ HASH já está em uma máquina"} onClose={()=>setUnlinkPrompt(null)}>
       <div style={{marginBottom:16}}>
         <div style={{fontWeight:800,fontSize:14,marginBottom:6}}>⚡ {unlinkPrompt.sn}</div>
-        <div style={{color:C.text,fontSize:13}}>Essa HASH já está instalada na máquina <b style={{color:C.accent}}>{unlinkPrompt.hash.machineSN}</b>.</div>
-        <div style={{color:C.muted,fontSize:12,marginTop:6}}>Se desvincular, ela sai daquela máquina (o slot lá fica vazio) e passa a ser testada nessa máquina agora.</div>
+        {unlinkPrompt.hash.status==="SAIDA"
+          ?<div style={{color:C.text,fontSize:13}}>Essa HASH já foi vendida{unlinkPrompt.hash.location?" ("+unlinkPrompt.hash.location+")":""}.</div>
+          :<div style={{color:C.text,fontSize:13}}>Essa HASH já está instalada na máquina <b style={{color:C.accent}}>{unlinkPrompt.hash.machineSN}</b>.</div>}
+        <div style={{color:C.muted,fontSize:12,marginTop:6}}>Nada muda agora — ela só sai de lá de verdade e passa pra essa máquina quando esse teste for <b>aprovado</b>. A {unlinkPrompt.hash.status==="SAIDA"?"venda antiga":"máquina antiga"} continua como está até lá.</div>
       </div>
       <div style={{display:"flex",gap:8}}>
         <Btn v="s" onClick={()=>setUnlinkPrompt(null)} style={{flex:1}}>Cancelar</Btn>
@@ -1903,19 +1919,16 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     setErr("");
     setSaving(true);
     const newSlots=[...session.slots];newSlots[slotIndex]={...slot,hashSN:"",status:"bad",logPhoto:logPhoto||"",logNotes:notes};
-    if(h){
-      // HASH já existia — só atualiza o status pra REPARO
-      const u={...h,status:"REPARO",location:location||h.location||"",...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");
-      syncSheet(webhookUrl,"hashBad",{sn:h.sn,model:h.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});
-    }else if(slot.hashSN){
-      // HASH nova — só é criada agora que foi definido o resultado (RUIM)
-      const sn=slot.hashSN.toUpperCase().trim();const hid=uid();
-      const hd={sn,model:session.model,status:"REPARO",location:location||"",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
-      await fbSet("hashes",hid,hd);mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
-      syncSheet(webhookUrl,"hashBad",{sn,model:session.model,logPhoto:logPhoto||"",obs:notes,employeeName:user.name,employeeCode:user.code});
+    const sn=slot.hashSN?slot.hashSN.toUpperCase().trim():"";
+    if(sn){
+      // Não muda mais a HASH na hora — fica pendente até o Admin aprovar na Revisão
+      const apprId=uid();
+      const appr={type:"hashBad",sn,model:h?.model||session.model,material:h?.material||"",chips:h?.chips||"",existingId:h?._id||"",
+        logPhoto:logPhoto||"",notes,location,machineSN:session.machineSN,
+        employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",...audit(user)};
+      await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
+      await markChanged("approvals");
     }
-    // Notify repairer
-    if(lastRep?.employeeId&&slot.hashSN){const fid=uid();const fdb={hashSN:slot.hashSN,machineSN:session.machineSN,originalRepairerId:lastRep.employeeId,testedBy:user._id,...audit(user),date:TODAY(),logPhotoKey:logPhoto||"",notes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);}
     await onSave({...session,slots:newSlots,updatedAt:stamp()});
     setSaving(false);
   };
@@ -1928,10 +1941,11 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     <PhotoCapture label="📸 Foto do Log de Erro (foto OU descrição abaixo é obrigatório)" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste" snHint={slot.hashSN}/>
     <Inp label="Descrição do Erro (ou preencha a foto acima)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected, Chain Break..."/>
     <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
+    <div style={{color:C.muted,fontSize:11,marginBottom:8}}>ℹ️ Isso vai pra revisão do Admin — a HASH só muda de status de verdade quando for aprovado lá.</div>
     {err&&<Alrt type="err">{err}</Alrt>}
     <div style={{display:"flex",gap:8}}>
       <Btn v="s" onClick={()=>onSave(session)} style={{flex:1}}>Cancelar</Btn>
-      <Btn v="d" onClick={confirm} disabled={saving} style={{flex:1}}>{saving?"...":"✗ Confirmar RUIM"}</Btn>
+      <Btn v="d" onClick={confirm} disabled={saving} style={{flex:1}}>{saving?"...":"✗ Marcar RUIM (enviar pra revisão)"}</Btn>
     </div>
   </div>;
 }
@@ -2012,7 +2026,32 @@ function ApprovalDetail({ctx,appr}){
 function ApprovalsPage({ctx}){
   const{data,mutate,user,webhookUrl,setModal,gTH}=ctx;
   const[notes,setNotes]=useState({}),[processing,setProcessing]=useState(null);
-  const pending=data.approvals.filter(a=>a.status==="pending");
+  const pendingAll=data.approvals.filter(a=>a.status==="pending");
+  const pending=pendingAll.filter(a=>!a.type||a.type==="machine");
+  const pendingHashBad=pendingAll.filter(a=>a.type==="hashBad");
+  const approveHashBad=async(appr)=>{
+    setProcessing(appr._id);
+    const existing=appr.existingId?data.hashes.find(h=>h._id===appr.existingId):data.hashes.find(h=>h.sn===appr.sn);
+    if(existing){
+      const u={...existing,status:"REPARO",location:appr.location||existing.location||"",...audit(user)};
+      mutate("hashes",arr=>arr.map(x=>x._id===existing._id?u:x));await fbSet("hashes",existing._id,u);
+      syncSheet(webhookUrl,"hashBad",{sn:u.sn,model:u.model,logPhoto:appr.logPhoto||"",obs:appr.notes,employeeName:appr.employeeName,employeeCode:appr.employeeCode});
+    }else{
+      const hid=uid();const hd={sn:appr.sn,model:appr.model,material:appr.material||"",chips:appr.chips||"",status:"REPARO",location:appr.location||"",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
+      await fbSet("hashes",hid,hd);mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
+      syncSheet(webhookUrl,"hashBad",{sn:appr.sn,model:appr.model,logPhoto:appr.logPhoto||"",obs:appr.notes,employeeName:appr.employeeName,employeeCode:appr.employeeCode});
+    }
+    await markChanged("hashes");
+    const lastRep=[...data.repairs].reverse().find(r=>r.hashSN===appr.sn);
+    if(lastRep?.employeeId){const fid=uid();const fdb={hashSN:appr.sn,machineSN:appr.machineSN,originalRepairerId:lastRep.employeeId,testedBy:appr.employeeId,...audit(user),date:TODAY(),logPhotoKey:appr.logPhoto||"",notes:appr.notes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);}
+    await fbSet("pendingApprovals",appr._id,{...appr,status:"approved",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"approved"}:x));
+    await markChanged("approvals");setProcessing(null);
+  };
+  const rejectHashBad=async(appr)=>{
+    setProcessing(appr._id);
+    await fbSet("pendingApprovals",appr._id,{...appr,status:"rejected",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"rejected"}:x));
+    await markChanged("approvals");setProcessing(null);
+  };
   const approve=async(appr)=>{
     setProcessing(appr._id);const test=data.tests.find(t=>t._id===appr.testId);if(!test){setProcessing(null);return}
     const tUpd={...test,status:"approved",overallResult:"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
@@ -2040,7 +2079,12 @@ function ApprovalsPage({ctx}){
         hash0:"ON",hash1:"ON",hash2:"ON",
         hashSN0:test.slot0HashSN||"",hashSN1:test.slot1HashSN||"",hashSN2:test.slot2HashSN||"",
         controladora:"ON",fonte:"ON",fans:"ON",location:"",destino:"",...audit(user),addedAt:TODAY()};
-      await fbSet("machines",mid,mNew);mutate("machines",m=>[...m,{...mNew,_id:mid}]);
+      const saveResult=await fbSet("machines",mid,mNew);
+      if(!saveResult.ok){
+        alert(`⚠️ ERRO: não consegui criar a máquina ${mNew.sn} no banco de dados!\n\nErro: ${saveResult.error}\n\nA HASH e a planilha podem ter sido atualizadas mesmo assim — confira manualmente.`);
+      }else{
+        mutate("machines",m=>[...m,{...mNew,_id:mid}]);
+      }
       syncSheet(webhookUrl,"addMachine",{sn:mNew.sn,model:mNew.model,th:mNew.th,situacao:"BOA",ref:mNew.ref,employeeName:user.name,employeeCode:user.code});
       ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:mNew.sn,field:k,to:mNew[k],employeeName:user.name,employeeCode:user.code}));
     }
@@ -2054,7 +2098,21 @@ function ApprovalsPage({ctx}){
       const h=newH.find(x=>x.sn===sn);
       const slotIdx=slotSNs.indexOf(sn);
       if(h){
-        const u={...h,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+        // Se essa HASH estava em OUTRA máquina, ou já tinha sido vendida,
+        // limpa o vínculo antigo agora — só na aprovação é que isso vale de
+        // verdade (a máquina/cliente antigos ficaram intocados até aqui).
+        if(h.machineSN&&h.machineSN!==appr.machineSN){
+          const oldMachine=data.machines.find(mm=>mm.sn===h.machineSN);
+          if(oldMachine&&h.slot>=0){
+            const slotField=h.slot===0?"hashSN0":h.slot===1?"hashSN1":"hashSN2";
+            const statusField=h.slot===0?"hash0":h.slot===1?"hash1":"hash2";
+            const oldUpd={...oldMachine,[slotField]:"",[statusField]:"OFF",...audit(user)};
+            mutate("machines",arr=>arr.map(x=>x._id===oldMachine._id?oldUpd:x));await fbSet("machines",oldMachine._id,oldUpd);
+            syncSheet(webhookUrl,"updateMachine",{sn:h.machineSN,field:slotField,to:"",employeeName:user.name,employeeCode:user.code});
+          }
+        }
+        const fromLabel=h.status==="SAIDA"?"Desvinculada da venda":h.machineSN?"Desvinculada de "+h.machineSN:h.status;
+        const u={...h,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,location:"",changeLog:[{field:"status",label:"Status",from:fromLabel,to:"NA MAQUINA em "+appr.machineSN,by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
         newH=newH.map(x=>x._id===h._id?u:x);await fbSet("hashes",h._id,u);
         syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
       }else{
@@ -2106,12 +2164,33 @@ function ApprovalsPage({ctx}){
   };
   return<div>
     <div style={{fontWeight:900,fontSize:18,marginBottom:4}}>Revisão de Testes</div>
-    <div style={{color:C.muted,fontSize:12,marginBottom:16}}>{pending.length} aguardando aprovação</div>
+    <div style={{color:C.muted,fontSize:12,marginBottom:16}}>🖥️ {pending.length} máquina(s) · ⚡ {pendingHashBad.length} HASH(s) ruim(s) aguardando</div>
+
+    {pendingHashBad.length>0&&<>
+      <div style={{fontWeight:800,fontSize:14,color:C.red,marginBottom:8}}>⚡ HASHs Ruins ({pendingHashBad.length})</div>
+      {pendingHashBad.length>1&&<div style={{display:"flex",gap:8,marginBottom:10}}>
+        <Btn v="g" onClick={async()=>{if(!confirm(`Aprovar TODAS as ${pendingHashBad.length} HASHs ruins?`))return;for(const a of pendingHashBad)await approveHashBad(a)}} disabled={!!processing} style={{flex:1}}>✓ Aprovar todas ({pendingHashBad.length})</Btn>
+        <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${pendingHashBad.length} HASHs ruins?`))return;for(const a of pendingHashBad)await rejectHashBad(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
+      </div>}
+      {pendingHashBad.map(appr=><Card key={appr._id} accent={C.red}>
+        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>⚡ {appr.sn}</div>
+        <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{appr.model}{appr.material?` · ${appr.material==="FIBRA"?"Fibra":"Alumínio"}`:""} · 👷 {appr.employeeName} · {fmtDate(appr.date)}{appr.machineSN?` · Máq. ${appr.machineSN}`:""}</div>
+        {appr.notes&&<div style={{fontSize:12,marginBottom:8}}>📝 {appr.notes}</div>}
+        {appr.location&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>📍 {appr.location}</div>}
+        {appr.logPhoto&&<PhotoView photoKey={appr.logPhoto} style={{marginBottom:10,maxHeight:150}}/>}
+        <div style={{display:"flex",gap:8}}>
+          <Btn v="d" onClick={()=>rejectHashBad(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn>
+          <Btn v="g" onClick={()=>approveHashBad(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → REPARO"}</Btn>
+        </div>
+      </Card>)}
+    </>}
+
+    <div style={{fontWeight:800,fontSize:14,color:C.blue,marginBottom:8,marginTop:pendingHashBad.length>0?18:0}}>🖥️ Máquinas ({pending.length})</div>
     {pending.length>1&&<div style={{display:"flex",gap:8,marginBottom:14}}>
       <Btn v="g" onClick={async()=>{if(!confirm(`Aprovar TODAS as ${pending.length} pendentes?`))return;for(const a of pending)await approve(a)}} disabled={!!processing} style={{flex:1}}>✓ Aprovar todas ({pending.length})</Btn>
       <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${pending.length} pendentes?`))return;for(const a of pending)await reject(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
     </div>}
-    {pending.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>✅</div><div>Nenhuma revisão pendente</div></div>
+    {pending.length===0&&pendingHashBad.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>✅</div><div>Nenhuma revisão pendente</div></div>
       :pending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={C.blue}>
         <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>🖥️ {appr.machineSN||"SEM SN"}</div>
         <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{appr.model} · {appr.th}TH · 👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
@@ -2125,7 +2204,7 @@ function ApprovalsPage({ctx}){
         <div style={{display:"flex",gap:8,marginTop:8}}>
           <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
-    {data.approvals.filter(a=>a.status!=="pending").length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending").slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div></div>)}</>}
+    {data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div></div>)}</>}
   </div>;
 }
 
