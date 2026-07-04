@@ -331,22 +331,26 @@ function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
    - ⌨️ Digitar: digitação manual, sem nada automático — só confirma com
      Enter ou clicando no botão "+".
 */
-function SmartScanInput({onDetect,placeholder,autoFocus,disabled}){
+function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
   const[mode,setMode]=useState("scan");
   const[val,setVal]=useState("");
+  const[localCount,setLocalCount]=useState(0);
   const inputRef=useRef();
   const commit=()=>{
     const s=val.trim();
     if(!s)return;
     onDetect(s,mode==="scan");
+    setLocalCount(c=>c+1);
     setVal("");
     if(mode==="scan")setTimeout(()=>inputRef.current?.focus(),30);
   };
   const handleKeyDown=e=>{if(e.key==="Enter"){e.preventDefault();commit()}};
+  const shownCount=count!==undefined?count:localCount;
   return<div>
     <div style={{display:"flex",gap:6,marginBottom:6}}>
       <button type="button" onClick={()=>setMode("scan")} style={{flex:1,background:mode==="scan"?C.blue:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>📡 Bipar</button>
       <button type="button" onClick={()=>setMode("manual")} style={{flex:1,background:mode==="manual"?C.accent:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>⌨️ Digitar</button>
+      <div style={{background:"#1a2d42",color:C.accent,borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:800,whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>{shownCount} bipado(s)</div>
     </div>
     <div style={{display:"flex",gap:8}}>
       <input ref={inputRef} value={val} onChange={e=>setVal(e.target.value.toUpperCase())} onKeyDown={handleKeyDown} placeholder={mode==="scan"?"Aponte o leitor e bipe...":(placeholder||"Digite o SN...")} autoFocus={autoFocus} disabled={disabled} style={{...inp,flex:1}}/>
@@ -921,10 +925,18 @@ function AddModeSelect({ctx,onClose}){
 
 function BatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
-  const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[pending,setPending]=useState([]),[saving,setSaving]=useState(false);
+  const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending]=useState([]),[saving,setSaving]=useState(false);
   const addSN=(raw)=>{const s=raw.toUpperCase().trim();if(!s||pending.includes(s))return;setPending(p=>[...p,s])};
-  const saveAll=async()=>{if(!pending.length)return;setSaving(true);const writes=pending.map(sn=>{const id=uid();return{c:"machines",id,d:{sn,model,th:Number(th),type,situacao:sit,hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",ref,location:"",...audit(user),addedAt:TODAY(),destino:""}}});await fbBatch(writes);mutate("machines",m=>[...m,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");writes.forEach(w=>syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code}));setSaving(false);onClose()};
-  return<div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/></div><div style={{display:"flex",gap:8}}><Sel label="TIPO" value={type} onChange={e=>setType(e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div><Inp label="Referência (REF, aplicada a todos)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/><div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus/><div style={{maxHeight:160,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{s}</span><button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button></div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
+  const saveAll=async()=>{if(!pending.length)return;setSaving(true);const writes=pending.map(sn=>{const id=uid();return{c:"machines",id,d:{sn,model,th:Number(th),type,situacao:sit,hash0,hash1,hash2,controladora:ctr,fonte,fans,ref,location:"",...audit(user),addedAt:TODAY(),destino:""}}});await fbBatch(writes);mutate("machines",m=>[...m,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");writes.forEach(w=>syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code}));setSaving(false);onClose()};
+  return<div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/></div><div style={{display:"flex",gap:8}}><Sel label="TIPO" value={type} onChange={e=>setType(e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div><Inp label="Referência (REF, aplicada a todos)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
+  <div style={{color:C.muted,fontSize:11,marginBottom:6}}>As opções abaixo valem pra TODAS as máquinas desse lote:</div>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+    {[["hash0","HASH 0",hash0,setHash0],["hash1","HASH 1",hash1,setHash1],["hash2","HASH 2",hash2,setHash2]].map(([k,l,v,setV])=><Sel key={k} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}
+  </div>
+  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+    {[["ctr","CTR",ctr,setCtr],["fonte","FONTE",fonte,setFonte],["fans","FANS",fans,setFans]].map(([k,l,v,setV])=><Sel key={k} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}
+  </div>
+  <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/><div style={{maxHeight:160,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{s}</span><button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button></div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
 }
 
 function BatchNoSNForm({ctx,onClose}){
@@ -966,7 +978,7 @@ const FIELD_LABELS={situacao:"Situação",sn:"SN",location:"Localização",model
 // quando sai do campo ou aperta Enter. Isso evita o bug de criar uma entrada
 // de histórico a cada letra digitada.
 function MachineSlotEditor({ctx,m,i,upd,setModal}){
-  const{data}=ctx;
+  const{data,mutate,user,webhookUrl}=ctx;
   const slotField=`hashSN${i}`;
   const[localSN,setLocalSN]=useState(m[slotField]||"");
   useEffect(()=>{setLocalSN(m[slotField]||"")},[m[slotField]]);
@@ -977,9 +989,22 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
     setLocalSN(upper);
     if(upper===slotSN)return;
     await upd(slotField,upper);
-    // Nunca deixa a carcaça com um modelo e a HASH com outro — corrige sozinho
+    // Se já tinha outra HASH nesse slot, desvincula ela (volta pra fila de teste)
+    const oldHash=slotSN?data.hashes.find(h=>h.sn===slotSN):null;
+    if(oldHash&&oldHash.machineSN===m.sn){
+      const ou={...oldHash,machineSN:"",slot:-1,status:oldHash.status==="NA MAQUINA"?"TESTAR":oldHash.status,...audit(user)};
+      mutate("hashes",arr=>arr.map(x=>x._id===oldHash._id?ou:x));await fbSet("hashes",oldHash._id,ou);
+    }
+    // A HASH nova colocada aqui passa a estar NA MAQUINA — reflete isso nela
     const found=upper?data.hashes.find(h=>h.sn===upper):null;
-    if(found&&found.model&&found.model!==m.model)await upd("model",found.model);
+    if(found){
+      // Nunca deixa a carcaça com um modelo e a HASH com outro — corrige sozinho
+      if(found.model&&found.model!==m.model)await upd("model",found.model);
+      const fu={...found,status:"NA MAQUINA",machineSN:m.sn,slot:i,...audit(user)};
+      mutate("hashes",arr=>arr.map(x=>x._id===found._id?fu:x));await fbSet("hashes",found._id,fu);
+      syncSheet(webhookUrl,"hashApproved",{sn:found.sn,model:found.model,machineSN:m.sn,slot:i,employeeName:user.name,employeeCode:user.code});
+    }
+    await markChanged("hashes");
   };
   const notFound=localSN.trim()&&!data.hashes.find(h=>h.sn===localSN.toUpperCase().trim());
   return<div style={{marginBottom:8}}>
@@ -1098,7 +1123,9 @@ function MachineDetail({ctx,machine}){
       </div>:<PhotoCapture photoKey={null} onChange={k=>upd("photoKey",k)} folder="maquinas" snHint={m.sn}/>}
       {(()=>{const paletsComMac=(data.pallets||[]).filter(p=>(p.machinesSN||[]).includes(m.sn));const outrosPalets=(data.pallets||[]).filter(p=>!(p.machinesSN||[]).includes(m.sn));return<div>
         {paletsComMac.length>0&&<><SL>📦 Paletes desta máquina</SL>{paletsComMac.map(p=><div key={p._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+C.border,fontSize:12}}><span style={{color:C.blue}}>📦 {p.name}{p.location?" · "+p.location:""}</span><button onClick={async()=>{const ns=(p.machinesSN||[]).filter(s=>s!==m.sn);const upd2={...p,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd2:x));await fbSet("pallets",p._id,upd2);await markChanged("pallets");}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>✕</button></div>)}</>}
-        {outrosPalets.length>0&&<><SL mt={8}>Adicionar ao Palete</SL><select onChange={async e=>{const pid=e.target.value;if(!pid||!m.sn)return;const pl=data.pallets.find(x=>x._id===pid);if(!pl)return;const ns=[...(pl.machinesSN||[]),m.sn];const upd2={...pl,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pid?upd2:x));await fbSet("pallets",pid,upd2);await markChanged("pallets");e.target.value="";}} style={{...inp,marginBottom:8}}><option value="">📦 Selecionar palete...</option>{outrosPalets.map(p=><option key={p._id} value={p._id}>{p.name}{p.location?" · "+p.location:""} ({p.machinesSN?.length||0})</option>)}</select></>}
+        {!m.sn&&<div style={{color:C.amber,fontSize:11,marginTop:4}}>⚠️ Essa máquina não tem SN — não dá pra vincular a um palete (o vínculo é feito pelo SN). Defina um SN primeiro.</div>}
+        {m.sn&&outrosPalets.length===0&&paletsComMac.length===0&&<div style={{color:C.muted,fontSize:11,marginTop:4}}>Nenhum palete criado ainda. Crie um em "Paletes" primeiro.</div>}
+        {m.sn&&outrosPalets.length>0&&<><SL mt={8}>Adicionar ao Palete</SL><select onChange={async e=>{const pid=e.target.value;if(!pid||!m.sn)return;const pl=data.pallets.find(x=>x._id===pid);if(!pl)return;const ns=[...(pl.machinesSN||[]),m.sn];const upd2={...pl,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pid?upd2:x));await fbSet("pallets",pid,upd2);await markChanged("pallets");e.target.value="";}} style={{...inp,marginBottom:8}}><option value="">📦 Selecionar palete...</option>{outrosPalets.map(p=><option key={p._id} value={p._id}>{p.name}{p.location?" · "+p.location:""} ({p.machinesSN?.length||0})</option>)}</select></>}
       </div>})()}
       {history.length>0&&(
         <><SL mt={12}>📋 HISTÓRICO</SL>
@@ -1223,7 +1250,7 @@ function HashBatchSNForm({ctx,onClose}){
     <Sel label="MODELO (usado para os SNs novos)" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
       <SL>BIPAR OU DIGITAR</SL>
-      <SmartScanInput onDetect={addSN} placeholder="SN da HASH..." autoFocus/>
+      <SmartScanInput onDetect={addSN} placeholder="SN da HASH..." autoFocus count={rows.length}/>
       <div style={{maxHeight:220,overflow:"auto",marginTop:10}}>
         {rows.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN ainda</div>:rows.map(r=><div key={r.sn} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
           <div><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{r.sn}</span>{r.existing?<Tag color={C.amber} small style={{marginLeft:6}}>já existe · {r.model} · {r.status}</Tag>:<Tag color={C.green} small style={{marginLeft:6}}>🆕 novo</Tag>}</div>
@@ -1306,7 +1333,7 @@ function HashPhotoQuick({ctx,hash}){
 }
 
 function HashDetail({ctx,hash}){
-  const{data,mutate,setModal,user,webhookUrl,allModels}=ctx;const models=allModels();const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
+  const{data,mutate,setModal,user,webhookUrl,allModels,gChips}=ctx;const models=allModels();const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
   const upd=async(k,v)=>{
     if(h[k]===v)return;
     const logEntry={field:k,label:FIELD_LABELS[k]||k,from:h[k]??"",to:v??"",by:user.name,at:stamp()};
@@ -1326,7 +1353,7 @@ function HashDetail({ctx,hash}){
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
       <HP s={h.status}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10,fontSize:12}}>
-        <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div><select value={h.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select></div>
+        <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div><select value={h.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select>{gChips(h.model,h.material)&&<div style={{color:C.blue,fontSize:10,marginTop:2,fontWeight:700}}>{gChips(h.model,h.material)} chips</div>}</div>
         <div><div style={{color:C.muted,fontSize:10}}>LOCALIZAÇÃO</div>
           {mac?<button onClick={()=>setModal(<Modal title={`🖥️ ${mac.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={mac}/></Modal>)} style={{background:"none",border:"none",color:C.green,fontWeight:700,fontSize:12,cursor:"pointer",padding:0,textAlign:"left"}}>🖥️ Slot{h.slot>=0?h.slot+1:"?"} → {mac.sn?.slice(0,10)} ↗</button>
           :<div style={{color:C.muted,fontSize:11}}>
@@ -1440,7 +1467,7 @@ function ConsertaPage({ctx}){
 
 /* ═══ TESTE ═════════════════════════════════════════════════════ */
 function TestePage({ctx}){
-  const{data,mutate,user,webhookUrl,allModels,gTH}=ctx;const models=allModels();
+  const{data,mutate,user,webhookUrl,allModels,gTH,gChips,setModal}=ctx;const models=allModels();
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
   // Cada sessão é um documento próprio (não fica mais 1 sessão por usuário).
   const[sessions,setSessions]=useState([]),[activeId,setActiveId]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false),[unlinkPrompt,setUnlinkPrompt]=useState(null);
@@ -1498,8 +1525,9 @@ function TestePage({ctx}){
     // IMPORTANTE: a HASH só é criada de verdade quando o resultado é definido
     // (marcada RUIM, ou aprovada como boa) — nunca aqui, enquanto ainda está
     // só digitando/bipando o SN (evitava criar uma HASH nova a cada letra).
-    // Bipou rápido? Já pula pro próximo slot sozinho, sem precisar clicar
-    if(upperSn)setTimeout(()=>{slotRefs.current[i+1]?.focus()},50);
+    // O avanço pro próximo slot só acontece com Enter (o próprio input já
+    // trata isso no onKeyDown) — nunca a cada letra digitada, senão atrapalha
+    // quem está digitando manualmente.
   };
 
   const setSlotSN=async(i,sn)=>{
@@ -1616,9 +1644,10 @@ function TestePage({ctx}){
           </div>
           <input ref={el=>slotRefs.current[i]=el} value={slot.hashSN||""} onChange={e=>setSlotSN(i,e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&slotRefs.current[i+1]?.focus()} placeholder="Bipe o SN da HASH..." list={"hash-list-"+i} style={{...inp,marginBottom:6}}/>
           <datalist id={"hash-list-"+i}>{data.hashes.map(x=><option key={x._id} value={x.sn||""}>{x.model} — {x.status}</option>)}</datalist>
-          {h&&<div style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:C.card2,borderRadius:8,marginBottom:6}}>
-            <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}</span>
+          {h&&<div style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:C.card2,borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
+            <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}{gChips(h.model,h.material)?` · ${gChips(h.model,h.material)} chips`:""}</span>
             {h.location&&<span style={{fontSize:10,color:C.muted}}>📍{h.location}</span>}
+            <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{marginLeft:"auto",background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️ Editar</button>
           </div>}
           {modelMismatch&&<div style={{background:C.amber+"22",border:"1px solid "+C.amber+"44",borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.amber}}>⚠️ HASH é <b>{h.model}</b> mas máquina é <b>{session.model}</b></div>}
           {slot.status!=="bad"&&slot.hashSN&&<button onClick={()=>setRuimModal(i)} style={{background:C.red+"22",border:"1px solid "+C.red+"44",color:C.red,borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,width:"100%"}}>✗ Marcar como RUIM</button>}
@@ -2110,6 +2139,18 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
     else{const id=uid();const d={m:chipsModel,th:0,chips:Number(chipsVal),material:chipsMaterial||""};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}])}
     setChipsModel("");setChipsVal("");setChipsMaterial("");
   };
+  // Valores reais pesquisados (placa base, sem material específico) — só
+  // preenche o que ainda não estiver configurado, nunca sobrescreve o que
+  // você já ajustou manualmente.
+  const KNOWN_CHIPS=[["S19",76],["S19 XP",110],["S21",108],["S21XP",91]];
+  const loadKnownChips=async()=>{
+    for(const[m,chips]of KNOWN_CHIPS){
+      if(!allModelsForChips.includes(m))continue;
+      const already=data.customModels.find(x=>x.m===m&&!x.material);
+      if(already)continue;
+      const id=uid();const d={m,th:0,chips,material:""};await fbSet("customModels",id,d);mutate("customModels",arr=>[...arr,{...d,_id:id}]);
+    }
+  };
   return<div>
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
     {dataWarnings.length>0&&<Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
@@ -2133,9 +2174,11 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
     <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS (T/H)</SL>{data.customModels.filter(m=>!m.chips).map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>⚡ CHIPS POR MODELO (E MATERIAL)</SL>
       <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Lista separada dos modelos de T/H. Um mesmo modelo pode ter placa de Fibra ou Alumínio, com quantidade de chips diferente — aparece nos cards e é usada automaticamente no conserto quando não for informado.</div>
+      <Btn v="b" onClick={loadKnownChips} style={{width:"100%",marginBottom:10}}>📥 Carregar sugestões conhecidas (S19, S19 XP, S21, S21XP)</Btn>
       {chipEntries.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:8}}>Nenhum cadastrado ainda</div>:chipEntries.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}{m.material?<Tag color={m.material==="FIBRA"?C.blue:C.amber} small style={{marginLeft:6}}>{m.material}</Tag>:null}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.blue,fontSize:12,fontWeight:700}}>{m.chips} chips</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}
-      <div style={{display:"flex",gap:8,marginTop:12}}>
-        <Sel value={chipsModel} onChange={e=>setChipsModel(e.target.value)} style={{flex:2,marginBottom:0}}><option value="">Modelo...</option>{allModelsForChips.map(mo=><option key={mo}>{mo}</option>)}</Sel>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginTop:14,marginBottom:6,letterSpacing:1}}>ADICIONAR OU MUDAR</div>
+      <div style={{display:"flex",gap:8}}>
+        <Sel value={chipsModel} onChange={e=>setChipsModel(e.target.value)} style={{flex:2,marginBottom:0}}><option value="">Modelo...</option>{allModelsForChips.map(mo=><option key={mo}>{mo}{chipEntries.find(c=>c.m===mo)?" ✓":""}</option>)}</Sel>
         <Sel value={chipsMaterial} onChange={e=>setChipsMaterial(e.target.value)} style={{flex:1,marginBottom:0}}><option value="">Sem material</option><option value="FIBRA">Fibra</option><option value="ALUMINIO">Alumínio</option></Sel>
       </div>
       <div style={{display:"flex",gap:8,marginTop:8}}>
@@ -2344,7 +2387,7 @@ function MovimentacaoTab({ctx}){
       </Sel>
     </div>
     <SL>Bipe as Máquinas a Mover</SL>
-    <div style={{marginBottom:8}}><SmartScanInput onDetect={addSN} placeholder="SN da máquina..."/></div>
+    <div style={{marginBottom:8}}><SmartScanInput onDetect={addSN} placeholder="SN da máquina..." count={scanned.length}/></div>
     {scanned.length>0&&<div style={{background:C.card2,borderRadius:10,padding:10,marginBottom:12,maxHeight:140,overflow:"auto"}}>
       <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4}}>PARA MOVER ({scanned.length})</div>
       {scanned.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12,borderBottom:"1px solid "+C.border}}><span style={{color:C.blue}}>{s}</span><button onClick={()=>setScanned(sc=>sc.filter(x=>x!==s))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button></div>)}
@@ -2408,7 +2451,7 @@ function PalletDetail({ctx,pallet}){
     <div style={{display:"flex",gap:6,marginBottom:10}}>
       {[["scan","📡 Bipagem"],["upload","📄 CSV"]].map(([id,l])=><button key={id} onClick={()=>setMode(id)} style={{flex:1,background:mode===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"8px 4px",fontWeight:700,fontSize:11,cursor:"pointer"}}>{l}</button>)}
     </div>
-    {mode==="scan"&&<div style={{marginBottom:8}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder={itemType==="hash"?"SN da HASH...":"SN da máquina..."} autoFocus/></div>}
+    {mode==="scan"&&<div style={{marginBottom:8}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder={itemType==="hash"?"SN da HASH...":"SN da máquina..."} autoFocus count={log.length}/></div>}
     {mode==="upload"&&<><input ref={fileRef} type="file" accept=".csv,.txt" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadCSV(e.target.files[0])}/><Btn v="b" onClick={()=>fileRef.current.click()} style={{width:"100%",marginBottom:8}}>📂 Escolher CSV</Btn><Btn v="s" onClick={()=>{const rows=["SN,Modelo,Situação"];macs.forEach(m=>rows.push((m.sn||"")+","+(m.model||"")+","+(m.situacao||"")));const blob=new Blob([rows.join("\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="palete-"+p.name+".csv";a.click()}} style={{width:"100%",marginBottom:8}}>⬇️ Exportar CSV</Btn></>}
     {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:8,marginBottom:10,maxHeight:100,overflow:"auto"}}>{log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:C.blue,padding:"2px 0"}}>{l.sn} — {l.msg}</div>)}</div>}
     <SL>Máquinas ({macs.length})</SL>
@@ -2527,7 +2570,7 @@ function ClientDetail({ctx,client}){
       <SL>O QUE VOCÊ VAI ADICIONAR?</SL>
       <div style={{display:"flex",gap:8,marginBottom:10}}>{[["machine","🖥️ Máquina"],["hash","⚡ HASH avulsa"]].map(([v,l])=><button key={v} onClick={()=>setItemType(v)} style={{flex:1,background:itemType===v?C.accent:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}</div>
       <SL>BIPAR OU DIGITAR OS SNs</SL>
-      <SmartScanInput onDetect={addToPending} placeholder={itemType==="machine"?"SN da máquina...":"SN da HASH..."} autoFocus/>
+      <SmartScanInput onDetect={addToPending} placeholder={itemType==="machine"?"SN da máquina...":"SN da HASH..."} autoFocus count={pending.length}/>
       {blockMsg&&<Alrt type="err">{blockMsg}</Alrt>}
       <div style={{maxHeight:200,overflow:"auto",marginTop:10}}>
         {pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN ainda</div>:pending.map(p=><div key={p.sn} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
