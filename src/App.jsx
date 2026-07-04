@@ -303,12 +303,12 @@ async function generateClientPDF(client,macsF,hshsF,data,onProgress){
       if(photoToUse){
         const img=await loadImageAsDataURL(photoToUse);
         if(img){
-          ensureSpace(65);
-          try{doc.addImage(img,"JPEG",marginX,y,70,52);
+          ensureSpace(120);
+          try{doc.addImage(img,"JPEG",marginX,y,130,97);
             doc.setFontSize(8);doc.setTextColor(140);
-            doc.text(`${photoLabel} - ${photoDate}`,marginX+74,y+30);
+            doc.text(`${photoLabel} - ${photoDate}`,marginX,y+103);
             doc.setTextColor(0);
-            y+=58;
+            y+=112;
           }catch{y+=4}
         }
       }
@@ -1854,6 +1854,25 @@ function TestePage({ctx}){
       {!session&&macInput===""&&otherSessions.length>0&&<div style={{color:C.muted,fontSize:11,marginTop:6}}>Bipe outro SN pra abrir uma nova máquina em paralelo, sem perder as outras.</div>}
     </div>
 
+    {!session&&(()=>{
+      const toTest=data.hashes.filter(h=>h.status==="TESTAR");
+      const myRejected=(data.approvals||[]).filter(a=>a.type==="hashBad"&&a.status==="rejected"&&(a.employeeId===user._id||a._by===user._id));
+      if(!toTest.length&&!myRejected.length)return null;
+      return<div style={{marginBottom:14}}>
+        {toTest.length>0&&<div style={{marginBottom:12}}>
+          <SL>⏳ HASHs PRA TESTAR ({toTest.length})</SL>
+          {toTest.slice(0,10).map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:C.card,borderRadius:8,marginBottom:4}}><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.sn||"SEM SN"} — {h.model}</span><HP s={h.status}/></div>)}
+        </div>}
+        {myRejected.length>0&&<div>
+          <SL>❌ HASHs RECUSADAS ({myRejected.length}) — o Admin não aprovou, confira o motivo</SL>
+          {myRejected.map(a=><div key={a._id} style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"8px 10px",marginBottom:4}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.red}}>⚡ {a.sn}{a.machineSN?` (na máquina ${a.machineSN})`:""}</div>
+            {a.notes&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>📝 {a.notes}</div>}
+          </div>)}
+        </div>}
+      </div>;
+    })()}
+
     {session&&<>
       {/* Slots */}
       {[0,1,2].map(i=>{
@@ -2040,7 +2059,8 @@ function HistPage({ctx,canSeeEmp}){
   const visible=id=>id===user._id||canSeeEmp(id);
   const reps=filter==="mine"?data.repairs.filter(r=>r.employeeId===user._id||r._by===user._id):data.repairs.filter(r=>visible(ownerId(r)));
   const tsts=filter==="mine"?data.tests.filter(t=>t.employeeId===user._id||t._by===user._id):data.tests.filter(t=>visible(ownerId(t)));
-  const allRaw=[...reps.map(r=>({...r,_type:"repair"})),...tsts.map(t=>({...t,_type:"test"}))];
+  const hashBads=(data.approvals||[]).filter(a=>a.type==="hashBad"&&(filter==="mine"?(a.employeeId===user._id||a._by===user._id):visible(ownerId(a))));
+  const allRaw=[...reps.map(r=>({...r,_type:"repair"})),...tsts.map(t=>({...t,_type:"test"})),...hashBads.map(a=>({...a,_type:"hashBad"}))];
   const byDate={};allRaw.forEach(item=>{const d=item.date;if(d)byDate[d]=(byDate[d]||0)+1});
   const all=(dateFilter?allRaw.filter(item=>item.date===dateFilter):allRaw).sort((a,b)=>a.date<b.date?1:-1);
   return<div>
@@ -2050,6 +2070,7 @@ function HistPage({ctx,canSeeEmp}){
     {all.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>{dateFilter?"Sem registros nesta data":"Sem histórico ainda"}</div>}
     {all.slice(0,50).map(item=>{const emp=data.employees.find(e=>e._id===item.employeeId);const itemName=emp?.name||item._byName;
       if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}}>{item.type==="already_good"?"✅":item.type==="rework"?"🔁":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><Tag color={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.purple} small>{item.type==="already_good"?"JÁ BOA":item.type==="rework"?"RETRABALHO":"CONSERTO"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
+      if(item._type==="hashBad")return<Card key={item._id} accent={C.red}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:C.red}}>✗ {item.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}{item.machineSN?` · Máq. ${item.machineSN}`:""}</div>{item.notes&&<div style={{fontSize:10,color:C.subtle}}>📝 {item.notes}</div>}</div><Tag color={item.status==="pending"?C.amber:item.status==="approved"?C.green:C.red} small>{item.status==="pending"?"Aguard.Revisão":item.status==="approved"?"Aprovada":"Reprovada"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
       const stC=item.status==="pending"?C.blue:item.status==="rejected"?C.amber:item.overallResult==="good"?C.green:C.red;
       const stL=item.status==="pending"?"Aguard.Revisão":item.status==="rejected"?"REPROVADA":item.overallResult==="good"?"BOA":"RUIM";
       return<Card key={item._id} accent={stC}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {item.machineSN||"s/máq"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div></div><Tag color={stC} small>{stL}</Tag></div><By by={item._byName} at={item._at}/></Card>;
@@ -2208,6 +2229,11 @@ function ApprovalsPage({ctx}){
       const fres=await fbSet("feedbacks",fid,fdb);
       if(!fres.ok){alert(`⚠️ Não consegui avisar o técnico que consertou antes!\nErro: ${fres.error}`)}
       else{mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);await markChanged("feedbacks");}
+    }else{
+      // DIAGNÓSTICO TEMPORÁRIO: se isso aparecer, é porque não achou nenhum
+      // conserto anterior pra essa HASH (ou achou mas sem quem consertou
+      // salvo) — vou tirar esse alerta assim que descobrirmos a causa.
+      alert(`ℹ️ DIAGNÓSTICO: não encontrei um conserto anterior pra HASH ${appr.sn} nos registros (data.repairs tem ${data.repairs.length} conserto(s) no total). Por isso nenhum aviso foi enviado pra ninguém. Manda esse SN e essa mensagem pro Claude analisar.`);
     }
     await fbSet("pendingApprovals",appr._id,{...appr,status:"approved",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"approved"}:x));
     await markChanged("approvals");setProcessing(null);
