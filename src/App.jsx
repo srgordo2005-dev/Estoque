@@ -296,6 +296,13 @@ const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Tes
 const C={bg:"#080e17",card:"#0f1923",border:"#1a2d42",accent:"#f97316",blue:"#0ea5e9",green:"#16a34a",red:"#dc2626",purple:"#7c3aed",amber:"#d97706",text:"#e2e8f0",muted:"#64748b",subtle:"#94a3b8"};
 const inp={width:"100%",background:"#080e17",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",colorScheme:"dark"};
 const Inp=({label,err,...p})=><div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<input {...p} style={{...inp,borderColor:err?C.red:C.border,...p.style}}/>{err&&<div style={{color:C.red,fontSize:11,marginTop:3}}>⚠️ {err}</div>}</div>;
+// Campo de data — clicar em QUALQUER parte do campo abre o calendário (não só
+// no ícone), usando showPicker() do navegador. Resolve o calendário nativo
+// sendo difícil de abrir/ver em alguns navegadores.
+const DateInp=({label,...p})=>{
+  const ref=useRef();
+  return<div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<input ref={ref} type="date" {...p} onClick={()=>{try{ref.current?.showPicker?.()}catch{}}} style={{...inp,cursor:"pointer",...p.style}}/></div>;
+};
 const Sel=({label,children,...p})=><div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<select {...p} style={{...inp,...p.style}}>{children}</select></div>;
 const Btn=({v="o",children,...p})=>{const vs={o:{bg:C.accent,c:"#fff"},s:{bg:"#1a2d42",c:C.text},d:{bg:C.red,c:"#fff"},g:{bg:C.green,c:"#fff"},b:{bg:"#0c2a3a",c:C.blue},p:{bg:C.purple,c:"#fff"},y:{bg:C.amber,c:"#fff"}};const st=vs[v]||vs.o;return<button {...p} style={{background:st.bg,color:st.c,border:"none",borderRadius:8,padding:"10px 16px",fontWeight:700,fontSize:13,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,opacity:p.disabled?.5:1,...p.style}}>{children}</button>};
 const Modal=({title,onClose,children})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",zIndex:300,display:"flex",alignItems:"flex-end"}}><div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:640,margin:"0 auto",maxHeight:"92vh",overflow:"auto",padding:20,boxSizing:"border-box"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><div style={{fontWeight:800,fontSize:16,color:C.text}}>{title}</div><button onClick={onClose} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:18}}>✕</button></div>{children}</div></div>;
@@ -318,6 +325,26 @@ function BarcodeScanner({onScan,onClose}){
 function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
   const[sc,setSc]=useState(false);
   return<div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<div style={{display:"flex",gap:8}}><input list={list} value={value} onChange={e=>onChange(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&onEnter?.()} placeholder={placeholder||"SN"} autoFocus={autoFocus} style={{...inp,flex:1,borderColor:err?C.red:C.border}}/><button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"10px 14px",cursor:"pointer",fontSize:20,flexShrink:0}} title="Escanear">📷</button></div>{err&&<div style={{color:C.red,fontSize:11,marginTop:3}}>⚠️ {err}</div>}{sc&&<BarcodeScanner onScan={v=>{onChange(v.toUpperCase());setSc(false);onEnter?.()}} onClose={()=>setSc(false)}/>}</div>;
+}
+
+// Campo de editar o SN de uma máquina/HASH JÁ EXISTENTE. Usa estado LOCAL —
+// só confirma (e só então salva/sincroniza) ao sair do campo ou apertar
+// Enter. Sem isso, cada letra digitada disparava um salvamento (e no caso
+// de apagar tudo, chegava a salvar SN vazio no meio do caminho).
+function EditableSNField({label,value,onCommit}){
+  const[local,setLocal]=useState(value);
+  const[sc,setSc]=useState(false);
+  useEffect(()=>{setLocal(value)},[value]);
+  const commit=()=>{const v=local.toUpperCase().trim();if(v!==value&&v)onCommit(v)};
+  return<div style={{marginBottom:12}}>
+    {label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}
+    <div style={{display:"flex",gap:8}}>
+      <input value={local} onChange={e=>setLocal(e.target.value.toUpperCase())} onBlur={commit} onKeyDown={e=>e.key==="Enter"&&e.target.blur()} placeholder="Digite o SN" style={{...inp,flex:1}}/>
+      <button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"10px 14px",cursor:"pointer",fontSize:20,flexShrink:0}} title="Escanear">📷</button>
+    </div>
+    {local!==value&&!local.trim()&&<div style={{color:C.amber,fontSize:11,marginTop:3}}>⚠️ Não salva com SN vazio</div>}
+    {sc&&<BarcodeScanner onScan={v=>{setLocal(v.toUpperCase());setSc(false);onCommit(v.toUpperCase())}} onClose={()=>setSc(false)}/>}
+  </div>;
 }
 
 /* ═══ BIPAGEM EM LOTE (Bipar / Digitar separados) ═══════════════
@@ -926,7 +953,15 @@ function AddModeSelect({ctx,onClose}){
 function BatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending]=useState([]),[saving,setSaving]=useState(false);
-  const addSN=(raw)=>{const s=raw.toUpperCase().trim();if(!s||pending.includes(s))return;setPending(p=>[...p,s])};
+  const[dupMsg,setDupMsg]=useState("");
+  const addSN=(raw)=>{
+    const s=raw.toUpperCase().trim();if(!s)return;
+    setDupMsg("");
+    if(pending.includes(s))return;
+    const ex=data.machines.find(m=>m.sn===s);
+    if(ex){setDupMsg(`⚠️ SN ${s} já existe no estoque (${ex.model} · ${ex.situacao}) — não foi adicionado.`);return}
+    setPending(p=>[...p,s]);
+  };
   const saveAll=async()=>{if(!pending.length)return;setSaving(true);const writes=pending.map(sn=>{const id=uid();return{c:"machines",id,d:{sn,model,th:Number(th),type,situacao:sit,hash0,hash1,hash2,controladora:ctr,fonte,fans,ref,location:"",...audit(user),addedAt:TODAY(),destino:""}}});await fbBatch(writes);mutate("machines",m=>[...m,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");writes.forEach(w=>syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code}));setSaving(false);onClose()};
   return<div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/></div><div style={{display:"flex",gap:8}}><Sel label="TIPO" value={type} onChange={e=>setType(e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div><Inp label="Referência (REF, aplicada a todos)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
   <div style={{color:C.muted,fontSize:11,marginBottom:6}}>As opções abaixo valem pra TODAS as máquinas desse lote:</div>
@@ -936,7 +971,7 @@ function BatchSNForm({ctx,onClose}){
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
     {[["ctr","CTR",ctr,setCtr],["fonte","FONTE",fonte,setFonte],["fans","FANS",fans,setFans]].map(([k,l,v,setV])=><Sel key={k} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}
   </div>
-  <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/><div style={{maxHeight:160,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{s}</span><button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button></div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
+  <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/>{dupMsg&&<Alrt type="err">{dupMsg}</Alrt>}<div style={{maxHeight:160,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{s}</span><button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button></div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
 }
 
 function BatchNoSNForm({ctx,onClose}){
@@ -951,7 +986,9 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
   const[f,setF]=useState({sn:initSN,ref:user.code,model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),type:"complete",hash0:"OFF",hash1:"OFF",hash2:"OFF",hashSN0:"",hashSN1:"",hashSN2:"",controladora:"OFF",fonte:"OFF",fans:"OFF",situacao:"STOCK",destino:"",location:""});
   const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
+  const dupMachine=f.sn.trim()?data.machines.find(m=>m.sn===f.sn.toUpperCase().trim()):null;
   const save=async()=>{
+    if(dupMachine)return;
     setSaving(true);const id=uid();
     const forceOn=f.situacao==="BOA";
     const d={...f,th:Number(f.th),sn:f.sn.toUpperCase().trim(),...(forceOn?{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"}:{}),...audit(user),addedAt:TODAY(),photoKey:photoKey||""};
@@ -962,13 +999,14 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
   };
   return<div>
     <SNInput label="SN" value={f.sn} onChange={v=>set("sn",v)} placeholder="Deixe vazio se não tiver"/>
+    {dupMachine&&<div style={{background:"#3a0a0a",border:"1px solid "+C.red,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.red,fontWeight:800}}>⚠️ SN já existe!</div><div style={{fontSize:12,color:C.muted}}>{dupMachine.model} · <SP s={dupMachine.situacao}/></div></div>}
     <Inp label="Referência (REF)" value={f.ref} onChange={e=>set("ref",e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
     <div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={f.model} onChange={e=>{set("model",e.target.value);set("th",gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={f.th} onChange={e=>set("th",e.target.value)} style={{width:70}}/></div>
     <div style={{display:"flex",gap:8}}><Sel label="TIPO" value={f.type} onChange={e=>set("type",e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={f.situacao} onChange={e=>set("situacao",e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div>
     <PalletLocationPicker pallets={data.pallets} value={f.location} onChange={v=>set("location",v)}/>
     <>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span><input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/><select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
-    <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"💾 Salvar"}</Btn></div>
+    <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving||dupMachine} style={{flex:1}}>{saving?"...":"💾 Salvar"}</Btn></div>
   </div>;
 }
 
@@ -1060,6 +1098,18 @@ function MachineDetail({ctx,machine}){
         }
         await markChanged("hashes");
       }
+      // Sai de qualquer palete que estivesse — não faz sentido continuar
+      // "no palete" depois que a máquina saiu de verdade (SAIDA/VENDIDA/etc)
+      if(m.sn){
+        for(const pl of data.pallets){
+          if((pl.machinesSN||[]).includes(m.sn)){
+            const ns=(pl.machinesSN||[]).filter(x=>x!==m.sn);
+            const upd2={...pl,machinesSN:ns,...audit(user)};
+            mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2);
+          }
+        }
+        await markChanged("pallets");
+      }
     }
     await upd("situacao",s);
     // Marcar como BOA = máquina 100% funcionando — todas as peças ficam ON
@@ -1081,9 +1131,10 @@ function MachineDetail({ctx,machine}){
     <div>
       <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
         <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}><SP s={m.situacao}/>{m.type==="shell"&&<Tag color={C.muted}>CARCAÇA</Tag>}</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:12}}>
           <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div><select value={m.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select></div>
           <div><div style={{color:C.muted,fontSize:10}}>T/H</div><div style={{fontWeight:700}}>{m.th}</div></div>
+          <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>TIPO</div><select value={m.type||"complete"} onChange={e=>upd("type",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}><option value="complete">Completa</option><option value="shell">Carcaça</option></select></div>
         </div>
         <By by={m._byName} at={m._at}/>
       </div>
@@ -1109,7 +1160,7 @@ function MachineDetail({ctx,machine}){
           </div>
         </div>
       )}
-      <SNInput label="SN (editar)" value={m.sn||""} onChange={v=>upd("sn",v)} placeholder="Digite o SN" err=""/>
+      <EditableSNField label="SN (editar)" value={m.sn||""} onCommit={v=>upd("sn",v)}/>
       <Inp label="Referência (REF)" value={m.ref||""} onChange={e=>upd("ref",e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
       <Inp label="Localização" value={m.location||""} onChange={e=>upd("location",e.target.value.toUpperCase())} placeholder="Ex: PALETE 01 · PRATELEIRA B3"/>
       {m.destino&&<div style={{background:C.purple+"15",border:`1px solid ${C.purple}44`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:13}}>👤 Enviada pro cliente: <b style={{color:C.purple}}>{m.destino}</b></div>}
@@ -1380,7 +1431,7 @@ function HashDetail({ctx,hash}){
       <By by={h._byName} at={h._at}/>
     </div>
     <SL>STATUS</SL><div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>{["ON","OFF","TESTAR","REPARO","STOCK","NA MAQUINA"].map(s=><button key={s} onClick={()=>upd("status",s)} style={{background:h.status===s?HST_C[s]:"#080e17",color:"#fff",border:`1px solid ${HST_C[s]}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}}>{s}</button>)}</div>
-    <SNInput label="SN (editar)" value={h.sn||""} onChange={v=>upd("sn",v)} placeholder="Digite o SN" err=""/>
+    <EditableSNField label="SN (editar)" value={h.sn||""} onCommit={v=>upd("sn",v)}/>
     <MaterialPicker value={h.material||""} onChange={v=>upd("material",v)}/>
     <SL mt={8}>📷 FOTO DA HASH</SL>
     {h.photoKey?<div style={{marginBottom:14}}>
@@ -1466,6 +1517,17 @@ function ConsertaPage({ctx}){
 }
 
 /* ═══ TESTE ═════════════════════════════════════════════════════ */
+// Input de SN do slot com estado LOCAL — só chama onCommit (que faz toda a
+// checagem de duplicado/desvincular/etc) quando sai do campo ou aperta
+// Enter. Isso evita que o scanner (que digita rápido) perca o foco no meio
+// da leitura por causa de um re-render disparado a cada letra.
+function TestSlotSNInput({slotRefs,i,value,onCommit,listId}){
+  const[local,setLocal]=useState(value);
+  useEffect(()=>{setLocal(value)},[value]);
+  const commit=()=>{if(local.toUpperCase().trim()!==value)onCommit(local.toUpperCase().trim())};
+  return<input ref={el=>slotRefs.current[i]=el} value={local} onChange={e=>setLocal(e.target.value.toUpperCase())} onBlur={commit} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();commit();setTimeout(()=>slotRefs.current[i+1]?.focus(),30)}}} placeholder="Bipe o SN da HASH..." list={listId} style={{...inp,marginBottom:6}}/>;
+}
+
 function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH,gChips,setModal}=ctx;const models=allModels();
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
@@ -1642,7 +1704,7 @@ function TestePage({ctx}){
             {slot.status==="bad"&&<Tag color={C.red}>✗ RUIM</Tag>}
             {!slot.status&&<Tag color={C.muted}>Aguardando</Tag>}
           </div>
-          <input ref={el=>slotRefs.current[i]=el} value={slot.hashSN||""} onChange={e=>setSlotSN(i,e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&slotRefs.current[i+1]?.focus()} placeholder="Bipe o SN da HASH..." list={"hash-list-"+i} style={{...inp,marginBottom:6}}/>
+          <TestSlotSNInput slotRefs={slotRefs} i={i} value={slot.hashSN||""} onCommit={sn=>setSlotSN(i,sn)} listId={"hash-list-"+i}/>
           <datalist id={"hash-list-"+i}>{data.hashes.map(x=><option key={x._id} value={x.sn||""}>{x.model} — {x.status}</option>)}</datalist>
           {h&&<div style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:C.card2,borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
             <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}{gChips(h.model,h.material)?` · ${gChips(h.model,h.material)} chips`:""}</span>
@@ -1797,7 +1859,7 @@ function HistPage({ctx,canSeeEmp}){
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,dateFilter||TODAY())}>📋 Relatório</Btn></div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>{[["mine","Meus"],["all","Todos"]].map(([id,l])=><button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?C.accent:C.card,color:filter===id?"#fff":C.muted,border:"none",borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>)}</div>
-    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="📅 FILTRAR POR DATA" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>{dateFilter&&<Btn v="s" onClick={()=>setDateFilter("")} style={{marginBottom:12}}>Limpar</Btn>}</div>
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="📅 FILTRAR POR DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>{dateFilter&&<Btn v="s" onClick={()=>setDateFilter("")} style={{marginBottom:12}}>Limpar</Btn>}</div>
     {all.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>{dateFilter?"Sem registros nesta data":"Sem histórico ainda"}</div>}
     {all.slice(0,50).map(item=>{const emp=data.employees.find(e=>e._id===item.employeeId);const itemName=emp?.name||item._byName;
       if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}}>{item.type==="already_good"?"✅":item.type==="rework"?"🔁":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><Tag color={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.purple} small>{item.type==="already_good"?"JÁ BOA":item.type==="rework"?"RETRABALHO":"CONSERTO"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
@@ -1976,7 +2038,7 @@ function DailyTeamReport({ctx}){
     ...hashLogs.map(l=>({at:l.at,text:`✏️ ${l.by} alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" → "${l.to||"—"}"`})),
   ].sort((a,b)=>(a.at||"")<(b.at||"")?1:-1);
   return<div>
-    <Inp label="DATA" type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+    <DateInp label="DATA" value={date} onChange={e=>setDate(e.target.value)}/>
     <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{items.length} movimentações nesse dia, de todos os funcionários</div>
     {items.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24}}>Nada registrado nesta data</div>
       :items.map((it,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontSize:13}}>{it.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(it.at)}</div></div>)}
@@ -2008,7 +2070,7 @@ function EmpProfile({ctx,emp}){
         </div>})}
     </div>
     <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"flex-end"}}>
-      <div style={{flex:1}}><Inp label="FILTRAR DATA" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>
+      <div style={{flex:1}}><DateInp label="FILTRAR DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>
       <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📋</Btn>
     </div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
@@ -2412,7 +2474,7 @@ function AddPalletForm({ctx,onClose}){
 
 function PalletDetail({ctx,pallet}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
-  const[p,setP]=useState(pallet),[itemType,setItemType]=useState("machine"),[mode,setMode]=useState("scan"),[log,setLog]=useState([]);
+  const[p,setP]=useState(pallet),[itemType,setItemType]=useState("machine"),[mode,setMode]=useState("scan"),[log,setLog]=useState([]),[pendingAddSN,setPendingAddSN]=useState(null);
   const fileRef=useRef();
   const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
   const hashes=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
@@ -2420,22 +2482,37 @@ function PalletDetail({ctx,pallet}){
     const sn=snRaw.toUpperCase().trim();if(!sn)return;
     const isHash=itemType==="hash";
     const listKey=isHash?"hashesSN":"machinesSN";
-    if((p[listKey]||[]).includes(sn)){setLog(l=>[{sn,status:"dup",msg:"Já no palete"},...l]);setInput("");return}
+    if((p[listKey]||[]).includes(sn)){setLog(l=>[{sn,status:"dup",msg:"Já no palete"},...l]);return}
+    const ex=isHash?data.hashes.find(h=>h.sn===sn):data.machines.find(m=>m.sn===sn);
+    if(!ex){
+      // Não existe — não cria mais com dados genéricos. Mostra aviso e deixa
+      // o usuário escolher cadastrar de verdade (modelo, status, etc.)
+      setLog(l=>[{sn,status:"missing",msg:"❌ Não existe no estoque"},...l]);
+      return;
+    }
     const newSNs=[...(p[listKey]||[]),sn];
     const upd={...p,[listKey]:newSNs,...audit(user)};
     setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
     await fbSet("pallets",p._id,upd);await markChanged("pallets");
-    if(isHash){
-      const ex=data.hashes.find(h=>h.sn===sn);
-      if(!ex){const id=uid();const d={sn,model:"M30S",status:"STOCK",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};await fbSet("hashes",id,d);mutate("hashes",h=>[...h,{...d,_id:id}]);await markChanged("hashes");syncSheet(webhookUrl,"addHash",{sn,model:d.model,status:d.status,employeeName:user.name,employeeCode:user.code});setLog(l=>[{sn,status:"new",msg:"Nova — criada no estoque"},...l]);}
-      else setLog(l=>[{sn,status:"ok",msg:ex.model+" · "+ex.status},...l]);
-    }else{
-      const ex=data.machines.find(m=>m.sn===sn);
-      if(!ex){const id=uid();const d={sn,model:"M30S",th:86,type:"complete",situacao:"STOCK",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",...audit(user),addedAt:TODAY(),destino:""};await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);await markChanged("machines");syncSheet(webhookUrl,"addMachine",{sn,model:d.model,situacao:d.situacao,employeeName:user.name,employeeCode:user.code});setLog(l=>[{sn,status:"new",msg:"Nova — criada no estoque"},...l]);}
-      else setLog(l=>[{sn,status:"ok",msg:ex.model+" · "+ex.situacao},...l]);
-    }
-    setInput("");
+    setLog(l=>[{sn,status:"ok",msg:isHash?ex.model+" · "+ex.status:ex.model+" · "+ex.situacao},...l]);
   };
+  // Depois de cadastrar a HASH/máquina que faltava, adiciona ela no palete automaticamente
+  useEffect(()=>{
+    if(!pendingAddSN)return;
+    const{sn,isHash}=pendingAddSN;
+    const found=isHash?data.hashes.find(h=>h.sn===sn):data.machines.find(m=>m.sn===sn);
+    if(found){
+      const listKey=isHash?"hashesSN":"machinesSN";
+      if(!(p[listKey]||[]).includes(sn)){
+        const newSNs=[...(p[listKey]||[]),sn];
+        const upd={...p,[listKey]:newSNs,...audit(user)};
+        setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
+        fbSet("pallets",p._id,upd);markChanged("pallets");
+      }
+      setLog(l=>[{sn,status:"ok",msg:(isHash?found.model+" · "+found.status:found.model+" · "+found.situacao)+" — cadastrada e adicionada"},...l.filter(x=>x.sn!==sn)]);
+      setPendingAddSN(null);
+    }
+  },[data.machines,data.hashes,pendingAddSN]);
   const uploadCSV=async(file)=>{
     const text=await file.text();
     const sns=text.split("\n").map(l=>l.split(",")[0].replace(/['"]/g,"").toUpperCase().trim()).filter(s=>s&&s!=="SN"&&s.length>5);
@@ -2453,7 +2530,10 @@ function PalletDetail({ctx,pallet}){
     </div>
     {mode==="scan"&&<div style={{marginBottom:8}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder={itemType==="hash"?"SN da HASH...":"SN da máquina..."} autoFocus count={log.length}/></div>}
     {mode==="upload"&&<><input ref={fileRef} type="file" accept=".csv,.txt" style={{display:"none"}} onChange={e=>e.target.files[0]&&uploadCSV(e.target.files[0])}/><Btn v="b" onClick={()=>fileRef.current.click()} style={{width:"100%",marginBottom:8}}>📂 Escolher CSV</Btn><Btn v="s" onClick={()=>{const rows=["SN,Modelo,Situação"];macs.forEach(m=>rows.push((m.sn||"")+","+(m.model||"")+","+(m.situacao||"")));const blob=new Blob([rows.join("\n")],{type:"text/csv"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="palete-"+p.name+".csv";a.click()}} style={{width:"100%",marginBottom:8}}>⬇️ Exportar CSV</Btn></>}
-    {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:8,marginBottom:10,maxHeight:100,overflow:"auto"}}>{log.map((l,i)=><div key={i} style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:C.blue,padding:"2px 0"}}>{l.sn} — {l.msg}</div>)}</div>}
+    {log.length>0&&<div style={{background:C.card2,borderRadius:10,padding:8,marginBottom:10,maxHeight:220,overflow:"auto"}}>{log.map((l,i)=><div key={i} style={{padding:"4px 0",borderBottom:i<log.length-1?"1px solid "+C.border:"none"}}>
+      <div style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:l.status==="missing"?C.red:C.blue}}>{l.sn} — {l.msg}</div>
+      {l.status==="missing"&&<button onClick={()=>{setPendingAddSN({sn:l.sn,isHash:itemType==="hash"});setModal(<Modal title={itemType==="hash"?"Nova HASH":"Nova Máquina"} onClose={()=>setModal(null)}>{itemType==="hash"?<AddHashForm ctx={ctx} initSN={l.sn} onClose={()=>setModal(null)}/>:<AddMachineForm ctx={ctx} initSN={l.sn} onClose={()=>setModal(null)}/>}</Modal>)}} style={{marginTop:4,background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>➕ Cadastrar {l.sn}</button>}
+    </div>)}</div>}
     <SL>Máquinas ({macs.length})</SL>
     {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"}</div><div style={{fontSize:10,color:C.muted}}>{m.model} · <SP s={m.situacao}/></div></div><button onClick={()=>remSN(m.sn||"",false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div>)}
     <SL mt={14}>HASHs ({hashes.length})</SL>
@@ -2596,7 +2676,7 @@ function ClientDetail({ctx,client}){
 // e status delas dentro, e a foto tirada no teste) e HASHs avulsas — com
 // filtro por modelo e data.
 function ClientReport({ctx,client}){
-  const{data}=ctx;
+  const{data,setModal}=ctx;
   const[modelFilter,setModelFilter]=useState(""),[dateFilter,setDateFilter]=useState(""),[gen,setGen]=useState(false),[genProg,setGenProg]=useState("");
   const macs=(client.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
   const hshs=(client.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
@@ -2612,7 +2692,7 @@ function ClientReport({ctx,client}){
   return<div>
     <div style={{display:"flex",gap:8,marginBottom:10}}>
       <Sel label="MODELO" value={modelFilter} onChange={e=>setModelFilter(e.target.value)} style={{flex:1}}><option value="">Todos</option>{allModelsUsed.map(m=><option key={m}>{m}</option>)}</Sel>
-      <Inp label="DATA" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)} style={{flex:1}}/>
+      <DateInp label="DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)} style={{flex:1}}/>
     </div>
     <Btn v="g" onClick={baixarPDF} disabled={gen||(macsF.length+hshsF.length===0)} style={{width:"100%",marginBottom:10}}>{gen?genProg:"📄 Baixar PDF"}</Btn>
     <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{macsF.length} máquina(s) · {hshsF.length} HASH(s) avulsa(s)</div>
@@ -2620,7 +2700,10 @@ function ClientReport({ctx,client}){
       {macsF.map(m=>{
         const test=[...data.tests].reverse().find(t=>t.machineSN===m.sn&&t.overallResult==="good");
         return<Card key={m._id}>
-          <div style={{fontWeight:800,fontSize:13,color:C.accent}}>{m.sn} · {m.model}</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div style={{fontWeight:800,fontSize:13,color:C.accent}}>{m.sn} · {m.model}</div>
+            <button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>
+          </div>
           <div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {m._at?fmtTS(m._at):"—"}</div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>
             {[m.hashSN0,m.hashSN1,m.hashSN2].filter(Boolean).map((sn,i)=>{const h=data.hashes.find(x=>x.sn===sn);return<span key={i} style={{background:C.card2,borderRadius:6,padding:"2px 8px",fontSize:10}}>⚡ {sn} {h&&<HP s={h.status}/>}</span>})}
@@ -2630,7 +2713,7 @@ function ClientReport({ctx,client}){
       })}
     </>}
     {hshsF.length>0&&<><SL mt={14}>⚡ HASHs AVULSAS</SL>
-      {hshsF.map(h=><Card key={h._id}><div style={{fontWeight:800,fontSize:13,color:C.blue}}>{h.sn} · {h.model}</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {h._at?fmtTS(h._at):"—"} · <HP s={h.status}/></div></Card>)}
+      {hshsF.map(h=><Card key={h._id}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontWeight:800,fontSize:13,color:C.blue}}>{h.sn} · {h.model}</div><button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div><div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {h._at?fmtTS(h._at):"—"} · <HP s={h.status}/></div></Card>)}
     </>}
     {macsF.length===0&&hshsF.length===0&&<div style={{textAlign:"center",color:C.muted,padding:24}}>Nada encontrado com esse filtro</div>}
   </div>;
@@ -2646,7 +2729,7 @@ function EmpHistory({ctx,emp}){
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
       {[[allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent],[allT.length,"Testes",C.blue],[data.feedbacks?.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length||0,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
     </div>
-    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><Inp label="Data" type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
       {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></Card>)}
       {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></Card>)}
