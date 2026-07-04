@@ -470,10 +470,12 @@ function generateReport(user,repairs,tests,date){
   const dt=tests.filter(t=>(t.employeeId===user._id||t._by===user._id)&&t.date===date);
   const d=new Date(date+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
   const lines=[`📋 Relatório — ${user.name} #${user.code}`,`📅 ${d}`,``];
-  if(dr.length){lines.push(`🔧 HASHs Consertadas (${dr.length}):`);dr.forEach(r=>{let obs="";if(r.chips)obs+=` | Chips:${r.chips}`;if(r.sensores)obs+=` | Sens:${r.sensores}`;if(r.ldos)obs+=` | LDOs:${r.ldos}`;if(r.obsManual)obs+=` | ${r.obsManual}`;lines.push(`• ${r.hashSN||"SEM SN"} — ${r.model}${obs} — ${fmtTime(r._at)}`)});lines.push("")}
+  if(dr.length){lines.push(`🔧 HASHs Consertadas (${dr.length}):`);dr.forEach(r=>{let obs="";if(r.chips)obs+=` | Chips:${r.chips}`;if(r.sensores)obs+=` | Sens:${r.sensores}`;if(r.ldos)obs+=` | LDOs:${r.ldos}`;if(r.obsManual)obs+=` | ${r.obsManual}`;const tipo=r.type==="rework"?"🔁 RETRABALHO":"🔧 Conserto";lines.push(`• [${tipo}] ${r.hashSN||"SEM SN"} — ${r.model}${obs} — ${fmtTime(r._at)}`)});lines.push("")}
   if(dg.length){lines.push(`✅ Já Estavam Boas (${dg.length}):`);dg.forEach(r=>lines.push(`• ${r.hashSN||"SEM SN"} — ${r.model} — ${fmtTime(r._at)}`));lines.push("")}
   if(dt.length){lines.push(`🧪 Máquinas Testadas (${dt.length}):`);dt.forEach(t=>{const st=t.status==="pending"?"Aguard. Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM";lines.push(`• ${t.machineSN||"SEM SN"} — ${t.model} — ${st} — ${fmtTime(t._at)}`)});lines.push("")}
-  lines.push(`✅ Total consertos: ${dr.length} | Testes: ${dt.length}`);
+  const nRework=dr.filter(r=>r.type==="rework").length;
+  const nRepair=dr.length-nRework;
+  lines.push(`✅ Total consertos: ${nRepair}${nRework?` + ${nRework} retrabalho(s)`:""} | Testes: ${dt.length}`);
   return lines.join("\n");
 }
 function copyReport(user,repairs,tests,date){const txt=generateReport(user,repairs,tests,date);navigator.clipboard.writeText(txt).then(()=>alert("✓ Relatório copiado! Cole no WhatsApp.")).catch(()=>alert(txt));}
@@ -2114,23 +2116,57 @@ function EditHashBadApprovalForm({ctx,appr,onSaved}){
   </div>;
 }
 
-// Edita o modelo/T/H/referência de uma máquina que AINDA NÃO EXISTE no
-// estoque (só vai ser criada quando aprovar) — deixa o Admin corrigir antes.
-function EditMachineApprovalForm({ctx,appr,test,onSaved}){
-  const{mutate,allModels,gTH}=ctx;const models=allModels();
-  const[model,setModel]=useState(appr.model||models[0]?.m||"M30S");
-  const[th,setTh]=useState(appr.th||gTH(model));
-  const[ref,setRef]=useState(appr.employeeCode||"");
+// Mostra e deixa editar TUDO que o testador viu/preencheu (modelo, T/H, os 3
+// slots com SN e resultado, componentes) — a mesma coisa, tanto pra máquina
+// que já existe quanto pra uma nova que só vai ser criada ao aprovar.
+function EditPendingTestForm({ctx,appr,test,onSaved}){
+  const{data,mutate,allModels,gTH,gChips}=ctx;const models=allModels();
+  const[model,setModel]=useState(test?.model||appr.model||models[0]?.m||"M30S");
+  const[th,setTh]=useState(test?.th||appr.th||gTH(model));
+  const[slots,setSlots]=useState([
+    {hashSN:test?.slot0HashSN||"",result:test?.slot0Result||""},
+    {hashSN:test?.slot1HashSN||"",result:test?.slot1Result||""},
+    {hashSN:test?.slot2HashSN||"",result:test?.slot2Result||""},
+  ]);
+  const[ctr,setCtr]=useState(test?.controladora||"OFF");
+  const[fonte,setFonte]=useState(test?.fonte||"OFF");
+  const[fans,setFans]=useState(test?.fans||"OFF");
+  const setSlot=(i,k,v)=>setSlots(s=>s.map((sl,idx)=>idx===i?{...sl,[k]:v}:sl));
   const save=async()=>{
-    const u={...appr,model,th:Number(th)};
-    await fbSet("pendingApprovals",appr._id,u);mutate("approvals",a=>a.map(x=>x._id===appr._id?u:x));
-    if(test){const tu={...test,model,th:Number(th)};await fbSet("tests",test._id,tu);mutate("tests",t=>t.map(x=>x._id===test._id?tu:x))}
+    const apprU={...appr,model,th:Number(th)};
+    await fbSet("pendingApprovals",appr._id,apprU);mutate("approvals",a=>a.map(x=>x._id===appr._id?apprU:x));
+    if(test){
+      const testU={...test,model,th:Number(th),
+        slot0HashSN:slots[0].hashSN,slot0Result:slots[0].result,
+        slot1HashSN:slots[1].hashSN,slot1Result:slots[1].result,
+        slot2HashSN:slots[2].hashSN,slot2Result:slots[2].result,
+        controladora:ctr,fonte,fans};
+      await fbSet("tests",test._id,testU);mutate("tests",t=>t.map(x=>x._id===test._id?testU:x));
+    }
     onSaved();
   };
   return<div>
-    <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essa máquina ainda não existe no estoque — só vai ser criada quando você aprovar. Pode corrigir o modelo/T/H antes.</div>
-    <Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
-    <Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)}/>
+    {!data.machines.find(m=>m.sn===appr.machineSN)&&<div style={{color:C.muted,fontSize:12,marginBottom:12}}>⚠️ Essa máquina ainda não existe no estoque — só vai ser criada quando você aprovar.</div>}
+    <div style={{display:"flex",gap:8}}>
+      <div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div>
+      <Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:80}}/>
+    </div>
+    <SL mt={8}>SLOTS</SL>
+    {[0,1,2].map(i=>{
+      const h=slots[i].hashSN?data.hashes.find(x=>x.sn===slots[i].hashSN.toUpperCase()):null;
+      return<div key={i} style={{background:C.card2,borderRadius:10,padding:10,marginBottom:8}}>
+        <div style={{fontSize:11,fontWeight:800,color:C.subtle,marginBottom:6}}>SLOT {i+1}</div>
+        <input value={slots[i].hashSN} onChange={e=>setSlot(i,"hashSN",e.target.value.toUpperCase())} placeholder="SN da HASH" style={{...inp,marginBottom:6,fontSize:12,padding:"7px 8px"}}/>
+        {h&&<div style={{fontSize:11,color:C.blue,marginBottom:6}}>⚡ {h.model}{gChips(h.model,h.material)?` · ${gChips(h.model,h.material)} chips`:""}</div>}
+        <div style={{display:"flex",gap:6}}>
+          {[["good","BOA",C.green],["bad","RUIM",C.red],["","—",C.muted]].map(([v,l,c])=><button key={v||"none"} onClick={()=>setSlot(i,"result",v)} style={{flex:1,background:slots[i].result===v?c+"33":"#1a2d42",color:slots[i].result===v?c:C.muted,border:"1px solid "+(slots[i].result===v?c:C.border),borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>{l}</button>)}
+        </div>
+      </div>;
+    })}
+    <SL mt={8}>COMPONENTES</SL>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+      {[["CTR",ctr,setCtr],["FONTE",fonte,setFonte],["FANS",fans,setFans]].map(([l,v,setV])=><Sel key={l} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}><option value="ON">ON</option><option value="OFF">OFF</option></Sel>)}
+    </div>
     <Btn v="g" onClick={save} style={{width:"100%"}}>💾 Salvar</Btn>
   </div>;
 }
@@ -2320,9 +2356,7 @@ function ApprovalsPage({ctx}){
         {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginBottom:10,maxHeight:150}}/>}
         <Inp label="Observação para rejeição (opcional)" value={notes[appr._id]||""} onChange={e=>setNotes({...notes,[appr._id]:e.target.value})} placeholder="Ex: rever HASH 2..."/>
         <div style={{display:"flex",gap:8}}>
-          {data.machines.find(m=>m.sn===appr.machineSN)?
-            <Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={data.machines.find(m=>m.sn===appr.machineSN)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>
-            :<Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><EditMachineApprovalForm ctx={ctx} appr={appr} test={test} onSaved={()=>setModal(null)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>}
+          <Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><EditPendingTestForm ctx={ctx} appr={appr} test={test} onSaved={()=>setModal(null)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>
           <Btn v="b" onClick={()=>setModal(<Modal title={`📋 ${appr.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={appr}/></Modal>)} style={{flex:1}}>📋 Ver mais</Btn>
         </div>
         <div style={{display:"flex",gap:8,marginTop:8}}>
