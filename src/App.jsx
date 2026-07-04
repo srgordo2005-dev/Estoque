@@ -50,6 +50,7 @@ const FIELD_MAP={
   canSeeAll:"can_see_all",passwordHash:"password_hash",allowedEmployees:"allowed_employees",
   updatedAt:"updated_at",
   adminNotes:"admin_notes",
+  newHashModel:"new_hash_model",newHashMaterial:"new_hash_material",newHashChips:"new_hash_chips",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
@@ -431,10 +432,19 @@ function PhotoCapture({label,photoKey,onChange,folder="photos",required,snHint})
   return<div style={{marginBottom:14}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>{label}{required&&<span style={{color:C.red}}> *</span>}</div>}{up&&<div style={{color:C.amber,fontSize:12,marginBottom:6}}>⏳ Enviando pro Drive...</div>}{failed&&<div style={{color:C.red,fontSize:12,marginBottom:6}}>✗ Não consegui enviar a foto pro Drive. Confere a conexão e tenta de novo (não salva no banco pra não lotar).</div>}{src?<div style={{position:"relative"}}><img src={src} alt="" style={{width:"100%",borderRadius:10,maxHeight:220,objectFit:"cover"}}/><button onClick={()=>{setSrc(null);onChange(null)}} style={{position:"absolute",top:6,right:6,background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>✕</button></div>:<div style={{display:"flex",gap:8}}><button onClick={()=>ref.current.click()} style={{flex:1,background:"#080e17",border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>📷 {required?"(Obrigatória)":"Foto"}</button><button onClick={async()=>{try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(t=>t.startsWith("image/"));if(type){const blob=await item.getType(type);const file=new File([blob],"paste.jpg",{type});await pick(file);return}}alert("Nenhuma imagem no clipboard")}catch{alert("Copie uma imagem (print screen) e toque Colar")}}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.blue,borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}} title="Colar print">📋 Colar</button></div>}<input ref={ref} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&pick(e.target.files[0])}/></div>;
 }
 function PhotoView({photoKey,style}){
-  const[src,setSrc]=useState(null);
+  const[src,setSrc]=useState(null),[big,setBig]=useState(false);
   useEffect(()=>{if(!photoKey)return;if(photoKey.startsWith("http")||photoKey.startsWith("data:"))setSrc(photoKey);else setSrc(localStorage.getItem("ph:"+photoKey))},[photoKey]);
   if(!src)return null;
-  return<img src={src} alt="" style={{width:"100%",borderRadius:8,objectFit:"cover",...style}}/>;
+  return<>
+    <div style={{position:"relative"}}>
+      <img src={src} alt="" onClick={()=>setBig(true)} style={{width:"100%",borderRadius:8,objectFit:"cover",cursor:"zoom-in",...style}}/>
+      <button onClick={()=>downloadPhoto(src,"foto.jpg")} title="Baixar" style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:14}}>⬇️</button>
+    </div>
+    {big&&<div onClick={()=>setBig(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,cursor:"zoom-out"}}>
+      <img src={src} alt="" style={{maxWidth:"100%",maxHeight:"100%",borderRadius:8,objectFit:"contain"}}/>
+      <button onClick={e=>{e.stopPropagation();setBig(false)}} style={{position:"absolute",top:16,right:16,background:"rgba(255,255,255,.15)",border:"none",color:"#fff",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:20,fontWeight:900}}>✕</button>
+    </div>}
+  </>;
 }
 
 /* ═══ REPORT ════════════════════════════════════════════════════ */
@@ -1106,6 +1116,27 @@ function MachineDetail({ctx,machine}){
   (m.changeLog||[]).forEach(l=>history.push({date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
   history.sort((a,b)=>a.date<b.date?-1:1);
   const exitSits=["SAIDA","EXPORTADA","VENDIDA"];
+  // Depois que a máquina sai pro cliente, ela fica travada — não dá mais pra
+  // editar nem apagar foto, só desvincular do cliente e voltar pro estoque.
+  const locked=exitSits.includes(m.situacao)&&!!m.destino;
+  const desvincular=async()=>{
+    if(!confirm(`Desvincular do cliente "${m.destino}" e devolver "${m.sn}" pro estoque normal?`))return;
+    const u={...m,situacao:"STOCK",destino:"",changeLog:[{field:"situacao",label:"Situação",from:m.situacao,to:"STOCK (desvinculada de "+m.destino+")",by:user.name,at:stamp()},...(m.changeLog||[])].slice(0,80),...audit(user)};
+    setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));
+    await fbSet("machines",m._id,u);await markChanged("machines");
+    syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:"STOCK",employeeName:user.name,employeeCode:user.code});
+    syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
+  };
+  if(locked)return<div>
+    <div style={{background:C.purple+"15",border:`1px solid ${C.purple}44`,borderRadius:10,padding:14,marginBottom:14}}>
+      <div style={{fontWeight:800,fontSize:15}}>{m.sn||"SEM SN"} · {m.model}</div>
+      <div style={{color:C.muted,fontSize:12,marginTop:4}}><SP s={m.situacao}/> · Enviada pro cliente: <b style={{color:C.purple}}>{m.destino}</b></div>
+    </div>
+    <div style={{color:C.amber,fontSize:12,marginBottom:12}}>🔒 Essa máquina já saiu pro cliente — não dá pra editar nem apagar nada nela (nem foto) até desvincular do cliente e ela voltar pro estoque normal.</div>
+    {m.photoKey&&<PhotoView photoKey={m.photoKey} style={{marginBottom:14,maxHeight:220}}/>}
+    <Btn v="y" onClick={desvincular} style={{width:"100%",marginBottom:14}}>🔓 Desvincular do Cliente (volta pro estoque)</Btn>
+    {history.length>0&&<><SL>Histórico</SL>{history.slice().reverse().map((h,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}><div>{h.text}</div><div style={{color:C.muted,fontSize:10}}>{fmtTS(h.date)}</div>{h.photoKey&&<PhotoView photoKey={h.photoKey} style={{maxHeight:120,marginTop:4}}/>}</div>)}</>}
+  </div>;
   const setSituacao=async(s)=>{
     if(exitSits.includes(s)&&!exitSits.includes(m.situacao)){
       const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
@@ -1427,6 +1458,25 @@ function HashDetail({ctx,hash}){
   (h.changeLog||[]).forEach(l=>history.push({icon:"✏️",date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
   history.sort((a,b)=>a.date<b.date?-1:1);
   const mac=data.machines.find(m=>m.sn===h.machineSN);
+  // Depois que a HASH sai pro cliente, fica travada — só desvincular volta
+  // pro estoque normal.
+  const locked=h.status==="SAIDA"&&(h.location||"").toLowerCase().includes("vendida");
+  const desvincularHash=async()=>{
+    if(!confirm(`Desvincular essa HASH do cliente e devolver pro estoque normal?`))return;
+    const u={...h,status:"STOCK",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"STOCK (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+    setH(u);mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");
+    syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:"STOCK",employeeName:user.name,employeeCode:user.code});
+  };
+  if(locked)return<div>
+    <div style={{background:C.purple+"15",border:`1px solid ${C.purple}44`,borderRadius:10,padding:14,marginBottom:14}}>
+      <div style={{fontWeight:800,fontSize:15}}>⚡ {h.sn||"SEM SN"} · {h.model}</div>
+      <div style={{color:C.muted,fontSize:12,marginTop:4}}><HP s={h.status}/> · {h.location}</div>
+    </div>
+    <div style={{color:C.amber,fontSize:12,marginBottom:12}}>🔒 Essa HASH já saiu pro cliente — não dá pra editar nem apagar nada nela (nem foto) até desvincular e ela voltar pro estoque normal.</div>
+    {h.photoKey&&<PhotoView photoKey={h.photoKey} style={{marginBottom:14,maxHeight:220}}/>}
+    <Btn v="y" onClick={desvincularHash} style={{width:"100%",marginBottom:14}}>🔓 Desvincular do Cliente (volta pro estoque)</Btn>
+    {history.length>0&&<><SL>Histórico</SL>{history.slice().reverse().map((it,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}><div>{it.icon} {it.text}</div><div style={{color:C.muted,fontSize:10}}>{fmtTS(it.date)}</div>{it.photoKey&&<PhotoView photoKey={it.photoKey} style={{maxHeight:120,marginTop:4}}/>}</div>)}</>}
+  </div>;
   return<div>
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
       <HP s={h.status}/>
@@ -1555,6 +1605,23 @@ function TestSlotSNInput({slotRefs,i,value,onCommit,listId}){
   return<input ref={el=>slotRefs.current[i]=el} value={local} onChange={e=>setLocal(e.target.value.toUpperCase())} onBlur={commit} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();commit();setTimeout(()=>slotRefs.current[i+1]?.focus(),30)}}} placeholder="Bipe o SN da HASH..." list={listId} style={{...inp,marginBottom:6}}/>;
 }
 
+// Características (modelo/material/chips) que vão valer pra TODAS as HASHs
+// novas bipadas nesse teste que ainda não existem no estoque.
+function NewHashCharsForm({ctx,unknownSlots,initial,onSave}){
+  const{data,allModels,gChips}=ctx;const models=allModels();
+  const[model,setModel]=useState(initial?.model||models[0]?.m||"M30S");
+  const[material,setMaterial]=useState(initial?.material||"");
+  const[chips,setChips]=useState(initial?.chips||"");
+  return<div>
+    <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essas características vão ser usadas ao cadastrar {unknownSlots.length} HASH(s) nova(s): {unknownSlots.map(s=>s.sn).join(", ")}</div>
+    <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+    <MaterialPicker value={material} onChange={setMaterial}/>
+    {gChips(model,material)&&<div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>Padrão pra esse modelo/material: {gChips(model,material)} chips</div>}
+    <Inp label="Quantidade de Chips" type="number" value={chips} onChange={e=>setChips(e.target.value)} placeholder={gChips(model,material)?String(gChips(model,material)):"0"}/>
+    <Btn v="g" onClick={()=>onSave({model,material,chips:chips||gChips(model,material)||""})} style={{width:"100%"}}>💾 Salvar Características</Btn>
+  </div>;
+}
+
 function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH,gChips,setModal}=ctx;const models=allModels();
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
@@ -1662,6 +1729,7 @@ function TestePage({ctx}){
   const markAllGood=async()=>{
     if(!session)return;
     if(!session.photoKey){setErr("Adicione a foto da tela primeiro!");return}
+    if(unknownSlots.length>0&&!session.newHashChars){setErr("Defina as características das HASHs novas primeiro!");return}
     const newSlots=session.slots.map(s=>({...s,status:s.status==="bad"?"bad":"good"}));
     const s={...session,slots:newSlots,controladora:"ON",fonte:"ON",fans:"ON",updatedAt:stamp()};
     await saveSession(s);
@@ -1675,7 +1743,8 @@ function TestePage({ctx}){
       slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
       slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
       slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
-      controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending"};
+      controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
+      newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
     await fbSet("tests",id,rec);mutate("tests",t=>[...t,{...rec,_id:id}]);
     const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
     await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
@@ -1687,6 +1756,10 @@ function TestePage({ctx}){
   };
 
   const otherSessions=sessions.filter(s=>s._id!==activeId);
+  // SNs bipados que ainda não existem em lugar nenhum — precisa definir as
+  // características (modelo/material/chips) deles antes de poder enviar.
+  const unknownSlots=session?session.slots.map((s,i)=>({i,sn:s.hashSN})).filter(x=>x.sn&&!data.hashes.find(h=>h.sn===x.sn.toUpperCase())):[];
+  const needsChars=unknownSlots.length>0&&!session?.newHashChars;
 
   return<div>
     {scanning&&<BarcodeScanner onScan={v=>{setMacInput(v.toUpperCase());setScanning(false);loadMachine(v)}} onClose={()=>setScanning(false)}/>}
@@ -1744,6 +1817,7 @@ function TestePage({ctx}){
             {h.location&&<span style={{fontSize:10,color:C.muted}}>📍{h.location}</span>}
             <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{marginLeft:"auto",background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️ Editar</button>
           </div>}
+          {!h&&slot.hashSN&&<div style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.red,fontWeight:700}}>❌ Essa HASH não existe ainda — defina as características abaixo antes de enviar</div>}
           {modelMismatch&&<div style={{background:C.amber+"22",border:"1px solid "+C.amber+"44",borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.amber}}>⚠️ HASH é <b>{h.model}</b> mas máquina é <b>{session.model}</b></div>}
           {slot.status!=="bad"&&slot.hashSN&&<button onClick={()=>setRuimModal(i)} style={{background:C.red+"22",border:"1px solid "+C.red+"44",color:C.red,borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,width:"100%"}}>✗ Marcar como RUIM</button>}
         </div>;
@@ -1760,7 +1834,13 @@ function TestePage({ctx}){
         <PhotoCapture label="📸 Foto da Tela / App Fabricante (obrigatória)" photoKey={session.photoKey||null} onChange={k=>saveSession({...session,photoKey:k,updatedAt:stamp()})} folder="testes" snHint={session.machineSN} required/>
       </div>
 
-      <Btn v="g" onClick={markAllGood} disabled={submitting||!session.photoKey} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
+      {unknownSlots.length>0&&<div style={{background:needsChars?C.red+"15":C.green+"15",border:`1px solid ${needsChars?C.red:C.green}44`,borderRadius:12,padding:14,marginBottom:12}}>
+        <div style={{fontWeight:800,fontSize:13,color:needsChars?C.red:C.green,marginBottom:6}}>{needsChars?"⚠️":"✓"} {unknownSlots.length} HASH(s) nova(s) {needsChars?"— falta definir as características":"— características definidas"}</div>
+        {!needsChars&&session.newHashChars&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>{session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</div>}
+        <Btn v={needsChars?"d":"s"} onClick={()=>setModal(<Modal title="Características das HASHs novas" onClose={()=>setModal(null)}><NewHashCharsForm ctx={ctx} unknownSlots={unknownSlots} initial={session.newHashChars} onSave={async(chars)=>{await saveSession({...session,newHashChars:chars,updatedAt:stamp()});setModal(null)}}/></Modal>)} style={{width:"100%"}}>{needsChars?"📋 Definir características (obrigatório)":"✏️ Editar características"}</Btn>
+      </div>}
+
+      <Btn v="g" onClick={markAllGood} disabled={submitting||!session.photoKey||needsChars} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
         {submitting?"Enviando...":"✅ TUDO BOA — Enviar para Revisão"}
       </Btn>
       <div style={{display:"flex",gap:8}}>
@@ -1768,6 +1848,7 @@ function TestePage({ctx}){
         <Btn v="d" onClick={()=>closeSession(session._id)} style={{flex:1,fontSize:12}}>🗑 Cancelar esta</Btn>
       </div>
       {!session.photoKey&&<div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Adicione a foto para enviar</div>}
+      {needsChars&&<div style={{color:C.red,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Defina as características das HASHs novas pra enviar</div>}
     </>}
 
     {/* Pergunta de desvincular HASH que já está em outra máquina */}
@@ -1818,6 +1899,8 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
   const lastRep=slot.hashSN?[...data.repairs].reverse().find(r=>r.hashSN===slot.hashSN):null;
   const repairer=lastRep?data.employees.find(e=>e._id===lastRep.employeeId):null;
   const confirm=async()=>{
+    if(!logPhoto&&!notes.trim()){setErr("Coloca uma foto OU escreve uma descrição do erro (pelo menos um dos dois)");return}
+    setErr("");
     setSaving(true);
     const newSlots=[...session.slots];newSlots[slotIndex]={...slot,hashSN:"",status:"bad",logPhoto:logPhoto||"",logNotes:notes};
     if(h){
@@ -1842,8 +1925,8 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
       {h&&<HP s={h.status}/>}
       {repairer&&<div style={{color:C.amber,fontSize:12,marginTop:4}}>⚠️ {repairer.name} será notificado do erro</div>}
     </div>
-    <PhotoCapture label="📸 Foto do Log de Erro (opcional)" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste" snHint={slot.hashSN}/>
-    <Inp label="Descrição do Erro" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected, Chain Break..."/>
+    <PhotoCapture label="📸 Foto do Log de Erro (foto OU descrição abaixo é obrigatório)" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste" snHint={slot.hashSN}/>
+    <Inp label="Descrição do Erro (ou preencha a foto acima)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected, Chain Break..."/>
     <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
     {err&&<Alrt type="err">{err}</Alrt>}
     <div style={{display:"flex",gap:8}}>
@@ -1975,10 +2058,21 @@ function ApprovalsPage({ctx}){
         newH=newH.map(x=>x._id===h._id?u:x);await fbSet("hashes",h._id,u);
         syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
       }else{
-        // HASH nova — só é criada agora que foi aprovada como boa
-        const hid=uid();const hd={sn,model:test.model,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,...audit(user),addedAt:TODAY()};
+        // HASH nova — só é criada agora que foi aprovada como boa. Usa as
+        // características que o testador definiu (modelo/material/chips)
+        // pra essa HASH nova, não o modelo genérico da máquina.
+        const newModel=test.newHashModel||test.model;
+        const newMaterial=test.newHashMaterial||"";
+        const newChips=test.newHashChips||"";
+        const hid=uid();const hd={sn,model:newModel,material:newMaterial,chips:newChips,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,...audit(user),addedAt:TODAY()};
         await fbSet("hashes",hid,hd);newH=[...newH,{...hd,_id:hid}];
-        syncSheet(webhookUrl,"hashApproved",{sn,model:test.model,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
+        syncSheet(webhookUrl,"hashApproved",{sn,model:newModel,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
+        // Se colocou uma quantidade de chips que ainda não tava configurada
+        // pra esse modelo+material, guarda como referência pras próximas.
+        if(newChips&&!data.customModels.find(cm=>cm.m===newModel&&(cm.material||"")===newMaterial&&cm.chips)){
+          const cmid=uid();const cmd={m:newModel,th:0,chips:Number(newChips),material:newMaterial};
+          await fbSet("customModels",cmid,cmd);mutate("customModels",arr=>[...arr,{...cmd,_id:cmid}]);
+        }
       }
     }
     mutate("hashes",()=>newH);
@@ -2013,6 +2107,10 @@ function ApprovalsPage({ctx}){
   return<div>
     <div style={{fontWeight:900,fontSize:18,marginBottom:4}}>Revisão de Testes</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:16}}>{pending.length} aguardando aprovação</div>
+    {pending.length>1&&<div style={{display:"flex",gap:8,marginBottom:14}}>
+      <Btn v="g" onClick={async()=>{if(!confirm(`Aprovar TODAS as ${pending.length} pendentes?`))return;for(const a of pending)await approve(a)}} disabled={!!processing} style={{flex:1}}>✓ Aprovar todas ({pending.length})</Btn>
+      <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${pending.length} pendentes?`))return;for(const a of pending)await reject(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
+    </div>}
     {pending.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>✅</div><div>Nenhuma revisão pendente</div></div>
       :pending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={C.blue}>
         <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>🖥️ {appr.machineSN||"SEM SN"}</div>
@@ -2248,18 +2346,27 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
     else{const id=uid();const d={m:chipsModel,th:0,chips:Number(chipsVal),material:chipsMaterial||""};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}])}
     setChipsModel("");setChipsVal("");setChipsMaterial("");
   };
-  // Valores reais pesquisados (placa base, sem material específico) — só
-  // preenche o que ainda não estiver configurado, nunca sobrescreve o que
-  // você já ajustou manualmente.
-  const KNOWN_CHIPS=[["S19",76],["S19 XP",110],["S21",108],["S21XP",91]];
-  const loadKnownChips=async()=>{
-    for(const[m,chips]of KNOWN_CHIPS){
-      if(!allModelsForChips.includes(m))continue;
-      const already=data.customModels.find(x=>x.m===m&&!x.material);
-      if(already)continue;
-      const id=uid();const d={m,th:0,chips,material:""};await fbSet("customModels",id,d);mutate("customModels",arr=>[...arr,{...d,_id:id}]);
-    }
-  };
+  // Lista real de chips por modelo (que você passou) — carrega sozinho ao
+  // abrir Config, só preenche o que ainda não estiver configurado, nunca
+  // sobrescreve o que você já ajustou manualmente.
+  const KNOWN_CHIPS=[
+    ["S19",76],["S19 Pro",114],["S19PRO",114],
+    ["S19J",126],["S19JPRO",126],["S19JPRO+",126],
+    ["S19k Pro",82],["S19 XP",110],["S19XP",110],
+    ["S21",108],["S21XP",91],["T21",108],["T19",76],
+    ["S17",48],["S17 Pro",48],["T17",44],["T17+",44],
+    ["S15",72],["S9",63],["L3+",72],
+  ];
+  useEffect(()=>{
+    (async()=>{
+      for(const[m,chips]of KNOWN_CHIPS){
+        if(!allModelsForChips.includes(m))continue;
+        const already=data.customModels.find(x=>x.m===m&&!x.material);
+        if(already)continue;
+        const id=uid();const d={m,th:0,chips,material:""};await fbSet("customModels",id,d);mutate("customModels",arr=>[...arr,{...d,_id:id}]);
+      }
+    })();
+  },[]);
   return<div>
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
     {dataWarnings.length>0&&<Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
@@ -2283,7 +2390,7 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
     <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS (T/H)</SL>{data.customModels.filter(m=>!m.chips).map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>⚡ CHIPS POR MODELO (E MATERIAL)</SL>
       <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Lista separada dos modelos de T/H. Um mesmo modelo pode ter placa de Fibra ou Alumínio, com quantidade de chips diferente — aparece nos cards e é usada automaticamente no conserto quando não for informado.</div>
-      <Btn v="b" onClick={loadKnownChips} style={{width:"100%",marginBottom:10}}>📥 Carregar sugestões conhecidas (S19, S19 XP, S21, S21XP)</Btn>
+      <div style={{color:C.muted,fontSize:10,marginBottom:10}}>Já vem com os valores reais mais comuns pré-carregados (S19, S19 Pro, S19j Pro, S19k Pro, S19 XP, S21, S21XP, T21, T19, S17, T17, S15, S9, L3+) — você pode editar qualquer um.</div>
       {chipEntries.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:8}}>Nenhum cadastrado ainda</div>:chipEntries.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}{m.material?<Tag color={m.material==="FIBRA"?C.blue:C.amber} small style={{marginLeft:6}}>{m.material}</Tag>:null}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.blue,fontSize:12,fontWeight:700}}>{m.chips} chips</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}
       <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginTop:14,marginBottom:6,letterSpacing:1}}>ADICIONAR OU MUDAR</div>
       <div style={{display:"flex",gap:8}}>
