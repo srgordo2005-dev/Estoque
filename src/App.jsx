@@ -12,6 +12,20 @@ function injectFreshCtx(element,ctx){
   if(!React.isValidElement(element))return element;
   const newProps={};
   if("ctx" in element.props)newProps.ctx=ctx;
+  // Além do ctx, algumas telas recebem a própria máquina/HASH como prop
+  // separada (ex: <MachineDetail machine={m}/>) — essa também ficava
+  // congelada na versão de quando a tela foi aberta. Busca a versão mais
+  // atual pelo _id, se existir.
+  if(ctx?.data){
+    if("machine" in element.props&&element.props.machine?._id){
+      const fresh=ctx.data.machines?.find(x=>x._id===element.props.machine._id);
+      if(fresh)newProps.machine=fresh;
+    }
+    if("hash" in element.props&&element.props.hash?._id){
+      const fresh=ctx.data.hashes?.find(x=>x._id===element.props.hash._id);
+      if(fresh)newProps.hash=fresh;
+    }
+  }
   let children=element.props.children;
   if(children!==undefined){
     children=React.Children.map(children,child=>injectFreshCtx(child,ctx));
@@ -1104,6 +1118,7 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
 function MachineDetail({ctx,machine}){
   const{data,mutate,setModal,user,webhookUrl,allModels,gTH}=ctx;const models=allModels();
   const[m,setM]=useState(machine);
+  useEffect(()=>{setM(machine)},[machine]);
   const upd=async(k,v)=>{
     if(m[k]===v)return;
     const logEntry={field:k,label:FIELD_LABELS[k]||k,from:m[k]??"",to:v??"",by:user.name,at:stamp()};
@@ -1257,7 +1272,19 @@ function MachineDetail({ctx,machine}){
           </div>
         ))}</>
       )}
-      <Btn v="d" onClick={async()=>{syncSheet(webhookUrl,"trashMachine",{sn:m.sn,model:m.model,removedBy:user.name});mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)}} style={{width:"100%",marginTop:14}}>🗑 Remover</Btn>
+      <Btn v="d" onClick={async()=>{
+        syncSheet(webhookUrl,"trashMachine",{sn:m.sn,model:m.model,removedBy:user.name});
+        // As HASHs que estavam dentro dessa máquina voltam pra fila de teste
+        // (podem ser usadas em outra máquina) em vez de ficarem presas
+        const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
+        for(const h of mHashes){
+          const hu={...h,status:"ON",machineSN:"",slot:-1,changeLog:[{field:"status",label:"Status",from:h.status,to:"ON (máquina "+m.sn+" removida)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+          mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
+          syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"ON",employeeName:user.name,employeeCode:user.code});
+        }
+        if(mHashes.length)await markChanged("hashes");
+        mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)
+      }} style={{width:"100%",marginTop:14}}>🗑 Remover</Btn>
     </div>
   );
 }
@@ -1445,6 +1472,7 @@ function HashHistoryOnly({ctx,hash}){
 // Visualização rápida da foto salva da HASH, com opção de adicionar se não tiver (não obrigatório)
 function HashPhotoQuick({ctx,hash}){
   const{mutate,user}=ctx;const[h,setH]=useState(hash),[adding,setAdding]=useState(false);
+  useEffect(()=>{setH(hash)},[hash]);
   const savePhoto=async k=>{const u={...h,photoKey:k,...audit(user)};setH(u);mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");setAdding(false)};
   return<div>
     <div style={{background:"#080e17",borderRadius:10,padding:12,marginBottom:12}}><HP s={h.status}/><span style={{marginLeft:8,fontWeight:700,color:C.blue}}>{h.model} · {h.sn||"SEM SN"}</span></div>
@@ -1454,6 +1482,7 @@ function HashPhotoQuick({ctx,hash}){
 
 function HashDetail({ctx,hash}){
   const{data,mutate,setModal,user,webhookUrl,allModels,gChips}=ctx;const models=allModels();const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
+  useEffect(()=>{setH(hash)},[hash]);
   const upd=async(k,v)=>{
     if(h[k]===v)return;
     const logEntry={field:k,label:FIELD_LABELS[k]||k,from:h[k]??"",to:v??"",by:user.name,at:stamp()};
@@ -1575,7 +1604,11 @@ function ConsertaPage({ctx}){
     {myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
     <Card>
       <SL>REGISTRAR CONSERTO DE HASH</SL>
-      <SNInput label="SN DA HASHBOARD" value={f.hashSN} onChange={v=>set("hashSN",v)} placeholder="Bipe, escaneie ou digite" list="hsh-rep"/>
+      <SNInput label="SN DA HASHBOARD" value={f.hashSN} onChange={v=>{
+        set("hashSN",v);
+        const ex=data.hashes.find(h=>h.sn===v.toUpperCase().trim());
+        if(ex){if(ex.model)set("model",ex.model);if(ex.material)set("material",ex.material)}
+      }} placeholder="Bipe, escaneie ou digite" list="hsh-rep"/>
       <datalist id="hsh-rep">{data.hashes.filter(h=>["REPARO","OFF"].includes(h.status)).map(h=><option key={h._id} value={h.sn||""}>{h.sn||"SEM SN"} — {h.model}</option>)}</datalist>
       <Sel label="MODELO" value={f.model} onChange={e=>set("model",e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
       <MaterialPicker value={f.material} onChange={v=>set("material",v)}/>
@@ -1851,7 +1884,7 @@ function TestePage({ctx}){
       {unknownSlots.length>0&&<div style={{background:needsChars?C.red+"15":C.green+"15",border:`1px solid ${needsChars?C.red:C.green}44`,borderRadius:12,padding:14,marginBottom:12}}>
         <div style={{fontWeight:800,fontSize:13,color:needsChars?C.red:C.green,marginBottom:6}}>{needsChars?"⚠️":"✓"} {unknownSlots.length} HASH(s) nova(s) {needsChars?"— falta definir as características":"— características definidas"}</div>
         {!needsChars&&session.newHashChars&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>{session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</div>}
-        <Btn v={needsChars?"d":"s"} onClick={()=>setModal(<Modal title="Características das HASHs novas" onClose={()=>setModal(null)}><NewHashCharsForm ctx={ctx} unknownSlots={unknownSlots} initial={session.newHashChars} templateHash={templateHash} onSave={async(chars)=>{await saveSession({...session,newHashChars:chars,updatedAt:stamp()});setModal(null)}}/></Modal>)} style={{width:"100%"}}>{needsChars?"📋 Definir características (obrigatório)":"✏️ Editar características"}</Btn>
+        <Btn v={needsChars?"d":"s"} onClick={()=>setModal(<Modal title="Características das HASHs novas" onClose={()=>setModal(null)}><NewHashCharsForm ctx={ctx} unknownSlots={unknownSlots} initial={session.newHashChars} templateHash={templateHash} onSave={async(chars)=>{await saveSession({...session,newHashChars:chars,model:chars.model||session.model,updatedAt:stamp()});setModal(null)}}/></Modal>)} style={{width:"100%"}}>{needsChars?"📋 Definir características (obrigatório)":"✏️ Editar características"}</Btn>
       </div>}
 
       <Btn v="g" onClick={markAllGood} disabled={submitting||!session.photoKey||needsChars} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
@@ -1908,10 +1941,13 @@ function PalletLocationPicker({pallets,value,onChange}){
 }
 
 function RuimSlotForm({ctx,session,slotIndex,onSave}){
-  const{data,mutate,user,webhookUrl}=ctx;
+  const{data,mutate,user,webhookUrl,allModels,gChips}=ctx;const models=allModels();
   const[logPhoto,setLogPhoto]=useState(null),[notes,setNotes]=useState(""),[location,setLocation]=useState(""),[saving,setSaving]=useState(false),[err,setErr]=useState("");
   const slot=session.slots[slotIndex];
   const h=slot.hashSN?data.hashes.find(x=>x.sn===slot.hashSN.toUpperCase()):null;
+  const[newModel,setNewModel]=useState(session.model||models[0]?.m||"M30S");
+  const[newMaterial,setNewMaterial]=useState("");
+  const[newChips,setNewChips]=useState("");
   const lastRep=slot.hashSN?[...data.repairs].reverse().find(r=>r.hashSN===slot.hashSN):null;
   const repairer=lastRep?data.employees.find(e=>e._id===lastRep.employeeId):null;
   const confirm=async()=>{
@@ -1923,7 +1959,9 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     if(sn){
       // Não muda mais a HASH na hora — fica pendente até o Admin aprovar na Revisão
       const apprId=uid();
-      const appr={type:"hashBad",sn,model:h?.model||session.model,material:h?.material||"",chips:h?.chips||"",existingId:h?._id||"",
+      const appr={type:"hashBad",sn,
+        model:h?.model||newModel,material:h?.material||newMaterial,chips:h?.chips||newChips||gChips(newModel,newMaterial)||"",
+        existingId:h?._id||"",
         logPhoto:logPhoto||"",notes,location,machineSN:session.machineSN,
         employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",...audit(user)};
       await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
@@ -1938,6 +1976,12 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
       {h&&<HP s={h.status}/>}
       {repairer&&<div style={{color:C.amber,fontSize:12,marginTop:4}}>⚠️ {repairer.name} será notificado do erro</div>}
     </div>
+    {!h&&slot.hashSN&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:12}}>
+      <div style={{color:C.amber,fontWeight:700,fontSize:12,marginBottom:8}}>⚠️ Essa HASH ainda não existe — defina as características dela:</div>
+      <Sel label="MODELO" value={newModel} onChange={e=>setNewModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+      <MaterialPicker value={newMaterial} onChange={setNewMaterial}/>
+      <Inp label="Quantidade de Chips" type="number" value={newChips} onChange={e=>setNewChips(e.target.value)} placeholder={gChips(newModel,newMaterial)?String(gChips(newModel,newMaterial)):"0"}/>
+    </div>}
     <PhotoCapture label="📸 Foto do Log de Erro (foto OU descrição abaixo é obrigatório)" photoKey={logPhoto} onChange={setLogPhoto} folder="logs-teste" snHint={slot.hashSN}/>
     <Inp label="Descrição do Erro (ou preencha a foto acima)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ex: Hash 0 not detected, Chain Break..."/>
     <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
@@ -2017,7 +2061,18 @@ function ApprovalDetail({ctx,appr}){
     {appr.adminNote&&<Alrt type={appr.status==="approved"?"ok":"err"}>{appr.adminNote}</Alrt>}
     {test&&<>
       <SL>SLOTS TESTADOS</SL>
-      {[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].map((sn,i)=>sn&&<div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>⚡ Slot {i+1}: {sn}</span><Tag color={(i===0?test.slot0Result:i===1?test.slot1Result:test.slot2Result)==="good"?C.green:C.red} small>{(i===0?test.slot0Result:i===1?test.slot1Result:test.slot2Result)==="good"?"BOA":"RUIM"}</Tag></div>)}
+      {[0,1,2].map(i=>{
+        const sn=i===0?test.slot0HashSN:i===1?test.slot1HashSN:test.slot2HashSN;
+        const res=i===0?test.slot0Result:i===1?test.slot1Result:test.slot2Result;
+        return<div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+          <span>⚡ Slot {i+1}: {sn||<i style={{color:C.muted}}>sem SN</i>}</span>
+          <Tag color={res==="good"?C.green:res==="bad"?C.red:C.muted} small>{res==="good"?"BOA":res==="bad"?"RUIM":"—"}</Tag>
+        </div>;
+      })}
+      <SL mt={12}>COMPONENTES</SL>
+      <div style={{display:"flex",gap:8,marginBottom:8}}>
+        {[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><div key={k} style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 0",textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>{l}</div><div style={{fontWeight:800,color:test[k]==="ON"?C.green:C.red}}>{test[k]||"—"}</div></div>)}
+      </div>
       {test.testPhoto&&<><SL mt={12}>FOTO DO TESTE</SL><PhotoView photoKey={test.testPhoto} style={{maxHeight:220}}/></>}
     </>}
   </div>;
@@ -2040,6 +2095,12 @@ function ApprovalsPage({ctx}){
       const hid=uid();const hd={sn:appr.sn,model:appr.model,material:appr.material||"",chips:appr.chips||"",status:"REPARO",location:appr.location||"",machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
       await fbSet("hashes",hid,hd);mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
       syncSheet(webhookUrl,"hashBad",{sn:appr.sn,model:appr.model,logPhoto:appr.logPhoto||"",obs:appr.notes,employeeName:appr.employeeName,employeeCode:appr.employeeCode});
+      // Se colocou uma quantidade de chips diferente da já configurada pra
+      // esse modelo+material, guarda como referência (não sobrescreve a que já tem)
+      if(appr.chips&&!data.customModels.find(cm=>cm.m===appr.model&&(cm.material||"")===(appr.material||"")&&String(cm.chips)===String(appr.chips))){
+        const cmid=uid();const cmd={m:appr.model,th:0,chips:Number(appr.chips),material:appr.material||""};
+        await fbSet("customModels",cmid,cmd);mutate("customModels",arr=>[...arr,{...cmd,_id:cmid}]);
+      }
     }
     await markChanged("hashes");
     const lastRep=[...data.repairs].reverse().find(r=>r.hashSN===appr.sn);
@@ -2156,6 +2217,7 @@ function ApprovalsPage({ctx}){
           {hashSN:test.slot1HashSN||"",status:test.slot1Result||"",photoKey:test.slot1Photo||null},
           {hashSN:test.slot2HashSN||"",status:test.slot2Result||"",photoKey:test.slot2Photo||null},
         ],controladora:test.controladora||"",fonte:test.fonte||"",fans:test.fans||"",photoKey:test.testPhoto||null,
+        newHashChars:test.newHashModel?{model:test.newHashModel,material:test.newHashMaterial||"",chips:test.newHashChips||""}:null,
         adminNotes:[`❌ REPROVADA pelo Admin ${user.name}: ${n||"sem observação"}`],
         rejected:true,updatedAt:stamp()};
       await fbSet("sessions",sid,s);
