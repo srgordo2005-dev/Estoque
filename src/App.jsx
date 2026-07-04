@@ -1589,7 +1589,12 @@ function ConsertaPage({ctx}){
     const recType=wasRepairedBefore?"rework":type;
     const rec={hashSN:sn,model:f.model,material:f.material,type:recType,photoKey:photoKey||"",employeeId:user._id,...audit(user),date:TODAY(),status:"TESTAR"};
     if(type==="repair"){Object.assign(rec,{chips:f.chips||"",sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
-    await fbSet("repairs",id,rec);mutate("repairs",r=>[...r,{...rec,_id:id}]);
+    const saveRes=await fbSet("repairs",id,rec);
+    if(!saveRes.ok){
+      alert(`⚠️ ERRO: o conserto de ${sn} NÃO foi salvo no banco de dados!\n\nErro: ${saveRes.error}\n\nA planilha pode ter sido atualizada mesmo assim, mas o app não vai lembrar desse conserto. Avisa o Admin pra corrigir isso.`);
+    }else{
+      mutate("repairs",r=>[...r,{...rec,_id:id}]);
+    }
     // Hash → TESTAR
     const ex=data.hashes.find(h=>h.sn===sn);
     if(ex){const u={...ex,status:"TESTAR",material:f.material||ex.material,chips:boardChipsFinal||ex.chips,repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}
@@ -2026,32 +2031,6 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
   </div>;
 }
 
-function SlotModal({ctx,session,slotIndex,onSave,onClose}){
-  const{data,mutate,user,allModels}=ctx;const models=allModels();
-  const slot=session.slots[slotIndex];
-  const[sn,setSN]=useState(slot.hashSN||""),[model,setModel]=useState(slot.model||models[0]?.m||"M30S"),[photoKey,setPhotoKey]=useState(slot.photoKey||null),[logPhotoKey,setLogPhotoKey]=useState(null),[logNotes,setLogNotes]=useState(""),[showBad,setShowBad]=useState(false),[saving,setSaving]=useState(false),[photoErr,setPhotoErr]=useState("");
-  const hsh=sn?data.hashes.find(h=>h.sn===sn.toUpperCase()):null;const rep=hsh?data.employees.find(e=>e._id===hsh?.repairedBy):null;
-  const confirmSlot=async()=>{if(!photoKey){setPhotoErr("Foto da tela obrigatória!");return}setPhotoErr("");const newSlots=[...session.slots];newSlots[slotIndex]={hashSN:sn.toUpperCase().trim(),model,status:"good",photoKey:photoKey||""};await onSave({...session,slots:newSlots,updatedAt:stamp()});if(sn.trim()){const ex=data.hashes.find(h=>h.sn===sn.toUpperCase());if(ex){const u={...ex,machineSN:session.machineSN,slot:slotIndex,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}}await markChanged("hashes");onClose()};
-  const markBad=async()=>{if(!logPhotoKey&&!logNotes){setPhotoErr("Adicione foto ou descrição do erro!");return}setSaving(true);setPhotoErr("");const snUp=sn.toUpperCase().trim();const newSlots=[...session.slots];newSlots[slotIndex]={hashSN:"",model:models[0]?.m||"M30S",status:"",photoKey:null};await onSave({...session,slots:newSlots,updatedAt:stamp()});const ex=data.hashes.find(h=>h.sn===snUp);if(ex){const u={...ex,status:"REPARO",machineSN:"",...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}const lastRep=[...data.repairs].reverse().find(r=>r.hashSN===snUp);if(lastRep?.employeeId){const fid=uid();const fdb={hashSN:snUp,machineSN:session.machineSN,originalRepairerId:lastRep.employeeId,testedBy:user._id,...audit(user),date:TODAY(),logPhotoKey:logPhotoKey||"",notes:logNotes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}])}await markChanged("hashes");await markChanged("feedbacks");setSaving(false);onClose()};
-  return<Modal title={`Slot ${slotIndex+1}`} onClose={onClose}>
-    <SNInput label="SN DA HASH" value={sn} onChange={setSN} placeholder="Bipe, escaneie ou digite" list="hsh-sl"/>
-    <datalist id="hsh-sl">{data.hashes.filter(h=>["TESTAR","ON"].includes(h.status)).map(h=><option key={h._id} value={h.sn||""}>{h.sn||"SEM SN"} — {h.model}</option>)}</datalist>
-    {hsh&&<div style={{background:"#080e17",borderRadius:10,padding:12,marginBottom:12}}><div style={{color:C.blue,fontWeight:700}}>⚡ {hsh.sn||"SEM SN"}</div><HP s={hsh.status}/>{rep&&<div style={{fontSize:12,color:C.muted,marginTop:4}}>👷 {rep.name}</div>}</div>}
-    <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
-    <PhotoCapture label="📸 FOTO DA TELA / APP FABRICANTE (obrigatória)" photoKey={photoKey} onChange={k=>{setPhotoKey(k);setPhotoErr("")}} folder="testes" required/>
-    {photoErr&&<Alrt type="err">{photoErr}</Alrt>}
-    {!showBad?<div style={{display:"flex",gap:8}}><Btn v="d" onClick={()=>setShowBad(true)} style={{flex:1}}>✗ RUIM</Btn><Btn v="g" onClick={confirmSlot} style={{flex:1}}>✓ BOA</Btn></div>
-      :<div style={{background:"#2a0c0c",borderRadius:10,padding:14}}>
-        <div style={{fontWeight:800,color:C.red,marginBottom:10}}>⚠️ Marcar RUIM — {sn}</div>
-        <PhotoCapture label="📸 FOTO DO LOG DE ERRO" photoKey={logPhotoKey} onChange={setLogPhotoKey} folder="logs"/>
-        <Inp label="DESCRIÇÃO DO ERRO" value={logNotes} onChange={e=>setLogNotes(e.target.value)} placeholder="Ex: Hash 0 not detected..."/>
-        {photoErr&&<Alrt type="err">{photoErr}</Alrt>}
-        <div style={{color:C.amber,fontSize:12,marginBottom:10}}>{rep?`${rep.name} será notificado.`:"Slot ficará vazio."}</div>
-        <div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>setShowBad(false)} style={{flex:1}}>Cancelar</Btn><Btn v="d" onClick={markBad} disabled={saving} style={{flex:1}}>{saving?"...":"Confirmar RUIM"}</Btn></div>
-      </div>}
-  </Modal>;
-}
-
 /* ═══ HISTÓRICO ═════════════════════════════════════════════════ */
 function HistPage({ctx,canSeeEmp}){
   const{data,user}=ctx;const[filter,setFilter]=useState("mine");const[dateFilter,setDateFilter]=useState("");
@@ -2229,12 +2208,8 @@ function ApprovalsPage({ctx}){
       const fres=await fbSet("feedbacks",fid,fdb);
       if(!fres.ok){alert(`⚠️ Não consegui avisar o técnico que consertou antes!\nErro: ${fres.error}`)}
       else{mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);await markChanged("feedbacks");}
-    }else{
-      // DIAGNÓSTICO TEMPORÁRIO: se isso aparecer, é porque não achou nenhum
-      // conserto anterior pra essa HASH (ou achou mas sem quem consertou
-      // salvo) — vou tirar esse alerta assim que descobrirmos a causa.
-      alert(`ℹ️ DIAGNÓSTICO: não encontrei um conserto anterior pra HASH ${appr.sn} nos registros (data.repairs tem ${data.repairs.length} conserto(s) no total). Por isso nenhum aviso foi enviado pra ninguém. Manda esse SN e essa mensagem pro Claude analisar.`);
     }
+    // (sem conserto anterior registrado = ninguém pra avisar, é normal)
     await fbSet("pendingApprovals",appr._id,{...appr,status:"approved",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"approved"}:x));
     await markChanged("approvals");setProcessing(null);
   };
