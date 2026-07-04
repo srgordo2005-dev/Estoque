@@ -216,7 +216,7 @@ function syncSheet(url,action,payload){
       console.error("syncSheet falhou:",e);
       onSyncSheetError?.(`Planilha não respondeu pra "${b[0]?.action}": ${e.message}`);
     }
-  },300);
+  },1200);
 }
 async function importMachinesFromSheet(url,onProgress){
   if(onProgress)onProgress(0,0);
@@ -2147,6 +2147,8 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
   };
   return<div>
     {!data.machines.find(m=>m.sn===appr.machineSN)&&<div style={{color:C.muted,fontSize:12,marginBottom:12}}>⚠️ Essa máquina ainda não existe no estoque — só vai ser criada quando você aprovar.</div>}
+    <div style={{color:C.muted,fontSize:12,marginBottom:12}}>👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
+    {appr.adminNote&&<Alrt type="err">{appr.adminNote}</Alrt>}
     <div style={{display:"flex",gap:8}}>
       <div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div>
       <Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:80}}/>
@@ -2154,10 +2156,12 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
     <SL mt={8}>SLOTS</SL>
     {[0,1,2].map(i=>{
       const h=slots[i].hashSN?data.hashes.find(x=>x.sn===slots[i].hashSN.toUpperCase()):null;
+      const slotPhoto=i===0?test?.slot0Photo:i===1?test?.slot1Photo:test?.slot2Photo;
       return<div key={i} style={{background:C.card2,borderRadius:10,padding:10,marginBottom:8}}>
         <div style={{fontSize:11,fontWeight:800,color:C.subtle,marginBottom:6}}>SLOT {i+1}</div>
         <input value={slots[i].hashSN} onChange={e=>setSlot(i,"hashSN",e.target.value.toUpperCase())} placeholder="SN da HASH" style={{...inp,marginBottom:6,fontSize:12,padding:"7px 8px"}}/>
         {h&&<div style={{fontSize:11,color:C.blue,marginBottom:6}}>⚡ {h.model}{gChips(h.model,h.material)?` · ${gChips(h.model,h.material)} chips`:""}</div>}
+        {slotPhoto&&<PhotoView photoKey={slotPhoto} style={{maxHeight:120,marginBottom:6}}/>}
         <div style={{display:"flex",gap:6}}>
           {[["good","BOA",C.green],["bad","RUIM",C.red],["","—",C.muted]].map(([v,l,c])=><button key={v||"none"} onClick={()=>setSlot(i,"result",v)} style={{flex:1,background:slots[i].result===v?c+"33":"#1a2d42",color:slots[i].result===v?c:C.muted,border:"1px solid "+(slots[i].result===v?c:C.border),borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>{l}</button>)}
         </div>
@@ -2167,6 +2171,7 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
       {[["CTR",ctr,setCtr],["FONTE",fonte,setFonte],["FANS",fans,setFans]].map(([l,v,setV])=><Sel key={l} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}><option value="ON">ON</option><option value="OFF">OFF</option></Sel>)}
     </div>
+    {test?.testPhoto&&<><SL>FOTO DA TELA (enviada pelo testador)</SL><PhotoView photoKey={test.testPhoto} style={{maxHeight:220,marginBottom:14}}/></>}
     <Btn v="g" onClick={save} style={{width:"100%"}}>💾 Salvar</Btn>
   </div>;
 }
@@ -2197,7 +2202,13 @@ function ApprovalsPage({ctx}){
     }
     await markChanged("hashes");
     const lastRep=[...data.repairs].reverse().find(r=>r.hashSN===appr.sn);
-    if(lastRep?.employeeId){const fid=uid();const fdb={hashSN:appr.sn,machineSN:appr.machineSN,originalRepairerId:lastRep.employeeId,testedBy:appr.employeeId,...audit(user),date:TODAY(),logPhotoKey:appr.logPhoto||"",notes:appr.notes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);await markChanged("feedbacks");}
+    const origRepairerId=lastRep?.employeeId||lastRep?._by;
+    if(origRepairerId){
+      const fid=uid();const fdb={hashSN:appr.sn,machineSN:appr.machineSN,originalRepairerId:origRepairerId,testedBy:appr.employeeId,...audit(user),date:TODAY(),logPhotoKey:appr.logPhoto||"",notes:appr.notes,resolved:false};
+      const fres=await fbSet("feedbacks",fid,fdb);
+      if(!fres.ok){alert(`⚠️ Não consegui avisar o técnico que consertou antes!\nErro: ${fres.error}`)}
+      else{mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);await markChanged("feedbacks");}
+    }
     await fbSet("pendingApprovals",appr._id,{...appr,status:"approved",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"approved"}:x));
     await markChanged("approvals");setProcessing(null);
   };
