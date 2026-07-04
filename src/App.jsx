@@ -1568,7 +1568,7 @@ function HashDetail({ctx,hash}){
 /* ═══ CONSERTO ══════════════════════════════════════════════════ */
 function ConsertaPage({ctx}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
-  const[f,setF]=useState({hashSN:"",model:models[0]?.m||"M30S",material:"",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
+  const[f,setF]=useState({hashSN:"",model:models[0]?.m||"M30S",material:"",boardChips:"",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
   const[photoKey,setPhotoKey]=useState(null),[saved,setSaved]=useState(null),[photoErr,setPhotoErr]=useState("");
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
@@ -1577,20 +1577,21 @@ function ConsertaPage({ctx}){
     if(!photoKey){setPhotoErr("Foto obrigatória!");return}
     setPhotoErr("");
     const sn=f.hashSN.toUpperCase().trim();const id=uid();
-    // Se o técnico não digitou a quantidade de chips, usa o padrão do modelo+material (Config → Chips por Modelo)
-    const chipsFinal=f.chips||gChips(f.model,f.material)||"";
+    // "Chips trocados" (parte do reparo) é DIFERENTE de "chips da placa"
+    // (quantos chips a placa tem no total, fica salvo na própria HASH).
+    const boardChipsFinal=f.boardChips||gChips(f.model,f.material)||"";
     // Se essa HASH já tinha sido consertada antes (voltou RUIM depois de um
     // conserto anterior), esse conserto novo entra como RETRABALHO no
     // histórico — mesmo fluxo de status, só muda o rótulo pra rastrear isso.
     const wasRepairedBefore=type==="repair"&&data.repairs.some(r=>r.hashSN===sn&&r.type==="repair");
     const recType=wasRepairedBefore?"rework":type;
     const rec={hashSN:sn,model:f.model,material:f.material,type:recType,photoKey:photoKey||"",employeeId:user._id,...audit(user),date:TODAY(),status:"TESTAR"};
-    if(type==="repair"){Object.assign(rec,{chips:chipsFinal,sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
+    if(type==="repair"){Object.assign(rec,{chips:f.chips||"",sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
     await fbSet("repairs",id,rec);mutate("repairs",r=>[...r,{...rec,_id:id}]);
     // Hash → TESTAR
     const ex=data.hashes.find(h=>h.sn===sn);
-    if(ex){const u={...ex,status:"TESTAR",material:f.material||ex.material,repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}
-    else{const hid=uid();const hd={sn,model:f.model,material:f.material,status:"TESTAR",repairedBy:type==="repair"?user._id:"",repairedByName:type==="repair"?user.name:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}])}
+    if(ex){const u={...ex,status:"TESTAR",material:f.material||ex.material,chips:boardChipsFinal||ex.chips,repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}
+    else{const hid=uid();const hd={sn,model:f.model,material:f.material,chips:boardChipsFinal,status:"TESTAR",repairedBy:type==="repair"?user._id:"",repairedByName:type==="repair"?user.name:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}])}
     syncSheet(webhookUrl,type==="repair"?"repair":"alreadyGood",{...rec,employeeCode:user.code,employeeName:user.name,tecnico:user.name});
     // Se essa HASH tinha um aviso pendente pro técnico que consertou antes
     // (porque voltou ruim), esse aviso some da tela dele agora — um outro
@@ -1616,12 +1617,13 @@ function ConsertaPage({ctx}){
       <SNInput label="SN DA HASHBOARD" value={f.hashSN} onChange={v=>{
         set("hashSN",v);
         const ex=data.hashes.find(h=>h.sn===v.toUpperCase().trim());
-        if(ex){if(ex.model)set("model",ex.model);if(ex.material)set("material",ex.material)}
+        if(ex){if(ex.model)set("model",ex.model);if(ex.material)set("material",ex.material);if(ex.chips)set("boardChips",ex.chips)}
       }} placeholder="Bipe, escaneie ou digite" list="hsh-rep"/>
       <datalist id="hsh-rep">{data.hashes.filter(h=>["REPARO","OFF"].includes(h.status)).map(h=><option key={h._id} value={h.sn||""}>{h.sn||"SEM SN"} — {h.model}</option>)}</datalist>
       <Sel label="MODELO" value={f.model} onChange={e=>set("model",e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
       <MaterialPicker value={f.material} onChange={v=>set("material",v)}/>
-      {gChips(f.model,f.material)&&<div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>Padrão pra esse modelo/material: {gChips(f.model,f.material)} chips</div>}
+      <Inp label="QUANTIDADE DE CHIPS DA PLACA (total, salvo na HASH)" type="number" value={f.boardChips} onChange={e=>set("boardChips",e.target.value)} placeholder={gChips(f.model,f.material)?String(gChips(f.model,f.material))+" (padrão desse modelo)":"0"}/>
+      <div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>⚠️ Isso é diferente de "chips trocados" (lá embaixo) — aqui é quantos chips a placa TEM no total.</div>
       {/* Observation type */}
       <SL mt={4}>TIPO DE OBSERVAÇÃO DO CONSERTO</SL>
       <div style={{display:"flex",gap:8,marginBottom:12}}>
@@ -1629,7 +1631,7 @@ function ConsertaPage({ctx}){
         <button onClick={()=>set("obsType","manual")} style={{flex:1,background:f.obsType==="manual"?C.accent:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"8px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>Descrição Livre</button>
       </div>
       {f.obsType==="quantity"?<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-        <Inp label="CHIPS" type="number" value={f.chips} onChange={e=>set("chips",e.target.value)} placeholder={gChips(f.model)?String(gChips(f.model))+" (padrão)":"0"}/>
+        <Inp label="CHIPS TROCADOS" type="number" value={f.chips} onChange={e=>set("chips",e.target.value)} placeholder="0"/>
         <Inp label="SENSORES" type="number" value={f.sensores} onChange={e=>set("sensores",e.target.value)} placeholder="0"/>
         <Inp label="LDOs" type="number" value={f.ldos} onChange={e=>set("ldos",e.target.value)} placeholder="0"/>
       </div>:<Inp label="DESCRIÇÃO DO CONSERTO" value={f.obsManual} onChange={e=>set("obsManual",e.target.value)} placeholder="Ex: 3 chips U3 trocados, reballing..."/>}
@@ -2112,6 +2114,27 @@ function EditHashBadApprovalForm({ctx,appr,onSaved}){
   </div>;
 }
 
+// Edita o modelo/T/H/referência de uma máquina que AINDA NÃO EXISTE no
+// estoque (só vai ser criada quando aprovar) — deixa o Admin corrigir antes.
+function EditMachineApprovalForm({ctx,appr,test,onSaved}){
+  const{mutate,allModels,gTH}=ctx;const models=allModels();
+  const[model,setModel]=useState(appr.model||models[0]?.m||"M30S");
+  const[th,setTh]=useState(appr.th||gTH(model));
+  const[ref,setRef]=useState(appr.employeeCode||"");
+  const save=async()=>{
+    const u={...appr,model,th:Number(th)};
+    await fbSet("pendingApprovals",appr._id,u);mutate("approvals",a=>a.map(x=>x._id===appr._id?u:x));
+    if(test){const tu={...test,model,th:Number(th)};await fbSet("tests",test._id,tu);mutate("tests",t=>t.map(x=>x._id===test._id?tu:x))}
+    onSaved();
+  };
+  return<div>
+    <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essa máquina ainda não existe no estoque — só vai ser criada quando você aprovar. Pode corrigir o modelo/T/H antes.</div>
+    <Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+    <Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)}/>
+    <Btn v="g" onClick={save} style={{width:"100%"}}>💾 Salvar</Btn>
+  </div>;
+}
+
 function ApprovalsPage({ctx}){
   const{data,mutate,user,webhookUrl,setModal,gTH}=ctx;
   const[notes,setNotes]=useState({}),[processing,setProcessing]=useState(null);
@@ -2138,7 +2161,7 @@ function ApprovalsPage({ctx}){
     }
     await markChanged("hashes");
     const lastRep=[...data.repairs].reverse().find(r=>r.hashSN===appr.sn);
-    if(lastRep?.employeeId){const fid=uid();const fdb={hashSN:appr.sn,machineSN:appr.machineSN,originalRepairerId:lastRep.employeeId,testedBy:appr.employeeId,...audit(user),date:TODAY(),logPhotoKey:appr.logPhoto||"",notes:appr.notes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);}
+    if(lastRep?.employeeId){const fid=uid();const fdb={hashSN:appr.sn,machineSN:appr.machineSN,originalRepairerId:lastRep.employeeId,testedBy:appr.employeeId,...audit(user),date:TODAY(),logPhotoKey:appr.logPhoto||"",notes:appr.notes,resolved:false};await fbSet("feedbacks",fid,fdb);mutate("feedbacks",f=>[...f,{...fdb,_id:fid}]);await markChanged("feedbacks");}
     await fbSet("pendingApprovals",appr._id,{...appr,status:"approved",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"approved"}:x));
     await markChanged("approvals");setProcessing(null);
   };
@@ -2297,7 +2320,9 @@ function ApprovalsPage({ctx}){
         {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginBottom:10,maxHeight:150}}/>}
         <Inp label="Observação para rejeição (opcional)" value={notes[appr._id]||""} onChange={e=>setNotes({...notes,[appr._id]:e.target.value})} placeholder="Ex: rever HASH 2..."/>
         <div style={{display:"flex",gap:8}}>
-          {data.machines.find(m=>m.sn===appr.machineSN)&&<Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={data.machines.find(m=>m.sn===appr.machineSN)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>}
+          {data.machines.find(m=>m.sn===appr.machineSN)?
+            <Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={data.machines.find(m=>m.sn===appr.machineSN)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>
+            :<Btn v="s" onClick={()=>setModal(<Modal title={`✏️ ${appr.machineSN}`} onClose={()=>setModal(null)}><EditMachineApprovalForm ctx={ctx} appr={appr} test={test} onSaved={()=>setModal(null)}/></Modal>)} style={{flex:1}}>✏️ Editar</Btn>}
           <Btn v="b" onClick={()=>setModal(<Modal title={`📋 ${appr.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={appr}/></Modal>)} style={{flex:1}}>📋 Ver mais</Btn>
         </div>
         <div style={{display:"flex",gap:8,marginTop:8}}>
@@ -2970,8 +2995,37 @@ function ClientDetail({ctx,client}){
     await markChanged("clients");await markChanged("machines");await markChanged("hashes");
     setPending([]);setSaving(false);
   };
-  const remMac=async(sn)=>{const newSNs=(c.machinesSN||[]).filter(s=>s!==sn);const upd={...c,machinesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients")};
-  const remHash=async(sn)=>{const newSNs=(c.hashesSN||[]).filter(s=>s!==sn);const upd={...c,hashesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients")};
+  const remMac=async(sn)=>{
+    if(!confirm(`Desvincular a máquina "${sn}" do cliente "${c.name}"? Ela volta pro estoque como BOA.`))return;
+    const newSNs=(c.machinesSN||[]).filter(s=>s!==sn);
+    const upd={...c,machinesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients");
+    // Desvincula a máquina de verdade também (volta pra BOA, tira o destino)
+    const ex=data.machines.find(m=>m.sn===sn);
+    if(ex){
+      const mu={...ex,situacao:"BOA",destino:"",changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"BOA (desvinculada de "+c.name+")",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
+      mutate("machines",arr=>arr.map(x=>x._id===ex._id?mu:x));await fbSet("machines",ex._id,mu);await markChanged("machines");
+      syncSheet(webhookUrl,"updateMachine",{sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
+      syncSheet(webhookUrl,"updateMachine",{sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
+      const mHashes=data.hashes.filter(h=>h.machineSN===sn);
+      for(const h of mHashes){
+        const hu={...h,status:"NA MAQUINA",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+        mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
+        syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"NA MAQUINA",machineSN:sn,employeeName:user.name,employeeCode:user.code});
+      }
+      if(mHashes.length)await markChanged("hashes");
+    }
+  };
+  const remHash=async(sn)=>{
+    if(!confirm(`Desvincular a HASH "${sn}" do cliente "${c.name}"? Ela volta pro estoque.`))return;
+    const newSNs=(c.hashesSN||[]).filter(s=>s!==sn);
+    const upd={...c,hashesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients");
+    const ex=data.hashes.find(h=>h.sn===sn);
+    if(ex){
+      const hu={...ex,status:"STOCK",location:"",machineSN:"",changeLog:[{field:"status",label:"Status",from:ex.status,to:"STOCK (desvinculada de "+c.name+")",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
+      mutate("hashes",arr=>arr.map(x=>x._id===ex._id?hu:x));await fbSet("hashes",ex._id,hu);await markChanged("hashes");
+      syncSheet(webhookUrl,"updateHash",{sn,model:hu.model,status:"STOCK",machineSN:"",employeeName:user.name,employeeCode:user.code});
+    }
+  };
   const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))remMac(sn);else if((c.hashesSN||[]).includes(sn))remHash(sn);setRemoveInput("")};
   const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
   return<div>
