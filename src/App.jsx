@@ -3060,6 +3060,27 @@ function SheetCompareReview({ctx,onClose}){
   },[]);
   const toggle=(set,setSet,i)=>{const n=new Set(set);n.has(i)?n.delete(i):n.add(i);setSet(n)};
   // Resolve uma diferença: usa os valores do lado escolhido (planilha ou app)
+  // Corrige um grupo (modelo+T/H+ref sem SN): se a planilha tem mais, cria
+  // as que faltam no app; se o app tem mais, apaga o excedente (tanto faz
+  // qual, já que são idênticas dentro do grupo).
+  const fixGroup=async g=>{
+    if(g.sheetCount>g.appCount){
+      const diff=g.sheetCount-g.appCount;
+      if(!confirm(`Confirma? Vai CRIAR ${diff} máquina(s) novas no app: ${g.model} · ${g.th}TH · REF "${g.ref}".`))return;
+      const writes=Array.from({length:diff},()=>{const id=uid();return{c:"machines",id,d:{sn:"",ref:g.ref,model:g.model,th:Number(g.th)||0,type:"complete",situacao:"STOCK",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",destino:"",...audit(user),addedAt:TODAY()}}});
+      for(let i=0;i<writes.length;i+=200)await fbBatch(writes.slice(i,i+200));
+      mutate("machines",arr=>[...arr,...writes.map(w=>({...w.d,_id:w.id}))]);
+      await markChanged("machines");
+    }else if(g.appCount>g.sheetCount){
+      const diff=g.appCount-g.sheetCount;
+      if(!confirm(`Confirma? Vai EXCLUIR ${diff} máquina(s) do app: ${g.model} · ${g.th}TH · REF "${g.ref}" (são idênticas entre si, então não importa qual sai).`))return;
+      const targets=data.machines.filter(m=>!validSN(m.sn)&&m.model===g.model&&String(m.th)===String(g.th)&&(m.ref||"").trim().toUpperCase()===g.ref.toUpperCase()).slice(0,diff);
+      for(const m of targets)await fbDel("machines",m._id);
+      mutate("machines",arr=>arr.filter(m=>!targets.some(t=>t._id===m._id)));
+      await markChanged("machines");
+    }
+    setGroupDiffs(gd=>gd.filter(x=>!(x.model===g.model&&String(x.th)===String(g.th)&&x.ref===g.ref)));
+  };
   const resolveDiff=async(d,isMachine,useSheet)=>{
     const key=(isMachine?"m:":"h:")+d.sn;
     if(useSheet){
@@ -3173,10 +3194,11 @@ function SheetCompareReview({ctx,onClose}){
   const GroupDiffBox=groupDiffs.length>0&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 MÁQUINAS SEM SN — QUANTIDADE NÃO BATE POR GRUPO ({groupDiffs.length})</div>
     <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Comparando por Modelo + T/H + Referência (não dá pra saber "qual é qual" sem SN, mas dá pra saber se a QUANTIDADE bate).</div>
-    {groupDiffs.map((g,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
+    {groupDiffs.map((g,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
       <b>{g.model}</b> · {g.th}TH · REF "{g.ref||"—"}" — <span style={{color:C.accent}}>App: {g.appCount}</span> · <span style={{color:C.blue}}>Planilha: {g.sheetCount}</span>
-      {g.appCount>g.sheetCount&&<div style={{color:C.red,fontSize:11}}>⚠️ App tem {g.appCount-g.sheetCount} a mais do que a planilha — confira se não é modelo/dado errado</div>}
-      {g.sheetCount>g.appCount&&<div style={{color:C.amber,fontSize:11}}>⚠️ Planilha tem {g.sheetCount-g.appCount} a mais do que o app — pode ter máquina faltando importar</div>}
+      {g.appCount>g.sheetCount&&<div style={{color:C.red,fontSize:11,marginBottom:6}}>⚠️ App tem {g.appCount-g.sheetCount} a mais do que a planilha — confira se não é modelo/dado errado</div>}
+      {g.sheetCount>g.appCount&&<div style={{color:C.amber,fontSize:11,marginBottom:6}}>⚠️ Planilha tem {g.sheetCount-g.appCount} a mais do que o app — pode ter máquina faltando importar</div>}
+      <Btn v={g.sheetCount>g.appCount?"g":"d"} onClick={()=>fixGroup(g)} style={{width:"100%"}}>{g.sheetCount>g.appCount?`📥 Importar as ${g.sheetCount-g.appCount} que faltam`:`🗑️ Excluir as ${g.appCount-g.sheetCount} a mais do app`}</Btn>
     </div>)}
   </div>;
   if(totalDiff===0)return<div>{DupInfoBox}<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente (por SN) — app e planilha estão iguais nesse quesito.</div></div>;
