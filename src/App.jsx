@@ -2934,31 +2934,37 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
 const M_FIELDS=[["situacao","Situação"],["model","Modelo"],["th","T/H"],["ref","Referência"],["destino","Destino (cliente)"],["hashSN0","Slot 1 (SN)"],["hashSN1","Slot 2 (SN)"],["hashSN2","Slot 3 (SN)"],["hash0","Slot 1 (status)"],["hash1","Slot 2 (status)"],["hash2","Slot 3 (status)"],["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]];
 const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"],["chips","Chips"]];
 const normCompare=v=>String(v??"").trim().toUpperCase();
+// Alguns SNs são só um texto de "placeholder" (tipo "SEM SN" escrito na
+// própria planilha) — isso NÃO é um SN de verdade e nunca pode ser usado
+// pra comparar/casar registros (foi exatamente isso que causou o bug de
+// várias máquinas sem SN "casando" umas com as outras por engano).
+const INVALID_SN_TEXTS=["SEM SN","SEMSN","SEM S/N","S/N","SN","N/A","NA","-","--","NENHUM","VAZIO"];
+const validSN=s=>{const v=(s||"").trim().toUpperCase();return v&&!INVALID_SN_TEXTS.includes(v)?v:""};
 // Compara tudo (presença + campo a campo) e devolve só os números — usado
 // pela checagem automática diária, sem precisar abrir a tela de comparação.
 async function computeSheetDiffs(data,webhookUrl){
   const sheetMachines=await importMachinesFromSheet(webhookUrl);
   const sheetHashes=await importHashesFromSheet(webhookUrl);
-  const sheetMSN=new Set(sheetMachines.map(m=>(m.sn||"").trim().toUpperCase()).filter(Boolean));
-  const sheetHSN=new Set(sheetHashes.map(h=>(h.sn||"").trim().toUpperCase()).filter(Boolean));
-  const appMSN=new Set(data.machines.map(m=>(m.sn||"").trim().toUpperCase()).filter(Boolean));
-  const appHSN=new Set(data.hashes.map(h=>(h.sn||"").trim().toUpperCase()).filter(Boolean));
-  const nm=sheetMachines.filter(m=>(m.sn||"").trim()&&!appMSN.has(m.sn.trim().toUpperCase())).length;
-  const nh=sheetHashes.filter(h=>(h.sn||"").trim()&&!appHSN.has(h.sn.trim().toUpperCase())).length;
-  const em=data.machines.filter(m=>(m.sn||"").trim()&&!sheetMSN.has(m.sn.trim().toUpperCase())).length;
-  const eh=data.hashes.filter(h=>(h.sn||"").trim()&&!sheetHSN.has(h.sn.trim().toUpperCase())).length;
+  const sheetMSN=new Set(sheetMachines.map(m=>validSN(m.sn)).filter(Boolean));
+  const sheetHSN=new Set(sheetHashes.map(h=>validSN(h.sn)).filter(Boolean));
+  const appMSN=new Set(data.machines.map(m=>validSN(m.sn)).filter(Boolean));
+  const appHSN=new Set(data.hashes.map(h=>validSN(h.sn)).filter(Boolean));
+  const nm=sheetMachines.filter(m=>validSN(m.sn)&&!appMSN.has(validSN(m.sn))).length;
+  const nh=sheetHashes.filter(h=>validSN(h.sn)&&!appHSN.has(validSN(h.sn))).length;
+  const em=data.machines.filter(m=>validSN(m.sn)&&!sheetMSN.has(validSN(m.sn))).length;
+  const eh=data.hashes.filter(h=>validSN(h.sn)&&!sheetHSN.has(validSN(h.sn))).length;
   let dm=0;
   data.machines.forEach(appM=>{
-    const appSN=(appM.sn||"").trim();
-    if(!appSN)return; // sem SN não compara — o "por linha" foi desativado até ficar 100% confiável
-    const sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+    const appSN=validSN(appM.sn);
+    if(!appSN)return; // sem SN (ou texto tipo "SEM SN") não compara — "por linha" desativado até ficar 100% confiável
+    const sheetM=sheetMachines.find(m=>validSN(m.sn)===appSN);
     if(!sheetM)return;
     if(M_FIELDS.some(([f])=>normCompare(appM[f])!==normCompare(sheetM[f])))dm++;
   });
   let dh=0;
   data.hashes.forEach(appH=>{
-    const appSN=(appH.sn||"").trim();if(!appSN)return;
-    const sheetH=sheetHashes.find(h=>{const s=(h.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+    const appSN=validSN(appH.sn);if(!appSN)return;
+    const sheetH=sheetHashes.find(h=>validSN(h.sn)===appSN);
     if(!sheetH)return;
     if(H_FIELDS.some(([f])=>normCompare(appH[f])!==normCompare(sheetH[f])))dh++;
   });
@@ -2983,16 +2989,16 @@ function SheetCompareReview({ctx,onClose}){
       try{
         const sheetMachines=await importMachinesFromSheet(webhookUrl);
         const sheetHashes=await importHashesFromSheet(webhookUrl);
-        const sheetMSN=new Set(sheetMachines.map(m=>(m.sn||"").trim().toUpperCase()).filter(Boolean));
-        const sheetHSN=new Set(sheetHashes.map(h=>(h.sn||"").trim().toUpperCase()).filter(Boolean));
-        const appMSN=new Set(data.machines.map(m=>(m.sn||"").trim().toUpperCase()).filter(Boolean));
-        const appHSN=new Set(data.hashes.map(h=>(h.sn||"").trim().toUpperCase()).filter(Boolean));
+        const sheetMSN=new Set(sheetMachines.map(m=>validSN(m.sn)).filter(Boolean));
+        const sheetHSN=new Set(sheetHashes.map(h=>validSN(h.sn)).filter(Boolean));
+        const appMSN=new Set(data.machines.map(m=>validSN(m.sn)).filter(Boolean));
+        const appHSN=new Set(data.hashes.map(h=>validSN(h.sn)).filter(Boolean));
         // Planilha tem, app não tem
-        const nm=sheetMachines.filter(m=>(m.sn||"").trim()&&!appMSN.has(m.sn.trim().toUpperCase()));
-        const nh=sheetHashes.filter(h=>(h.sn||"").trim()&&!appHSN.has(h.sn.trim().toUpperCase()));
+        const nm=sheetMachines.filter(m=>validSN(m.sn)&&!appMSN.has(validSN(m.sn)));
+        const nh=sheetHashes.filter(h=>validSN(h.sn)&&!appHSN.has(validSN(h.sn)));
         // App tem, planilha não tem
-        const em=data.machines.filter(m=>(m.sn||"").trim()&&!sheetMSN.has(m.sn.trim().toUpperCase()));
-        const eh=data.hashes.filter(h=>(h.sn||"").trim()&&!sheetHSN.has(h.sn.trim().toUpperCase()));
+        const em=data.machines.filter(m=>validSN(m.sn)&&!sheetMSN.has(validSN(m.sn)));
+        const eh=data.hashes.filter(h=>validSN(h.sn)&&!sheetHSN.has(validSN(h.sn)));
         setNewInSheetM(nm);setNewInSheetH(nh);setExtraInAppM(em);setExtraInAppH(eh);
         setSelSheetM(new Set(nm.map((_,i)=>i)));setSelSheetH(new Set(nh.map((_,i)=>i)));
         setSelAppM(new Set(em.map((_,i)=>i)));setSelAppH(new Set(eh.map((_,i)=>i)));
@@ -3003,18 +3009,18 @@ function SheetCompareReview({ctx,onClose}){
         // corrompeu o modelo de várias máquinas antes.
         const dm=[];
         data.machines.forEach(appM=>{
-          const appSN=(appM.sn||"").trim();
-          if(!appSN)return; // sem SN não compara — "por linha" desativado até ficar 100% confiável
-          const sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+          const appSN=validSN(appM.sn);
+          if(!appSN)return; // sem SN (ou "SEM SN" literal) não compara
+          const sheetM=sheetMachines.find(m=>validSN(m.sn)===appSN);
           if(!sheetM)return;
           const diffs=M_FIELDS.filter(([f])=>norm(appM[f])!==norm(sheetM[f])).map(([f,label])=>({field:f,label,appVal:appM[f],sheetVal:sheetM[f]}));
           if(diffs.length)dm.push({sn:appM.sn,appItem:appM,sheetItem:sheetM,diffs});
         });
         const dh=[];
         data.hashes.forEach(appH=>{
-          const appSN=(appH.sn||"").trim();
+          const appSN=validSN(appH.sn);
           if(!appSN)return;
-          const sheetH=sheetHashes.find(h=>{const s=(h.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+          const sheetH=sheetHashes.find(h=>validSN(h.sn)===appSN);
           if(!sheetH)return;
           const diffs=H_FIELDS.filter(([f])=>norm(appH[f])!==norm(sheetH[f])).map(([f,label])=>({field:f,label,appVal:appH[f],sheetVal:sheetH[f]}));
           if(diffs.length)dh.push({sn:appH.sn,appItem:appH,sheetItem:sheetH,diffs});
@@ -3024,11 +3030,11 @@ function SheetCompareReview({ctx,onClose}){
         // a comparação normal (por presença de SN) não pega isso, e é
         // exatamente o que explica "a contagem bate diferente mas não achei
         // nada diferente".
-        const blankM=data.machines.filter(m=>!m.sn||!m.sn.trim());
-        const blankH=data.hashes.filter(h=>!h.sn||!h.sn.trim());
-        const countBy={};data.machines.forEach(m=>{if(m.sn&&m.sn.trim()){const k=m.sn.trim().toUpperCase();countBy[k]=(countBy[k]||0)+1}});
+        const blankM=data.machines.filter(m=>!validSN(m.sn));
+        const blankH=data.hashes.filter(h=>!validSN(h.sn));
+        const countBy={};data.machines.forEach(m=>{const k=validSN(m.sn);if(k)countBy[k]=(countBy[k]||0)+1});
         const dupM=Object.entries(countBy).filter(([,c])=>c>1).map(([sn,c])=>({sn,count:c}));
-        const countByH={};data.hashes.forEach(h=>{if(h.sn&&h.sn.trim()){const k=h.sn.trim().toUpperCase();countByH[k]=(countByH[k]||0)+1}});
+        const countByH={};data.hashes.forEach(h=>{const k=validSN(h.sn);if(k)countByH[k]=(countByH[k]||0)+1});
         const dupH=Object.entries(countByH).filter(([,c])=>c>1).map(([sn,c])=>({sn,count:c}));
         setDupInfo({blankM,blankH,dupM,dupH});
         // Comparação por GRUPO (modelo + T/H + REF), só pras máquinas sem
@@ -3037,8 +3043,8 @@ function SheetCompareReview({ctx,onClose}){
         // pega o tipo de erro "modelo errado em massa" sem nunca arriscar
         // casar a linha errada com a máquina errada.
         const groupKey=m=>`${m.model}|||${m.th}|||${(m.ref||"").trim().toUpperCase()}`;
-        const appBlank=data.machines.filter(m=>!(m.sn||"").trim());
-        const sheetBlank=sheetMachines.filter(m=>!(m.sn||"").trim());
+        const appBlank=data.machines.filter(m=>!validSN(m.sn));
+        const sheetBlank=sheetMachines.filter(m=>!validSN(m.sn));
         const appGroups={};appBlank.forEach(m=>{const k=groupKey(m);appGroups[k]=(appGroups[k]||0)+1});
         const sheetGroups={};sheetBlank.forEach(m=>{const k=groupKey(m);sheetGroups[k]=(sheetGroups[k]||0)+1});
         const allKeys=[...new Set([...Object.keys(appGroups),...Object.keys(sheetGroups)])];
