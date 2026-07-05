@@ -850,12 +850,14 @@ function QHashEdit({item,ctx,onUpdate,photoKey}){
 function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab}=ctx;const today=TODAY();
   const toTest=data.hashes.filter(h=>h.status==="TESTAR");
+  const myRejectedHashes=(data.approvals||[]).filter(a=>a.type==="hashBad"&&a.status==="rejected"&&(a.employeeId===user._id||a._by===user._id));
   return<div>
     <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:18}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
     {isAdmin&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
     {myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
     {myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
+    {myRejectedHashes.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>❌ HASHs Recusadas ({myRejectedHashes.length})</div>{myRejectedHashes.map(a=><Card key={a._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {a.sn}{a.machineSN?` (na máquina ${a.machineSN})`:""}</div>{a.notes&&<div style={{fontSize:12,marginTop:4}}>📝 {a.notes}</div>}</Card>)}</div>}
     {user.permissions?.testing&&!isAdmin&&<div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontWeight:800,fontSize:14}}>⏳ Para Testar</div><Tag color={toTest.length>0?C.amber:"#1a2d42"}>{toTest.length}</Tag></div>{toTest.slice(0,3).map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · 👷 ${repName}`:""}</div></div><HP s={h.status}/></div>})}<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn></div>}
     {isAdmin&&<AdminSummary data={data}/>}
     <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
@@ -1614,11 +1616,9 @@ function ConsertaPage({ctx}){
     setSaved(type);setTimeout(()=>setSaved(null),2500);
   };
 
-  const myFdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===user._id);
   return<div>
     {saved==="repair"&&<Alrt type="ok">✓ Conserto registrado! HASH vai para fila de teste.</Alrt>}
     {saved==="already_good"&&<Alrt type="ok">✅ Registrada como já estava boa! Vai para fila de teste.</Alrt>}
-    {myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
     <Card>
       <SL>REGISTRAR CONSERTO DE HASH</SL>
       <SNInput label="SN DA HASHBOARD" value={f.hashSN} onChange={v=>{
@@ -1859,25 +1859,6 @@ function TestePage({ctx}){
       {!session&&macInput===""&&otherSessions.length>0&&<div style={{color:C.muted,fontSize:11,marginTop:6}}>Bipe outro SN pra abrir uma nova máquina em paralelo, sem perder as outras.</div>}
     </div>
 
-    {!session&&(()=>{
-      const toTest=data.hashes.filter(h=>h.status==="TESTAR");
-      const myRejected=(data.approvals||[]).filter(a=>a.type==="hashBad"&&a.status==="rejected"&&(a.employeeId===user._id||a._by===user._id));
-      if(!toTest.length&&!myRejected.length)return null;
-      return<div style={{marginBottom:14}}>
-        {toTest.length>0&&<div style={{marginBottom:12}}>
-          <SL>⏳ HASHs PRA TESTAR ({toTest.length})</SL>
-          {toTest.slice(0,10).map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:C.card,borderRadius:8,marginBottom:4}}><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.sn||"SEM SN"} — {h.model}</span><HP s={h.status}/></div>)}
-        </div>}
-        {myRejected.length>0&&<div>
-          <SL>❌ HASHs RECUSADAS ({myRejected.length}) — o Admin não aprovou, confira o motivo</SL>
-          {myRejected.map(a=><div key={a._id} style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"8px 10px",marginBottom:4}}>
-            <div style={{fontSize:12,fontWeight:700,color:C.red}}>⚡ {a.sn}{a.machineSN?` (na máquina ${a.machineSN})`:""}</div>
-            {a.notes&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>📝 {a.notes}</div>}
-          </div>)}
-        </div>}
-      </div>;
-    })()}
-
     {session&&<>
       {/* Slots */}
       {[0,1,2].map(i=>{
@@ -2033,7 +2014,7 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
 
 /* ═══ HISTÓRICO ═════════════════════════════════════════════════ */
 function HistPage({ctx,canSeeEmp}){
-  const{data,user}=ctx;const[filter,setFilter]=useState("mine");const[dateFilter,setDateFilter]=useState("");
+  const{data,user,mutate}=ctx;const[filter,setFilter]=useState("mine");const[dateFilter,setDateFilter]=useState("");
   const ownerId=r=>r.employeeId||r._by;
   const visible=id=>id===user._id||canSeeEmp(id);
   const reps=filter==="mine"?data.repairs.filter(r=>r.employeeId===user._id||r._by===user._id):data.repairs.filter(r=>visible(ownerId(r)));
@@ -2042,17 +2023,25 @@ function HistPage({ctx,canSeeEmp}){
   const allRaw=[...reps.map(r=>({...r,_type:"repair"})),...tsts.map(t=>({...t,_type:"test"})),...hashBads.map(a=>({...a,_type:"hashBad"}))];
   const byDate={};allRaw.forEach(item=>{const d=item.date;if(d)byDate[d]=(byDate[d]||0)+1});
   const all=(dateFilter?allRaw.filter(item=>item.date===dateFilter):allRaw).sort((a,b)=>a.date<b.date?1:-1);
+  const delItem=async item=>{
+    if(!confirm("Apagar essa movimentação do histórico? Não dá pra desfazer."))return;
+    const table=item._type==="repair"?"repairs":item._type==="hashBad"?"pendingApprovals":"tests";
+    const col=item._type==="repair"?"repairs":item._type==="hashBad"?"approvals":"tests";
+    await fbDel(table,item._id);
+    mutate(col,arr=>arr.filter(x=>x._id!==item._id));
+    await markChanged(col);
+  };
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,dateFilter||TODAY())}>📋 Relatório</Btn></div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>{[["mine","Meus"],["all","Todos"]].map(([id,l])=><button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?C.accent:C.card,color:filter===id?"#fff":C.muted,border:"none",borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>)}</div>
     <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="📅 FILTRAR POR DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>{dateFilter&&<Btn v="s" onClick={()=>setDateFilter("")} style={{marginBottom:12}}>Limpar</Btn>}</div>
     {all.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>{dateFilter?"Sem registros nesta data":"Sem histórico ainda"}</div>}
     {all.slice(0,50).map(item=>{const emp=data.employees.find(e=>e._id===item.employeeId);const itemName=emp?.name||item._byName;
-      if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}}>{item.type==="already_good"?"✅":item.type==="rework"?"🔁":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><Tag color={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.purple} small>{item.type==="already_good"?"JÁ BOA":item.type==="rework"?"RETRABALHO":"CONSERTO"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
-      if(item._type==="hashBad")return<Card key={item._id} accent={C.red}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:C.red}}>✗ {item.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}{item.machineSN?` · Máq. ${item.machineSN}`:""}</div>{item.notes&&<div style={{fontSize:10,color:C.subtle}}>📝 {item.notes}</div>}</div><Tag color={item.status==="pending"?C.amber:item.status==="approved"?C.green:C.red} small>{item.status==="pending"?"Aguard.Revisão":item.status==="approved"?"Aprovada":"Reprovada"}</Tag></div><By by={item._byName} at={item._at}/></Card>;
+      if(item._type==="repair")return<Card key={item._id} accent={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.blue}}>{item.type==="already_good"?"✅":item.type==="rework"?"🔁":"🔧"} {item.hashSN||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div>{item.type!=="already_good"&&(item.chips||item.sensores||item.ldos)&&<div style={{fontSize:10,color:C.subtle}}>Chips:{item.chips||0} Sens:{item.sensores||0} LDOs:{item.ldos||0}</div>}</div><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={item.type==="already_good"?C.green:item.type==="rework"?C.amber:C.purple} small>{item.type==="already_good"?"JÁ BOA":item.type==="rework"?"RETRABALHO":"CONSERTO"}</Tag><button onClick={()=>delItem(item)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕</button></div></div><By by={item._byName} at={item._at}/></Card>;
+      if(item._type==="hashBad")return<Card key={item._id} accent={C.red}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13,color:C.red}}>✗ {item.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}{item.machineSN?` · Máq. ${item.machineSN}`:""}</div>{item.notes&&<div style={{fontSize:10,color:C.subtle}}>📝 {item.notes}</div>}</div><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={item.status==="pending"?C.amber:item.status==="approved"?C.green:C.red} small>{item.status==="pending"?"Aguard.Revisão":item.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>delItem(item)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕</button></div></div><By by={item._byName} at={item._at}/></Card>;
       const stC=item.status==="pending"?C.blue:item.status==="rejected"?C.amber:item.overallResult==="good"?C.green:C.red;
       const stL=item.status==="pending"?"Aguard.Revisão":item.status==="rejected"?"REPROVADA":item.overallResult==="good"?"BOA":"RUIM";
-      return<Card key={item._id} accent={stC}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {item.machineSN||"s/máq"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div></div><Tag color={stC} small>{stL}</Tag></div><By by={item._byName} at={item._at}/></Card>;
+      return<Card key={item._id} accent={stC}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {item.machineSN||"s/máq"}</div><div style={{fontSize:11,color:C.muted}}>👷 {itemName} · {fmtTS(item._at)}</div></div><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={stC} small>{stL}</Tag><button onClick={()=>delItem(item)} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕</button></div></div><By by={item._byName} at={item._at}/></Card>;
     })}
     {!dateFilter&&Object.keys(byDate).length>0&&<><SL mt={16}>DIAS COM MOVIMENTAÇÃO</SL>{Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13,cursor:"pointer"}}><span>{fmtDate(d)}</span><Tag color={C.accent} small>{byDate[d]} itens</Tag></div>)}</>}
   </div>;
@@ -2441,13 +2430,32 @@ function DailyTeamReport({ctx}){
 
 function EmpProfile({ctx,emp}){
   const{data,mutate,setModal,user}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
+  const isSuper=user.code==="019";
   const allR=data.repairs.filter(r=>r.employeeId===emp._id||r._by===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id||t._by===emp._id);
   const fdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===emp._id);
   const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
   const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
   const totalRepairs=allR.filter(r=>r.type!=="already_good").length;
   const totalGood=allR.filter(r=>r.type==="already_good").length;
+  const wipeHistory=async()=>{
+    const step1=confirm(`Apagar TODO o histórico de ${emp.name}? (${allR.length} conserto(s), ${allT.length} teste(s))\n\nIsso NÃO muda o estoque atual, só apaga o histórico dele. Não dá pra desfazer.`);
+    if(!step1)return;
+    const step2=prompt(`Pra confirmar de verdade, digita o código do funcionário (${emp.code}):`);
+    if(step2!==emp.code){alert("Código não confere — nada foi apagado.");return}
+    const hashBads=(data.approvals||[]).filter(a=>a.type==="hashBad"&&(a.employeeId===emp._id||a._by===emp._id));
+    for(const r of allR)await fbDel("repairs",r._id);
+    for(const t of allT)await fbDel("tests",t._id);
+    for(const a of hashBads)await fbDel("pendingApprovals",a._id);
+    for(const f of fdbs)await fbDel("feedbacks",f._id);
+    mutate("repairs",arr=>arr.filter(r=>!(r.employeeId===emp._id||r._by===emp._id)));
+    mutate("tests",arr=>arr.filter(t=>!(t.employeeId===emp._id||t._by===emp._id)));
+    mutate("approvals",arr=>arr.filter(a=>!(a.type==="hashBad"&&(a.employeeId===emp._id||a._by===emp._id))));
+    mutate("feedbacks",arr=>arr.filter(f=>!(f.originalRepairerId===emp._id)));
+    await markChanged("repairs");await markChanged("tests");await markChanged("approvals");await markChanged("feedbacks");
+    alert(`Histórico de ${emp.name} apagado.`);
+  };
   return<div>
+    {isSuper&&<Btn v="d" onClick={wipeHistory} style={{width:"100%",marginBottom:14}}>🗑️ Apagar Histórico de {emp.name} (só admin 019)</Btn>}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
       {[[totalRepairs,"Consertos",C.accent],[allT.length,"Testes",C.blue],[fdbs.length,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:"#080e17",borderRadius:10,padding:12,textAlign:"center"}}><div style={{fontSize:24,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
     </div>
@@ -2665,7 +2673,13 @@ function SheetCompareReview({ctx,onClose}){
   const[extraInAppM,setExtraInAppM]=useState([]),[extraInAppH,setExtraInAppH]=useState([]);
   const[selSheetM,setSelSheetM]=useState(new Set()),[selSheetH,setSelSheetH]=useState(new Set());
   const[selAppM,setSelAppM]=useState(new Set()),[selAppH,setSelAppH]=useState(new Set());
+  const[diffsM,setDiffsM]=useState([]),[diffsH,setDiffsH]=useState([]),[resolved,setResolved]=useState(new Set());
+  const[dupInfo,setDupInfo]=useState({blankM:[],blankH:[],dupM:[],dupH:[]});
   const[saving,setSaving]=useState(false),[err,setErr]=useState("");
+  // Campos comparados campo a campo (máquina e HASH) — label é o que aparece pro Admin
+  const M_FIELDS=[["situacao","Situação"],["model","Modelo"],["th","T/H"],["hashSN0","Slot 1 (SN)"],["hashSN1","Slot 2 (SN)"],["hashSN2","Slot 3 (SN)"],["hash0","Slot 1 (status)"],["hash1","Slot 2 (status)"],["hash2","Slot 3 (status)"],["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]];
+  const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"]];
+  const norm=v=>String(v??"").trim().toUpperCase();
   useEffect(()=>{
     (async()=>{
       try{
@@ -2684,11 +2698,58 @@ function SheetCompareReview({ctx,onClose}){
         setNewInSheetM(nm);setNewInSheetH(nh);setExtraInAppM(em);setExtraInAppH(eh);
         setSelSheetM(new Set(nm.map((_,i)=>i)));setSelSheetH(new Set(nh.map((_,i)=>i)));
         setSelAppM(new Set(em.map((_,i)=>i)));setSelAppH(new Set(eh.map((_,i)=>i)));
+        // Existe nos dois lugares — compara campo a campo
+        const dm=[];
+        data.machines.forEach(appM=>{
+          if(!appM.sn)return;
+          const sheetM=sheetMachines.find(m=>(m.sn||"").toUpperCase()===appM.sn.toUpperCase());
+          if(!sheetM)return;
+          const diffs=M_FIELDS.filter(([f])=>norm(appM[f])!==norm(sheetM[f])).map(([f,label])=>({field:f,label,appVal:appM[f],sheetVal:sheetM[f]}));
+          if(diffs.length)dm.push({sn:appM.sn,appItem:appM,sheetItem:sheetM,diffs});
+        });
+        const dh=[];
+        data.hashes.forEach(appH=>{
+          if(!appH.sn)return;
+          const sheetH=sheetHashes.find(h=>(h.sn||"").toUpperCase()===appH.sn.toUpperCase());
+          if(!sheetH)return;
+          const diffs=H_FIELDS.filter(([f])=>norm(appH[f])!==norm(sheetH[f])).map(([f,label])=>({field:f,label,appVal:appH[f],sheetVal:sheetH[f]}));
+          if(diffs.length)dh.push({sn:appH.sn,appItem:appH,sheetItem:sheetH,diffs});
+        });
+        setDiffsM(dm);setDiffsH(dh);
+        // Diagnóstico extra: máquinas/HASHs sem SN e SNs duplicados no APP —
+        // a comparação normal (por presença de SN) não pega isso, e é
+        // exatamente o que explica "a contagem bate diferente mas não achei
+        // nada diferente".
+        const blankM=data.machines.filter(m=>!m.sn||!m.sn.trim());
+        const blankH=data.hashes.filter(h=>!h.sn||!h.sn.trim());
+        const countBy={};data.machines.forEach(m=>{if(m.sn&&m.sn.trim()){const k=m.sn.trim().toUpperCase();countBy[k]=(countBy[k]||0)+1}});
+        const dupM=Object.entries(countBy).filter(([,c])=>c>1).map(([sn,c])=>({sn,count:c}));
+        const countByH={};data.hashes.forEach(h=>{if(h.sn&&h.sn.trim()){const k=h.sn.trim().toUpperCase();countByH[k]=(countByH[k]||0)+1}});
+        const dupH=Object.entries(countByH).filter(([,c])=>c>1).map(([sn,c])=>({sn,count:c}));
+        setDupInfo({blankM,blankH,dupM,dupH});
       }catch(e){setErr(e.message)}
       setLoading(false);
     })();
   },[]);
   const toggle=(set,setSet,i)=>{const n=new Set(set);n.has(i)?n.delete(i):n.add(i);setSet(n)};
+  // Resolve uma diferença: usa os valores do lado escolhido (planilha ou app)
+  const resolveDiff=async(d,isMachine,useSheet)=>{
+    const key=(isMachine?"m:":"h:")+d.sn;
+    if(useSheet){
+      // Traz os valores da planilha pro app
+      const patch={};d.diffs.forEach(x=>{patch[x.field]=x.sheetVal});
+      const u={...d.appItem,...patch,...audit(user)};
+      mutate(isMachine?"machines":"hashes",arr=>arr.map(x=>x._id===d.appItem._id?u:x));
+      await fbSet(isMachine?"machines":"hashes",d.appItem._id,u);
+    }else{
+      // Manda os valores do app pra planilha
+      d.diffs.forEach(x=>{
+        if(isMachine)syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:x.field,to:x.appVal,employeeName:user.name,employeeCode:user.code});
+        else syncSheet(webhookUrl,"updateHash",{sn:d.sn,model:d.appItem.model,status:x.field==="status"?x.appVal:d.appItem.status,machineSN:x.field==="machineSN"?x.appVal:d.appItem.machineSN,employeeName:user.name,employeeCode:user.code});
+      });
+    }
+    setResolved(r=>new Set([...r,key]));
+  };
 
   // Traz da planilha pro app (o que a planilha tem a mais)
   const importFromSheet=async()=>{
@@ -2696,16 +2757,28 @@ function SheetCompareReview({ctx,onClose}){
     const mToImport=newInSheetM.filter((_,i)=>selSheetM.has(i));
     const hToImport=newInSheetH.filter((_,i)=>selSheetH.has(i));
     const mWrites=mToImport.map(m=>({c:"machines",id:uid(),d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}));
+    const rWrites=[];
     const hWrites=hToImport.map(h=>{
       let status=h.status; // a aba "HASH" já manda o status pronto (TESTAR/NA MAQUINA/RUIM/SAIDA)
       if(!status){const sit=String(h.situacao||"").toUpperCase();status="REPARO";if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";}
-      return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:h.machineSN||"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}};
+      // Tenta casar o nome do técnico (texto solto da planilha) com um
+      // funcionário de verdade — sem isso, o app não sabia "quem" consertou.
+      const tecnicoName=(h.tecnico||"").trim();
+      const matchedEmp=tecnicoName?data.employees.find(e=>e.name.trim().toLowerCase()===tecnicoName.toLowerCase()):null;
+      // Se veio da aba de conserto e tem técnico, cria também o registro no
+      // histórico dele — sem chips/foto (a planilha não guarda esse
+      // detalhe), com a data que já estava lá.
+      if(tecnicoName){
+        rWrites.push({c:"repairs",id:uid(),d:{hashSN:h.sn||"",model:h.model||"",type:"repair",employeeId:matchedEmp?._id||"",_by:matchedEmp?._id||"",_byName:tecnicoName,_at:h.addedAt||TODAY(),date:h.addedAt||TODAY(),status:"TESTAR"}});
+      }
+      return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:tecnicoName,repairedBy:matchedEmp?.["_id"]||"",repairedByName:tecnicoName,machineSN:h.machineSN||"",slot:-1,addedAt:h.addedAt||TODAY()}};
     });
-    const writes=[...mWrites,...hWrites];
+    const writes=[...mWrites,...hWrites,...rWrites];
     for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));
     if(mWrites.length)mutate("machines",arr=>[...arr,...mWrites.map(w=>({...w.d,_id:w.id}))]);
     if(hWrites.length)mutate("hashes",arr=>[...arr,...hWrites.map(w=>({...w.d,_id:w.id}))]);
-    await markChanged("machines");await markChanged("hashes");
+    if(rWrites.length)mutate("repairs",arr=>[...arr,...rWrites.map(w=>({...w.d,_id:w.id}))]);
+    await markChanged("machines");await markChanged("hashes");if(rWrites.length)await markChanged("repairs");
     setSaving(false);onClose();
   };
   // Apaga da PLANILHA os itens marcados (o que sobrou lá e você não quer trazer)
@@ -2744,9 +2817,36 @@ function SheetCompareReview({ctx,onClose}){
 
   if(loading)return<div style={{textAlign:"center",padding:30,color:C.muted}}>🔍 Comparando com a planilha...</div>;
   if(err)return<Alrt type="err">✗ {err}</Alrt>;
-  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length;
-  if(totalDiff===0)return<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente — app e planilha estão iguais.</div>;
+  const pendingDiffsM=diffsM.filter(d=>!resolved.has("m:"+d.sn));
+  const pendingDiffsH=diffsH.filter(d=>!resolved.has("h:"+d.sn));
+  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length+pendingDiffsM.length+pendingDiffsH.length;
+  const hasDupInfo=dupInfo.blankM.length+dupInfo.blankH.length+dupInfo.dupM.length+dupInfo.dupH.length>0;
+  const DupInfoBox=hasDupInfo&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
+    <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 CONTAGEM NÃO BATE? Achei isso no app:</div>
+    {dupInfo.blankM.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ {dupInfo.blankM.length} máquina(s) SEM SN no app (não aparecem na comparação normal)</div>}
+    {dupInfo.blankH.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ {dupInfo.blankH.length} HASH(s) SEM SN no app</div>}
+    {dupInfo.dupM.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ SN duplicado em máquinas: {dupInfo.dupM.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
+    {dupInfo.dupH.length>0&&<div style={{fontSize:12}}>⚠️ SN duplicado em HASHs: {dupInfo.dupH.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
+  </div>;
+  if(totalDiff===0)return<div>{DupInfoBox}<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente (por SN) — app e planilha estão iguais nesse quesito.</div></div>;
   return<div>
+    {DupInfoBox}
+    {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
+      <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
+      {[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))].map(d=>
+        <div key={(d.isMachine?"m:":"h:")+d.sn} style={{background:"#2a1a0c",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
+          <div style={{fontWeight:800,fontSize:13,marginBottom:8}}>{d.isMachine?"🖥️":"⚡"} {d.sn}</div>
+          {d.diffs.map(x=><div key={x.field} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0",borderBottom:`1px solid ${C.border}`}}>
+            <span style={{color:C.muted}}>{x.label}</span>
+            <span><span style={{color:C.accent}}>App: {String(x.appVal||"—")}</span> · <span style={{color:C.blue}}>Planilha: {String(x.sheetVal||"—")}</span></span>
+          </div>)}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <Btn v="s" onClick={()=>resolveDiff(d,d.isMachine,false)} style={{flex:1}}>Manter do App (corrige planilha)</Btn>
+            <Btn v="g" onClick={()=>resolveDiff(d,d.isMachine,true)} style={{flex:1}}>Usar da Planilha (corrige app)</Btn>
+          </div>
+        </div>
+      )}
+    </div>}
     {(newInSheetM.length>0||newInSheetH.length>0)&&<div style={{marginBottom:20}}>
       <div style={{color:C.blue,fontWeight:800,fontSize:13,marginBottom:8}}>⬇️ A PLANILHA TEM E O APP NÃO ({newInSheetM.length+newInSheetH.length})</div>
       {newInSheetM.length>0&&<><SL>🖥️ Máquinas ({newInSheetM.length})</SL>
