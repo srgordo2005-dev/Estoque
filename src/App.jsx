@@ -176,7 +176,7 @@ const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 // URLs padrão (funcionam mesmo se o navegador não tiver salvo nada ainda —
 // útil porque cada deploy novo do Vercel pode gerar uma URL diferente, e o
 // localStorage é por site). Ainda dá pra trocar em Config se precisar.
-const DEFAULT_DRIVE_UPLOAD_URL="https://script.google.com/macros/s/AKfycbwtbyy8Khgh50KWk9Cmj4MyXB33it08WQF0IJlrPOuq8-ujmvDOShye4SkPFvKEp_OE5A/exec";
+const DEFAULT_DRIVE_UPLOAD_URL="https://script.google.com/macros/s/AKfycbxN39ZoU4vrk4wCD84TIMTzTlxJuKSqWjcHGPo-l8iFDkAMYPrcxLRRZzNn9XVAqOcM6Q/exec";
 let DRIVE_UPLOAD_URL=localStorage.getItem("driveUploadUrl")||DEFAULT_DRIVE_UPLOAD_URL;
 async function uploadPhoto(b64,path){
   if(!DRIVE_UPLOAD_URL){onSyncSheetError?.("Foto não enviada: configure a URL do Drive em Config.");return null}
@@ -397,6 +397,24 @@ function EditableSNField({label,value,onCommit}){
    - ⌨️ Digitar: digitação manual, sem nada automático — só confirma com
      Enter ou clicando no botão "+".
 */
+// Guarda a lista de itens bipados no localStorage enquanto o usuário
+// continua bipando — se a página recarregar (queda de conexão, F5 sem
+// querer, etc.) o progresso do lote não se perde. Só é apagado de verdade
+// quando o formulário fecha normalmente (salvou ou cancelou).
+function usePersistedBatch(key,initial){
+  const[val,setVal]=useState(()=>{
+    try{const saved=localStorage.getItem("batch:"+key);return saved?JSON.parse(saved):initial}catch{return initial}
+  });
+  useEffect(()=>{
+    try{
+      if(Array.isArray(val)&&val.length===0)localStorage.removeItem("batch:"+key);
+      else localStorage.setItem("batch:"+key,JSON.stringify(val));
+    }catch{}
+  },[val,key]);
+  const clear=()=>{try{localStorage.removeItem("batch:"+key)}catch{}};
+  return[val,setVal,clear];
+}
+
 function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
   const[mode,setMode]=useState("scan");
   const[val,setVal]=useState("");
@@ -427,12 +445,12 @@ function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
 }
 
 /* ═══ PHOTO ═════════════════════════════════════════════════════ */
-function PhotoCapture({label,photoKey,onChange,folder="photos",required,snHint}){
+function PhotoCapture({label,photoKey,onChange,folder="photos",required,snHint,onUploadFail}){
   const[src,setSrc]=useState(null),[up,setUp]=useState(false);const ref=useRef();
   useEffect(()=>{if(!photoKey){setSrc(null);return}if(photoKey.startsWith("http")||photoKey.startsWith("data:"))setSrc(photoKey);else setSrc(localStorage.getItem("ph:"+photoKey))},[photoKey]);
   const[failed,setFailed]=useState(false);
   const pick=async f=>{
-    setUp(true);setFailed(false);
+    setUp(true);setFailed(false);onUploadFail?.(false);
     const b64=await compress(f);
     setSrc(b64); // mostra a prévia na hora, mas não salva isso no banco
     const cleanSN=(snHint||"").replace(/[^a-zA-Z0-9]/g,"");
@@ -442,7 +460,10 @@ function PhotoCapture({label,photoKey,onChange,folder="photos",required,snHint})
     else{
       // Nunca salva a foto em base64 direto no banco — isso lotaria o Supabase.
       // Se o Drive falhar, avisa e deixa sem foto (o aviso 🛡️ já mostra o erro).
-      setFailed(true);setSrc(null);onChange(null);
+      // E avisa o formulário todo pra não deixar salvar sem a foto, mesmo
+      // em telas onde a foto normalmente é opcional — enquanto o Drive
+      // estiver com problema, ninguém quer salvar "sem querer" sem foto.
+      setFailed(true);setSrc(null);onChange(null);onUploadFail?.(true);
     }
     setUp(false);
   };
@@ -1004,7 +1025,7 @@ function AddModeSelect({ctx,onClose}){
 
 function BatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
-  const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending]=useState([]),[saving,setSaving]=useState(false);
+  const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending,clearPending]=usePersistedBatch("machines-lote",[]),[saving,setSaving]=useState(false);
   const addSN=(raw)=>{
     const s=raw.toUpperCase().trim();if(!s)return;
     if(pending.some(p=>p.sn===s))return;
@@ -1030,7 +1051,7 @@ function BatchSNForm({ctx,onClose}){
       syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code});
       syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
     });
-    setSaving(false);onClose();
+    setSaving(false);clearPending();onClose();
   };
   return<div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/></div><div style={{display:"flex",gap:8}}><Sel label="TIPO" value={type} onChange={e=>setType(e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div><Inp label="Referência (REF, aplicada a todos)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
   <div style={{color:C.muted,fontSize:11,marginBottom:6}}>As opções abaixo valem pra TODAS as máquinas desse lote:</div>
@@ -1046,7 +1067,7 @@ function BatchSNForm({ctx,onClose}){
       <button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button>
     </div>
     {p.existing&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>⚠️ Já existe ({p.existing.model} · {p.existing.situacao}){p.existing.destino?<> · 👤 foi pro cliente <b>{p.existing.destino}</b></>:""} — vai atualizar essa máquina</div>}
-  </div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
+  </div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>{clearPending();onClose()}} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
 }
 
 function BatchNoSNForm({ctx,onClose}){
@@ -1059,7 +1080,7 @@ function BatchNoSNForm({ctx,onClose}){
 function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[f,setF]=useState({sn:initSN,ref:user.code,model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),type:"complete",hash0:"OFF",hash1:"OFF",hash2:"OFF",hashSN0:"",hashSN1:"",hashSN2:"",controladora:"OFF",fonte:"OFF",fans:"OFF",situacao:"STOCK",destino:"",location:""});
-  const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false),[confirmOverwrite,setConfirmOverwrite]=useState(false);
+  const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false),[confirmOverwrite,setConfirmOverwrite]=useState(false),[photoBlocked,setPhotoBlocked]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const dupMachine=f.sn.trim()?data.machines.find(m=>m.sn===f.sn.toUpperCase().trim()):null;
   const doSave=async(asNewSN)=>{
@@ -1077,6 +1098,23 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     // não fica mais marcada como "saída" pra ele).
     syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
     if(forceOn)["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}));
+    // Cria (se for nova) ou vincula (se já existir) a HASH de cada slot —
+    // antes isso nunca acontecia, só ficava o texto do SN salvo na máquina,
+    // sem criar a HASH nem mandar o SN pra planilha de verdade.
+    for(let i=0;i<3;i++){
+      const slotSN=(d[`hashSN${i}`]||"").trim();if(!slotSN)continue;
+      const slotOn=d[`hash${i}`]==="ON";
+      const existingHash=data.hashes.find(h=>h.sn===slotSN);
+      if(existingHash){
+        const hu={...existingHash,machineSN:d.sn,slot:i,status:slotOn?"NA MAQUINA":existingHash.status,...audit(user)};
+        mutate("hashes",arr=>arr.map(x=>x._id===existingHash._id?hu:x));await fbSet("hashes",existingHash._id,hu);
+      }else{
+        const hid=uid();const hd={sn:slotSN,model:d.model,status:slotOn?"NA MAQUINA":"STOCK",machineSN:d.sn,slot:i,...audit(user),addedAt:TODAY()};
+        await fbSet("hashes",hid,hd);mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
+      }
+      syncSheet(webhookUrl,"hashApproved",{sn:slotSN,model:d.model,machineSN:d.sn,slot:i,employeeName:user.name,employeeCode:user.code});
+    }
+    await markChanged("hashes");
     setSaving(false);onClose();
   };
   // Gera um SN "livre" (SN-2, SN-3...) quando o usuário confirma que são
@@ -1098,8 +1136,23 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     <div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={f.model} onChange={e=>{set("model",e.target.value);set("th",gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={f.th} onChange={e=>set("th",e.target.value)} style={{width:70}}/></div>
     <div style={{display:"flex",gap:8}}><Sel label="TIPO" value={f.type} onChange={e=>set("type",e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={f.situacao} onChange={e=>set("situacao",e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div>
     <PalletLocationPicker pallets={data.pallets} value={f.location} onChange={v=>set("location",v)}/>
-    <>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span><input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/><select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
-    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
+    <>{[0,1,2].map(i=>{
+      const slotSN=(f[`hashSN${i}`]||"").trim();
+      const existingHash=slotSN?data.hashes.find(h=>h.sn===slotSN):null;
+      return<div key={i} style={{marginBottom:8}}>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span>
+          <input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/>
+          <select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select>
+        </div>
+        {slotSN&&(existingHash?
+          <div style={{fontSize:11,color:C.blue,marginLeft:58,marginTop:2}}>⚡ Já existe: {existingHash.model} · <SP s={existingHash.status}/></div>
+          :<div style={{fontSize:11,color:C.green,marginLeft:58,marginTop:2}}>✓ Nova — vai ser criada como {f.model} ao salvar</div>
+        )}
+      </div>;
+    })}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
+    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} onUploadFail={setPhotoBlocked}/>
+    {photoBlocked&&<Alrt type="err">⚠️ A foto não subiu pro Drive — corrige isso (ou tira a foto) antes de salvar.</Alrt>}
     {confirmOverwrite&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
       <div style={{fontWeight:800,color:C.amber,marginBottom:4}}>Tem certeza?</div>
       <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Essa máquina já existe como <SP s={dupMachine.situacao}/>{dupMachine.destino?` (foi pro cliente ${dupMachine.destino})`:""}. Vou atualizar ela pra <b><SP s={f.situacao}/></b> e devolver ao ciclo normal do estoque (o histórico dela no cliente continua existindo, só não fica mais marcada como saída).</div>
@@ -1110,7 +1163,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
       <div style={{color:C.muted,fontSize:11,marginBottom:6}}>Ou, se são DUAS máquinas físicas diferentes com o mesmo SN impresso (pode acontecer):</div>
       <Btn v="b" onClick={()=>doSave(nextFreeSN())} disabled={saving} style={{width:"100%"}}>➕ Cadastrar como NOVA máquina ({nextFreeSN()})</Btn>
     </div>}
-    <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving||confirmOverwrite} style={{flex:1}}>{saving?"...":dupMachine?"⚠️ Já existe — clique pra ver opções":"💾 Salvar"}</Btn></div>
+    <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving||confirmOverwrite||photoBlocked} style={{flex:1}}>{saving?"...":dupMachine?"⚠️ Já existe — clique pra ver opções":"💾 Salvar"}</Btn></div>
   </div>;
 }
 
@@ -1340,6 +1393,16 @@ function MachineDetail({ctx,machine}){
           syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"ON",machineSN:"",employeeName:user.name,employeeCode:user.code});
         }
         if(mHashes.length)await markChanged("hashes");
+        // Tira a máquina de qualquer palete que estivesse — senão o palete
+        // fica com a contagem errada (SN "fantasma" que não existe mais).
+        for(const pl of data.pallets){
+          if((pl.machinesSN||[]).includes(m.sn)){
+            const ns=(pl.machinesSN||[]).filter(s=>s!==m.sn);
+            const upd2={...pl,machinesSN:ns,...audit(user)};
+            mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2);
+          }
+        }
+        await markChanged("pallets");
         mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)
       }} style={{width:"100%",marginTop:14}}>🗑 Remover</Btn>
     </div>
@@ -1427,7 +1490,7 @@ function HashAddMode({ctx,onClose}){
 // e a localização de todas.
 function HashBatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,webhookUrl}=ctx;const models=allModels();
-  const[model,setModel]=useState(models[0]?.m||"M30S"),[status,setStatus]=useState("REPARO"),[loc,setLoc]=useState(""),[rows,setRows]=useState([]),[saving,setSaving]=useState(false);
+  const[model,setModel]=useState(models[0]?.m||"M30S"),[status,setStatus]=useState("REPARO"),[loc,setLoc]=useState(""),[rows,setRows,clearRows]=usePersistedBatch("hashes-lote",[]),[saving,setSaving]=useState(false);
   const addSN=(raw)=>{
     const sn=raw.toUpperCase().trim();if(!sn||rows.some(r=>r.sn===sn))return;
     const existing=data.hashes.find(h=>h.sn===sn);
@@ -1448,7 +1511,7 @@ function HashBatchSNForm({ctx,onClose}){
         syncSheet(webhookUrl,"addHash",{sn:row.sn,model,status,location:loc,employeeName:user.name,employeeCode:user.code});
       }
     }
-    await markChanged("hashes");setSaving(false);onClose();
+    await markChanged("hashes");setSaving(false);clearRows();onClose();
   };
   return<div>
     <Sel label="MODELO (usado para os SNs novos)" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
@@ -1464,7 +1527,7 @@ function HashBatchSNForm({ctx,onClose}){
     </div>
     <Sel label="STATUS FINAL (aplicado a todos)" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
     <PalletLocationPicker pallets={data.pallets} value={loc} onChange={setLoc}/>
-    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!rows.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+rows.length}</Btn></div>
+    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>{clearRows();onClose()}} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!rows.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+rows.length}</Btn></div>
   </div>;
 }
 
@@ -1480,7 +1543,7 @@ function MaterialPicker({value,onChange}){
 
 function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
-  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[material,setMaterial]=useState(""),[status,setStatus]=useState("REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null);
+  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[material,setMaterial]=useState(""),[status,setStatus]=useState("REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null),[photoBlocked,setPhotoBlocked]=useState(false);
   const checkSN=v=>{setSN(v);const s=v.toUpperCase().trim();if(!s){setSnInfo(null);return}const ex=data.hashes.find(h=>h.sn===s);if(ex)setSnInfo({type:"exists",item:ex});else{const mac=data.machines.find(m=>m.sn===s);if(mac)setSnInfo({type:"mac",item:mac});else setSnInfo(null)}};
   const save=async()=>{
     const s=sn.toUpperCase().trim();
@@ -1503,8 +1566,9 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
     <Sel label="STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
     <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
     <Inp label="Observação" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: Chip U3 trocado, Chain Break corrigida..."/>
-    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
-    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={snInfo?.type==="exists"} style={{flex:1}}>Salvar</Btn></div>
+    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} onUploadFail={setPhotoBlocked}/>
+    {photoBlocked&&<Alrt type="err">⚠️ A foto não subiu pro Drive — corrige isso (ou tira a foto) antes de salvar.</Alrt>}
+    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={snInfo?.type==="exists"||photoBlocked} style={{flex:1}}>Salvar</Btn></div>
   </div>;
 }
 
@@ -1618,7 +1682,18 @@ function HashDetail({ctx,hash}){
     {!confirmIrrep?<Btn v="d" onClick={()=>setConfirmIrrep(true)} style={{width:"100%",marginBottom:12}}>💀 Marcar como Irreparável</Btn>:<div style={{background:"#1a0a0a",border:`1px solid ${C.red}`,borderRadius:10,padding:14,marginBottom:12}}><div style={{fontWeight:800,color:C.red,marginBottom:8}}>⚠️ Confirmar Irreparável?</div><div style={{fontSize:12,color:C.text,marginBottom:12}}>Marcada para retirada de peças.</div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>setConfirmIrrep(false)} style={{flex:1}}>Cancelar</Btn><Btn v="d" onClick={async()=>{await upd("status","IRREPARAVEL");setConfirmIrrep(false)}} style={{flex:1}}>Confirmar</Btn></div></div>}
     <SL mt={8}>📋 HISTÓRICO COMPLETO</SL>
     {history.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Sem histórico</div>:history.map((ev,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:12}}><div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><div style={{width:24,height:24,borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0}}>{ev.icon}</div>{i<history.length-1&&<div style={{width:2,flex:1,background:C.border,marginTop:4}}/>}</div><div style={{flex:1,paddingBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{ev.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(ev.date)}</div>{ev.notes&&<div style={{fontSize:11,color:C.subtle,marginTop:2}}>{ev.notes}</div>}{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:100}}/>}</div></div>)}
-    <Btn v="d" onClick={async()=>{syncSheet(webhookUrl,"trashHash",{sn:h.sn,model:h.model,removedBy:user.name});mutate("hashes",arr=>arr.filter(x=>x._id!==h._id));await fbDel("hashes",h._id);await markChanged("hashes");setModal(null)}} style={{width:"100%",marginTop:8}}>🗑 Remover</Btn>
+    <Btn v="d" onClick={async()=>{
+      syncSheet(webhookUrl,"trashHash",{sn:h.sn,model:h.model,removedBy:user.name});
+      for(const pl of data.pallets){
+        if((pl.hashesSN||[]).includes(h.sn)){
+          const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);
+          const upd2={...pl,hashesSN:ns,...audit(user)};
+          mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2);
+        }
+      }
+      await markChanged("pallets");
+      mutate("hashes",arr=>arr.filter(x=>x._id!==h._id));await fbDel("hashes",h._id);await markChanged("hashes");setModal(null)
+    }} style={{width:"100%",marginTop:8}}>🗑 Remover</Btn>
   </div>;
 }
 
@@ -1626,7 +1701,7 @@ function HashDetail({ctx,hash}){
 function ConsertaPage({ctx}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
   const[f,setF]=useState({hashSN:"",model:models[0]?.m||"M30S",material:"",boardChips:"",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
-  const[photoKey,setPhotoKey]=useState(null),[saved,setSaved]=useState(null),[photoErr,setPhotoErr]=useState("");
+  const[photoKey,setPhotoKey]=useState(null),[saved,setSaved]=useState(null),[photoErr,setPhotoErr]=useState(""),[photoBlocked,setPhotoBlocked]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const doSubmit=async(type)=>{
@@ -1696,11 +1771,11 @@ function ConsertaPage({ctx}){
         <Inp label="LDOs" type="number" value={f.ldos} onChange={e=>set("ldos",e.target.value)} placeholder="0"/>
       </div>:<Inp label="DESCRIÇÃO DO CONSERTO" value={f.obsManual} onChange={e=>set("obsManual",e.target.value)} placeholder="Ex: 3 chips U3 trocados, reballing..."/>}
       <Inp label="OBSERVAÇÃO ADICIONAL" value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Opcional..."/>
-      <PhotoCapture label="FOTO / PRINT (obrigatória)" photoKey={photoKey} onChange={k=>{setPhotoKey(k);setPhotoErr("")}} folder="consertos" snHint={f.hashSN} required/>
+      <PhotoCapture label="FOTO / PRINT (obrigatória)" photoKey={photoKey} onChange={k=>{setPhotoKey(k);setPhotoErr("")}} folder="consertos" snHint={f.hashSN} onUploadFail={setPhotoBlocked} required/>
       {photoErr&&<Alrt type="err">{photoErr}</Alrt>}
       <div style={{display:"flex",gap:8}}>
-        <Btn v="y" onClick={()=>doSubmit("already_good")} style={{flex:1}}>✅ Já Estava Boa</Btn>
-        <Btn onClick={()=>doSubmit("repair")} style={{flex:1}}>🔧 Consertada</Btn>
+        <Btn v="y" onClick={()=>doSubmit("already_good")} disabled={photoBlocked} style={{flex:1}}>✅ Já Estava Boa</Btn>
+        <Btn onClick={()=>doSubmit("repair")} disabled={photoBlocked} style={{flex:1}}>🔧 Consertada</Btn>
       </div>
       <div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:8}}>Ambas vão para fila de Teste</div>
     </Card>
@@ -2730,8 +2805,8 @@ function SheetCompareReview({ctx,onClose}){
   const[dupInfo,setDupInfo]=useState({blankM:[],blankH:[],dupM:[],dupH:[]});
   const[saving,setSaving]=useState(false),[err,setErr]=useState("");
   // Campos comparados campo a campo (máquina e HASH) — label é o que aparece pro Admin
-  const M_FIELDS=[["situacao","Situação"],["model","Modelo"],["th","T/H"],["hashSN0","Slot 1 (SN)"],["hashSN1","Slot 2 (SN)"],["hashSN2","Slot 3 (SN)"],["hash0","Slot 1 (status)"],["hash1","Slot 2 (status)"],["hash2","Slot 3 (status)"],["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]];
-  const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"]];
+  const M_FIELDS=[["situacao","Situação"],["model","Modelo"],["th","T/H"],["ref","Referência"],["destino","Destino (cliente)"],["hashSN0","Slot 1 (SN)"],["hashSN1","Slot 2 (SN)"],["hashSN2","Slot 3 (SN)"],["hash0","Slot 1 (status)"],["hash1","Slot 2 (status)"],["hash2","Slot 3 (status)"],["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]];
+  const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"],["chips","Chips"]];
   const norm=v=>String(v??"").trim().toUpperCase();
   useEffect(()=>{
     (async()=>{
@@ -2795,10 +2870,15 @@ function SheetCompareReview({ctx,onClose}){
       mutate(isMachine?"machines":"hashes",arr=>arr.map(x=>x._id===d.appItem._id?u:x));
       await fbSet(isMachine?"machines":"hashes",d.appItem._id,u);
     }else{
-      // Manda os valores do app pra planilha
+      // Manda os valores do app pra planilha — cada campo tem seu jeito certo de sincronizar
       d.diffs.forEach(x=>{
-        if(isMachine)syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:x.field,to:x.appVal,employeeName:user.name,employeeCode:user.code});
-        else syncSheet(webhookUrl,"updateHash",{sn:d.sn,model:d.appItem.model,status:x.field==="status"?x.appVal:d.appItem.status,machineSN:x.field==="machineSN"?x.appVal:d.appItem.machineSN,employeeName:user.name,employeeCode:user.code});
+        if(isMachine){
+          syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:x.field,to:x.appVal,employeeName:user.name,employeeCode:user.code});
+        }else if(x.field==="chips"){
+          syncSheet(webhookUrl,"updateHashChips",{sn:d.sn,model:d.appItem.model,chips:x.appVal,employeeName:user.name,employeeCode:user.code});
+        }else{
+          syncSheet(webhookUrl,"updateHash",{sn:d.sn,model:d.appItem.model,status:x.field==="status"?x.appVal:d.appItem.status,machineSN:x.field==="machineSN"?x.appVal:d.appItem.machineSN,employeeName:user.name,employeeCode:user.code});
+        }
       });
     }
     setResolved(r=>new Set([...r,key]));
@@ -2859,8 +2939,15 @@ function SheetCompareReview({ctx,onClose}){
     const hToDel=extraInAppH.filter((_,i)=>selAppH.has(i));
     if(!confirm(`Excluir ${mToDel.length} máquina(s) e ${hToDel.length} HASH(s) do app? Isso não pode ser desfeito.`))return;
     setSaving(true);
-    for(const m of mToDel){await fbDel("machines",m._id);mutate("machines",arr=>arr.filter(x=>x._id!==m._id))}
-    for(const h of hToDel){await fbDel("hashes",h._id);mutate("hashes",arr=>arr.filter(x=>x._id!==h._id))}
+    for(const m of mToDel){
+      for(const pl of data.pallets){if((pl.machinesSN||[]).includes(m.sn)){const ns=(pl.machinesSN||[]).filter(s=>s!==m.sn);const upd2={...pl,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2)}}
+      await fbDel("machines",m._id);mutate("machines",arr=>arr.filter(x=>x._id!==m._id))
+    }
+    for(const h of hToDel){
+      for(const pl of data.pallets){if((pl.hashesSN||[]).includes(h.sn)){const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);const upd2={...pl,hashesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2)}}
+      await fbDel("hashes",h._id);mutate("hashes",arr=>arr.filter(x=>x._id!==h._id))
+    }
+    await markChanged("pallets");
     // Avisa a blindagem de dados que essa contagem menor é de propósito —
     // senão ela ia "proteger" e trazer de volta o que acabamos de apagar.
     if(mToDel.length)resetMaxCount("machines",data.machines.length-mToDel.length);
@@ -2977,7 +3064,7 @@ function PalletsPage({ctx}){
 function MovimentacaoTab({ctx}){
   const{data,mutate,user}=ctx;
   const pallets=data.pallets||[];
-  const[src,setSrc]=useState(""),[dst,setDst]=useState(""),[scanned,setScanned]=useState([]),[moving,setMoving]=useState(false),[log,setLog]=useState([]);
+  const[src,setSrc]=useState(""),[dst,setDst]=useState(""),[scanned,setScanned,clearScanned]=usePersistedBatch("movimentacao",[]),[moving,setMoving]=useState(false),[log,setLog]=useState([]);
   const addSN=v=>{const sn=v.toUpperCase().trim();if(!sn||scanned.includes(sn))return;setScanned(s=>[...s,sn]);};
   const doMove=async()=>{
     if(!src||!dst||!scanned.length)return;
@@ -2993,7 +3080,7 @@ function MovimentacaoTab({ctx}){
     mutate("pallets",arr=>arr.map(p=>p._id===src?srcUpd:p._id===dst?dstUpd:p));
     await fbSet("pallets",src,srcUpd);await fbSet("pallets",dst,dstUpd);await markChanged("pallets");
     setLog(l=>[{src:srcP.name,dst:dstP.name,count:scanned.length,at:stamp()},...l]);
-    setScanned([]);setSrc("");setDst("");setMoving(false);
+    setScanned([]);clearScanned();setSrc("");setDst("");setMoving(false);
     alert("✓ "+scanned.length+" máquinas movidas: "+srcP.name+" → "+dstP.name);
   };
   return<div>
@@ -3038,6 +3125,14 @@ function PalletDetail({ctx,pallet}){
   const fileRef=useRef();
   const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
   const hashes=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
+  // SNs que ficaram "fantasma" — foram removidos/apagados em outro lugar,
+  // mas continuaram contando aqui (de antes dessa correção existir)
+  const ghostM=(p.machinesSN||[]).filter(sn=>!data.machines.find(m=>m.sn===sn));
+  const ghostH=(p.hashesSN||[]).filter(sn=>!data.hashes.find(h=>h.sn===sn));
+  const limparFantasmas=async()=>{
+    const upd2={...p,machinesSN:(p.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(p.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
+    setP(upd2);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd2:x));await fbSet("pallets",p._id,upd2);await markChanged("pallets");
+  };
   const addSN=async(snRaw)=>{
     const sn=snRaw.toUpperCase().trim();if(!sn)return;
     const isHash=itemType==="hash";
@@ -3083,6 +3178,11 @@ function PalletDetail({ctx,pallet}){
   const del=async()=>{if(!confirm("Remover palete "+p.name+"?"))return;mutate("pallets",arr=>arr.filter(x=>x._id!==p._id));await fbDel("pallets",p._id);await markChanged("pallets");setModal(null)};
   return<div>
     <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:12}}>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}<div style={{fontWeight:700,marginTop:4,color:C.accent}}>{macs.length} máquinas · {hashes.length} HASHs</div></div>
+    {(ghostM.length>0||ghostH.length>0)&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:12}}>
+      <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:6}}>⚠️ {ghostM.length+ghostH.length} SN(s) "fantasma" nesse palete</div>
+      <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Foram removidos/apagados em outro lugar, mas continuavam contando aqui: {[...ghostM,...ghostH].join(", ")}</div>
+      <Btn v="b" onClick={limparFantasmas} style={{width:"100%"}}>🧹 Limpar esses do palete</Btn>
+    </div>}
     <SL>O QUE VOCÊ VAI ADICIONAR?</SL>
     <div style={{display:"flex",gap:8,marginBottom:12}}>{[["machine","🖥️ Máquina"],["hash","⚡ HASH"]].map(([v,l])=><button key={v} onClick={()=>setItemType(v)} style={{flex:1,background:itemType===v?C.accent:"#1a2d42",color:"#fff",border:"none",borderRadius:8,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}</div>
     <div style={{display:"flex",gap:6,marginBottom:10}}>
