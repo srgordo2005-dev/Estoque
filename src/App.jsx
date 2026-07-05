@@ -726,6 +726,25 @@ export default function App(){
 
   useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
+  // Checagem diária automática: uma vez por dia (por navegador), se for
+  // Admin, compara tudo com a planilha sozinho e guarda o resultado — sem
+  // precisar abrir a tela de comparação manualmente.
+  const[dailyDiff,setDailyDiff]=useState(null);
+  useEffect(()=>{
+    if(!user)return;
+    if(!(user.permissions||{}).admin)return;
+    if(!data.machines.length&&!data.hashes.length)return; // ainda carregando
+    const today=TODAY();
+    if(localStorage.getItem("hs_lastDailyCompare")===today)return;
+    (async()=>{
+      try{
+        const result=await computeSheetDiffs(data,webhookUrl);
+        localStorage.setItem("hs_lastDailyCompare",today);
+        if(result.total>0)setDailyDiff(result);
+      }catch(e){console.error("Checagem diária com a planilha falhou:",e)}
+    })();
+  },[user,data.machines.length,data.hashes.length,webhookUrl]);
+
   const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount};
   if(loading)return<Splash/>;
   if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
@@ -760,6 +779,7 @@ export default function App(){
       <button onClick={()=>{setUser(null);setTab("home")}} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Sair</button>
     </div>
     {isAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
+    {isAdmin&&dailyDiff&&<div onClick={()=>{setDailyDiff(null);setModal(<Modal title="🔄 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}} style={{background:"#2a1a0c",borderBottom:`1px solid ${C.amber}`,padding:"8px 16px",fontSize:11,color:C.amber,cursor:"pointer"}}>🔄 Checagem diária: {dailyDiff.total} diferença(s) entre o app e a planilha — toque pra ver e resolver</div>}
     <div style={{padding:"14px 12px 100px"}}>
       {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
       {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
@@ -2854,6 +2874,41 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
 // Compara a planilha com o que já existe no app: ignora tudo que já tem o
 // mesmo SN, e mostra só o que é realmente novo, com checkbox pra escolher o
 // que importar.
+// Campos comparados campo a campo (máquina e HASH) — usado tanto na tela de
+// comparação manual quanto na checagem diária automática.
+const M_FIELDS=[["situacao","Situação"],["model","Modelo"],["th","T/H"],["ref","Referência"],["destino","Destino (cliente)"],["hashSN0","Slot 1 (SN)"],["hashSN1","Slot 2 (SN)"],["hashSN2","Slot 3 (SN)"],["hash0","Slot 1 (status)"],["hash1","Slot 2 (status)"],["hash2","Slot 3 (status)"],["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]];
+const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"],["chips","Chips"]];
+const normCompare=v=>String(v??"").trim().toUpperCase();
+// Compara tudo (presença + campo a campo) e devolve só os números — usado
+// pela checagem automática diária, sem precisar abrir a tela de comparação.
+async function computeSheetDiffs(data,webhookUrl){
+  const sheetMachines=await importMachinesFromSheet(webhookUrl);
+  const sheetHashes=await importHashesFromSheet(webhookUrl);
+  const sheetMSN=new Set(sheetMachines.map(m=>(m.sn||"").trim().toUpperCase()).filter(Boolean));
+  const sheetHSN=new Set(sheetHashes.map(h=>(h.sn||"").trim().toUpperCase()).filter(Boolean));
+  const appMSN=new Set(data.machines.map(m=>(m.sn||"").trim().toUpperCase()).filter(Boolean));
+  const appHSN=new Set(data.hashes.map(h=>(h.sn||"").trim().toUpperCase()).filter(Boolean));
+  const nm=sheetMachines.filter(m=>(m.sn||"").trim()&&!appMSN.has(m.sn.trim().toUpperCase())).length;
+  const nh=sheetHashes.filter(h=>(h.sn||"").trim()&&!appHSN.has(h.sn.trim().toUpperCase())).length;
+  const em=data.machines.filter(m=>(m.sn||"").trim()&&!sheetMSN.has(m.sn.trim().toUpperCase())).length;
+  const eh=data.hashes.filter(h=>(h.sn||"").trim()&&!sheetHSN.has(h.sn.trim().toUpperCase())).length;
+  let dm=0;
+  data.machines.forEach(appM=>{
+    const appSN=(appM.sn||"").trim();if(!appSN)return;
+    const sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+    if(!sheetM)return;
+    if(M_FIELDS.some(([f])=>normCompare(appM[f])!==normCompare(sheetM[f])))dm++;
+  });
+  let dh=0;
+  data.hashes.forEach(appH=>{
+    const appSN=(appH.sn||"").trim();if(!appSN)return;
+    const sheetH=sheetHashes.find(h=>{const s=(h.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+    if(!sheetH)return;
+    if(H_FIELDS.some(([f])=>normCompare(appH[f])!==normCompare(sheetH[f])))dh++;
+  });
+  return{total:nm+nh+em+eh+dm+dh,nm,nh,em,eh,dm,dh};
+}
+
 function SheetCompareReview({ctx,onClose}){
   const{data,mutate,webhookUrl,user,resetMaxCount}=ctx;
   const[loading,setLoading]=useState(true);
@@ -2865,40 +2920,44 @@ function SheetCompareReview({ctx,onClose}){
   const[dupInfo,setDupInfo]=useState({blankM:[],blankH:[],dupM:[],dupH:[]});
   const[saving,setSaving]=useState(false),[err,setErr]=useState("");
   // Campos comparados campo a campo (máquina e HASH) — label é o que aparece pro Admin
-  const M_FIELDS=[["situacao","Situação"],["model","Modelo"],["th","T/H"],["ref","Referência"],["destino","Destino (cliente)"],["hashSN0","Slot 1 (SN)"],["hashSN1","Slot 2 (SN)"],["hashSN2","Slot 3 (SN)"],["hash0","Slot 1 (status)"],["hash1","Slot 2 (status)"],["hash2","Slot 3 (status)"],["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]];
-  const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"],["chips","Chips"]];
-  const norm=v=>String(v??"").trim().toUpperCase();
+  const norm=normCompare;
   useEffect(()=>{
     (async()=>{
       try{
         const sheetMachines=await importMachinesFromSheet(webhookUrl);
         const sheetHashes=await importHashesFromSheet(webhookUrl);
-        const sheetMSN=new Set(sheetMachines.map(m=>(m.sn||"").toUpperCase()).filter(Boolean));
-        const sheetHSN=new Set(sheetHashes.map(h=>(h.sn||"").toUpperCase()).filter(Boolean));
-        const appMSN=new Set(data.machines.map(m=>(m.sn||"").toUpperCase()).filter(Boolean));
-        const appHSN=new Set(data.hashes.map(h=>(h.sn||"").toUpperCase()).filter(Boolean));
+        const sheetMSN=new Set(sheetMachines.map(m=>(m.sn||"").trim().toUpperCase()).filter(Boolean));
+        const sheetHSN=new Set(sheetHashes.map(h=>(h.sn||"").trim().toUpperCase()).filter(Boolean));
+        const appMSN=new Set(data.machines.map(m=>(m.sn||"").trim().toUpperCase()).filter(Boolean));
+        const appHSN=new Set(data.hashes.map(h=>(h.sn||"").trim().toUpperCase()).filter(Boolean));
         // Planilha tem, app não tem
-        const nm=sheetMachines.filter(m=>m.sn&&!appMSN.has(m.sn.toUpperCase()));
-        const nh=sheetHashes.filter(h=>h.sn&&!appHSN.has(h.sn.toUpperCase()));
+        const nm=sheetMachines.filter(m=>(m.sn||"").trim()&&!appMSN.has(m.sn.trim().toUpperCase()));
+        const nh=sheetHashes.filter(h=>(h.sn||"").trim()&&!appHSN.has(h.sn.trim().toUpperCase()));
         // App tem, planilha não tem
-        const em=data.machines.filter(m=>m.sn&&!sheetMSN.has(m.sn.toUpperCase()));
-        const eh=data.hashes.filter(h=>h.sn&&!sheetHSN.has(h.sn.toUpperCase()));
+        const em=data.machines.filter(m=>(m.sn||"").trim()&&!sheetMSN.has(m.sn.trim().toUpperCase()));
+        const eh=data.hashes.filter(h=>(h.sn||"").trim()&&!sheetHSN.has(h.sn.trim().toUpperCase()));
         setNewInSheetM(nm);setNewInSheetH(nh);setExtraInAppM(em);setExtraInAppH(eh);
         setSelSheetM(new Set(nm.map((_,i)=>i)));setSelSheetH(new Set(nh.map((_,i)=>i)));
         setSelAppM(new Set(em.map((_,i)=>i)));setSelAppH(new Set(eh.map((_,i)=>i)));
         // Existe nos dois lugares — compara campo a campo
+        // BLINDAGEM: nunca compara SN vazio/em branco. Se dois itens sem SN
+        // "casassem" por engano (ex: "" === ""), o valor de UM acabaria sendo
+        // aplicado em TODOS os outros sem SN — foi exatamente isso que
+        // corrompeu o modelo de várias máquinas antes.
         const dm=[];
         data.machines.forEach(appM=>{
-          if(!appM.sn)return;
-          const sheetM=sheetMachines.find(m=>(m.sn||"").toUpperCase()===appM.sn.toUpperCase());
+          const appSN=(appM.sn||"").trim();
+          if(!appSN)return;
+          const sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
           if(!sheetM)return;
           const diffs=M_FIELDS.filter(([f])=>norm(appM[f])!==norm(sheetM[f])).map(([f,label])=>({field:f,label,appVal:appM[f],sheetVal:sheetM[f]}));
           if(diffs.length)dm.push({sn:appM.sn,appItem:appM,sheetItem:sheetM,diffs});
         });
         const dh=[];
         data.hashes.forEach(appH=>{
-          if(!appH.sn)return;
-          const sheetH=sheetHashes.find(h=>(h.sn||"").toUpperCase()===appH.sn.toUpperCase());
+          const appSN=(appH.sn||"").trim();
+          if(!appSN)return;
+          const sheetH=sheetHashes.find(h=>{const s=(h.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
           if(!sheetH)return;
           const diffs=H_FIELDS.filter(([f])=>norm(appH[f])!==norm(sheetH[f])).map(([f,label])=>({field:f,label,appVal:appH[f],sheetVal:sheetH[f]}));
           if(diffs.length)dh.push({sn:appH.sn,appItem:appH,sheetItem:sheetH,diffs});
@@ -3036,8 +3095,8 @@ function SheetCompareReview({ctx,onClose}){
     {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
       <div style={{display:"flex",gap:8,marginBottom:10}}>
-        <Btn v="s" onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];for(const d of all)await resolveDiff(d,d.isMachine,false)}} style={{flex:1}}>Manter do App pra todos ({pendingDiffsM.length+pendingDiffsH.length})</Btn>
-        <Btn v="g" onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];for(const d of all)await resolveDiff(d,d.isMachine,true)}} style={{flex:1}}>Usar da Planilha pra todos</Btn>
+        <Btn v="s" onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores do APP em ${all.length} item(ns), sobrescrevendo a planilha.`))return;for(const d of all)await resolveDiff(d,d.isMachine,false)}} style={{flex:1}}>Manter do App pra todos ({pendingDiffsM.length+pendingDiffsH.length})</Btn>
+        <Btn v="g" onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores da PLANILHA em ${all.length} item(ns), sobrescrevendo o app.`))return;for(const d of all)await resolveDiff(d,d.isMachine,true)}} style={{flex:1}}>Usar da Planilha pra todos</Btn>
       </div>
       {[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))].map(d=>
         <div key={(d.isMachine?"m:":"h:")+d.sn} style={{background:"#2a1a0c",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
