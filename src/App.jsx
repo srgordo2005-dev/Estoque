@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { jsPDF } from "jspdf";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 
 // Quando uma tela é aberta com setModal(<Componente ctx={ctx}/>), esse
 // elemento fica "congelado" no estado — se os dados mudarem depois (por
@@ -351,7 +352,13 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,onProgress)
 const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Teste de Máquinas"},{key:"machines",label:"Estoque de Máquinas"},{key:"hashes",label:"Estoque de HASHs"},{key:"admin",label:"Admin (acesso total)"}];
 
 /* ═══ UI PRIMITIVES ═════════════════════════════════════════════ */
-const C={bg:"#080e17",card:"#0f1923",border:"#1a2d42",accent:"#f97316",blue:"#0ea5e9",green:"#16a34a",red:"#dc2626",purple:"#7c3aed",amber:"#d97706",text:"#e2e8f0",muted:"#64748b",subtle:"#94a3b8"};
+const DARK_THEME={bg:"#080e17",card:"#0f1923",card2:"#1a2d42",border:"#1a2d42",accent:"#f97316",blue:"#0ea5e9",green:"#16a34a",red:"#dc2626",purple:"#7c3aed",amber:"#d97706",text:"#e2e8f0",muted:"#64748b",subtle:"#94a3b8"};
+const LIGHT_THEME={bg:"#f4f6f8",card:"#ffffff",card2:"#eef2f6",border:"#dbe2ea",accent:"#ea580c",blue:"#0284c7",green:"#15803d",red:"#dc2626",purple:"#7c3aed",amber:"#b45309",text:"#1e293b",muted:"#64748b",subtle:"#475569"};
+// "C" é mutável de propósito — ao trocar o tema, só troca os valores dentro
+// do MESMO objeto (não cria um objeto novo), assim todo o app (que já lê
+// C.xxx em milhares de lugares) já pega a cor nova sozinho no próximo
+// render, sem precisar mudar cada tela uma por uma.
+let C={...DARK_THEME};
 const inp={width:"100%",background:"#080e17",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",colorScheme:"dark"};
 const Inp=({label,err,...p})=><div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<input {...p} style={{...inp,borderColor:err?C.red:C.border,...p.style}}/>{err&&<div style={{color:C.red,fontSize:11,marginTop:3}}>⚠️ {err}</div>}</div>;
 // Campo de data — clicar em QUALQUER parte do campo abre o calendário (não só
@@ -374,9 +381,33 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose}){
-  const vRef=useRef(),sRef=useRef(),rRef=useRef();
+  const vRef=useRef(),readerRef=useRef(),controlsRef=useRef();
   const[err,setErr]=useState(""),[ok,setOk]=useState(false);
-  useEffect(()=>{(async()=>{try{if(!("BarcodeDetector"in window)){setErr("Scanner não suportado.\nUse Chrome no Android.");return}const det=new window.BarcodeDetector({formats:["qr_code","code_128","code_39","code_93","ean_13","data_matrix"]});const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1920}}});sRef.current=stream;vRef.current.srcObject=stream;await vRef.current.play();setOk(true);const scan=async()=>{try{const f=await det.detect(vRef.current);if(f.length>0){stream.getTracks().forEach(t=>t.stop());onScan(f[0].rawValue);return}}catch{}rRef.current=requestAnimationFrame(scan)};rRef.current=requestAnimationFrame(scan)}catch(e){setErr("Câmera:\n"+e.message)}})();return()=>{if(sRef.current)sRef.current.getTracks().forEach(t=>t.stop());if(rRef.current)cancelAnimationFrame(rRef.current)};},[]);
+  useEffect(()=>{
+    let stopped=false;
+    (async()=>{
+      try{
+        // ZXing funciona em QUALQUER navegador (Chrome/Safari, Android/iPhone)
+        // — diferente do antigo BarcodeDetector, que só existe no Chrome do
+        // Android (nenhum navegador do iPhone tem ele, nem o Chrome, porque
+        // no iOS todos usam o motor do Safari por baixo).
+        const reader=new BrowserMultiFormatReader();
+        readerRef.current=reader;
+        const devices=await BrowserMultiFormatReader.listVideoInputDevices();
+        // Prefere a câmera traseira quando dá pra identificar
+        const backCam=devices.find(d=>/back|rear|environment|traseira/i.test(d.label));
+        const deviceId=backCam?.deviceId||devices[devices.length-1]?.deviceId;
+        const controls=await reader.decodeFromVideoDevice(deviceId,vRef.current,(result,error)=>{
+          if(stopped)return;
+          if(result){stopped=true;controls.stop();onScan(result.getText())}
+          // "NotFoundException" é disparado a cada frame sem código — normal, ignora
+        });
+        controlsRef.current=controls;
+        setOk(true);
+      }catch(e){setErr("Câmera:\n"+(e.message||"não consegui acessar"))}
+    })();
+    return()=>{stopped=true;try{controlsRef.current?.stop()}catch{}};
+  },[]);
   return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<><video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.55)"}}/><div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:"0 0 0 9999px rgba(0,0,0,.55)"}}><div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/></div><div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:14,fontWeight:700}}>{ok?"🔍 Aponte para o código...":"⏳ Iniciando..."}</div></div><button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button></>}</div>;
 }
 
@@ -536,6 +567,9 @@ export default function App(){
   const[user,setUser]=useState(null);
   const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
+  const[theme,setTheme]=useState(()=>localStorage.getItem("hs_theme")||"dark");
+  Object.assign(C,theme==="dark"?DARK_THEME:LIGHT_THEME); // muda os valores no MESMO objeto C
+  const toggleTheme=()=>{const next=theme==="dark"?"light":"dark";localStorage.setItem("hs_theme",next);setTheme(next)};
   const DEFAULT_WEBHOOK_URL="https://script.google.com/macros/s/AKfycbxZ1WpUhjvKWYEUAvQdaRHuu-mb1WLorVMOreihxvSJlMrddJYa-U1obUlu5tGtRjBv/exec";
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||DEFAULT_WEBHOOK_URL);
   const setCol=(col,val)=>setData(d=>({...d,[col]:val}));
@@ -767,7 +801,7 @@ export default function App(){
     ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
-  return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:680,margin:"0 auto"}}>
+  return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:960,margin:"0 auto"}}>
     <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:10}}>
       <span style={{fontSize:20}}>⛏️</span>
       <div style={{flex:1}}><div style={{fontWeight:900,fontSize:14,color:C.accent}}>HashStock</div><div style={{fontSize:10,color:C.muted}}>{user.name} #{user.code}{syncing?" · 🔄":""}</div></div>
@@ -775,11 +809,12 @@ export default function App(){
         {myFdbs.length>0&&<Tag color={C.red}>⚠️{myFdbs.length}</Tag>}
         {myRevisit.length>0&&<Tag color={C.red}>🔁{myRevisit.length}</Tag>}
         {isAdmin&&pendingApprs.length>0&&<Tag color={C.blue}>✅{pendingApprs.length}</Tag>}
-        {isAdmin&&dataWarnings.length>0&&<Tag color={C.red} title="Avisos de integridade de dados">🛡️{dataWarnings.length}</Tag>}
+        {isSuperAdmin&&dataWarnings.length>0&&<Tag color={C.red} title="Avisos de integridade de dados">🛡️{dataWarnings.length}</Tag>}
       </div>
+      <button onClick={toggleTheme} title="Trocar tema" style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:14,marginRight:6}}>{theme==="dark"?"☀️":"🌙"}</button>
       <button onClick={()=>{setUser(null);setTab("home")}} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Sair</button>
     </div>
-    {isAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
+    {isSuperAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
     {isAdmin&&dailyDiff&&<div onClick={()=>{setDailyDiff(null);setModal(<Modal title="🔄 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}} style={{background:"#2a1a0c",borderBottom:`1px solid ${C.amber}`,padding:"8px 16px",fontSize:11,color:C.amber,cursor:"pointer"}}>🔄 Checagem diária: {dailyDiff.total} diferença(s) entre o app e a planilha — toque pra ver e resolver</div>}
     <div style={{padding:"14px 12px 100px"}}>
       {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
@@ -792,7 +827,7 @@ export default function App(){
       {tab==="team"&&isAdmin&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
       {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
     </div>
-    <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:680,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
+    <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:960,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
       {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,background:"none",border:"none",padding:"8px 2px 12px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:tab===t.id?C.accent:C.muted}}><span style={{fontSize:17}}>{t.icon}</span><span style={{fontSize:8,fontWeight:800}}>{t.label}</span></button>)}
     </nav>
     <button onClick={()=>setCamOpen(true)} style={{position:"fixed",right:16,bottom:72,width:52,height:52,borderRadius:"50%",background:C.accent,border:"none",cursor:"pointer",fontSize:22,zIndex:99,boxShadow:"0 4px 16px rgba(249,115,22,.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>
@@ -920,6 +955,29 @@ function QHashEdit({item,ctx,onUpdate,photoKey}){
 }
 
 /* ═══ HOME ══════════════════════════════════════════════════════ */
+// Fila de placas que saíram do conserto e estão esperando teste — pro Admin
+// que não tem a permissão de Teste marcada, mas quer dar uma olhada de vez
+// em quando. Fica ESCONDIDA por padrão, só aparece se ele clicar no olho.
+function AdminTestQueuePeek({data}){
+  const[open,setOpen]=useState(false);
+  const toTest=data.hashes.filter(h=>h.status==="TESTAR");
+  return<div style={{marginBottom:16}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setOpen(o=>!o)}>
+      <div style={{fontWeight:800,fontSize:14}}>⏳ Fila de Teste (placas do conserto)</div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}><Tag color={toTest.length>0?C.amber:"#1a2d42"}>{toTest.length}</Tag><span style={{fontSize:16}}>{open?"🙈":"👁️"}</span></div>
+    </div>
+    {open&&<div style={{marginTop:10}}>
+      {toTest.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Fila vazia</div>:toTest.map(h=>{
+        const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;
+        return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8}}>
+          <div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div>
+          <div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · consertada por 👷 ${repName}`:""}</div>
+        </div>;
+      })}
+    </div>}
+  </div>;
+}
+
 function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab}=ctx;const today=TODAY();
   const toTest=data.hashes.filter(h=>h.status==="TESTAR");
@@ -932,6 +990,7 @@ function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
     {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
     {!isAdmin&&myRejectedHashes.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>❌ HASHs Recusadas ({myRejectedHashes.length})</div>{myRejectedHashes.map(a=><Card key={a._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {a.sn}{a.machineSN?` (na máquina ${a.machineSN})`:""}</div>{a.notes&&<div style={{fontSize:12,marginTop:4}}>📝 {a.notes}</div>}</Card>)}</div>}
     {user.permissions?.testing&&<div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontWeight:800,fontSize:14}}>⏳ Para Testar</div><Tag color={toTest.length>0?C.amber:"#1a2d42"}>{toTest.length}</Tag></div>{toTest.slice(0,3).map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · 👷 ${repName}`:""}</div></div><HP s={h.status}/></div>})}<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn></div>}
+    {isAdmin&&!user.permissions?.testing&&<AdminTestQueuePeek data={data}/>}
     {isAdmin&&<AdminSummary data={data}/>}
     <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
   </div>;
@@ -2597,7 +2656,7 @@ function ApprovalsPage({ctx}){
         <div style={{display:"flex",gap:8,marginTop:8}}>
           <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
-    {data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div></div>)}</>}
+    {data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>{user.code==="019"&&<button onClick={async()=>{if(!confirm("Apagar essa revisão do histórico? Não dá pra desfazer."))return;await fbDel("pendingApprovals",a._id);mutate("approvals",arr=>arr.filter(x=>x._id!==a._id));await markChanged("approvals")}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></div>)}</>}
   </div>;
 }
 
@@ -2612,8 +2671,9 @@ function TeamPage({ctx,canSeeEmp}){
       {[["list","👷 Equipe"],["daily","📅 Relatório do Dia"]].map(([id,l])=><button key={id} onClick={()=>setSubTab(id)} style={{flex:1,background:subTab===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}
     </div>
     {subTab==="daily"?<DailyTeamReport ctx={ctx}/>:<>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div><div style={{fontWeight:900,fontSize:18}}>Equipe</div><div style={{color:C.muted,fontSize:12}}>{data.employees.length} funcionários</div></div><Btn onClick={openAdd}>+ Funcionário</Btn></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div><div style={{fontWeight:900,fontSize:18}}>Equipe</div><div style={{color:C.muted,fontSize:12}}>{data.employees.filter(e=>isSuper||e.code!=="019").length} funcionários</div></div><Btn onClick={openAdd}>+ Funcionário</Btn></div>
     {data.employees.map(e=>{
+      if(e.code==="019"&&!isSuper)return null; // ninguém além do próprio 019 vê essa conta
       if(!canSeeEmp(e._id)&&!data.employees.find(x=>x._id===ctx.user._id)?.permissions?.admin)return null;
       const rT=data.repairs.filter(r=>(r.employeeId===e._id||r._by===e._id)&&r.date===today&&r.type!=="already_good").length;
       const gT=data.repairs.filter(r=>(r.employeeId===e._id||r._by===e._id)&&r.date===today&&r.type==="already_good").length;
@@ -3834,18 +3894,25 @@ function ClientReport({ctx,client}){
 
 /* ═══ EQUIPE DETALHES ════════════════════════════════════════ */
 function EmpHistory({ctx,emp}){
-  const{data}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
+  const{data,mutate,user}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
+  const isSuperAdmin=user.code==="019";
   const allR=data.repairs.filter(r=>r.employeeId===emp._id||r._by===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id||t._by===emp._id);
   const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
   const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
+  const delItem=async(item,isRepair)=>{
+    if(!confirm("Apagar essa movimentação do histórico? Não dá pra desfazer."))return;
+    await fbDel(isRepair?"repairs":"tests",item._id);
+    mutate(isRepair?"repairs":"tests",arr=>arr.filter(x=>x._id!==item._id));
+    await markChanged(isRepair?"repairs":"tests");
+  };
   return<div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
       {[[allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent],[allT.length,"Testes",C.blue],[data.feedbacks?.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length||0,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
     </div>
     <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
-      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></Card>)}
-      {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></Card>)}
+      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></div>{isSuperAdmin&&<button onClick={()=>delItem(r,true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></Card>)}
+      {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></div>{isSuperAdmin&&<button onClick={()=>delItem(t,false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></Card>)}
     </>}
     <SL mt={12}>Por Dia</SL>
     {Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid "+C.border,fontSize:12,cursor:"pointer"}}><span style={{color:d===dateFilter?C.accent:C.text}}>{fmtDate(d)}</span><Tag color={C.accent} small>{byDate[d]}</Tag></div>)}
