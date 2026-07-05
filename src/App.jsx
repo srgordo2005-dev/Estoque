@@ -761,8 +761,8 @@ export default function App(){
     {id:"home",icon:"🏠",label:"Início"},
     ...(p.machines||isAdmin?[{id:"mac",icon:"🖥️",label:"Máquinas"}]:[]),
     ...(p.hashes||isAdmin?[{id:"hsh",icon:"⚡",label:"HASHs"}]:[]),
-    ...(p.repairs&&!isAdmin?[{id:"conserto",icon:"🔧",label:"Conserto"}]:[]),
-    ...(p.testing&&!isAdmin?[{id:"teste",icon:"🧪",label:"Teste"}]:[]),
+    ...(p.repairs?[{id:"conserto",icon:"🔧",label:"Conserto"}]:[]),
+    ...(p.testing?[{id:"teste",icon:"🧪",label:"Teste"}]:[]),
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
     ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
@@ -785,8 +785,8 @@ export default function App(){
       {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
       {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
       {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
-      {tab==="conserto"&&p.repairs&&!isAdmin&&<ConsertaPage ctx={ctx}/>}
-      {tab==="teste"&&p.testing&&!isAdmin&&<TestePage ctx={ctx}/>}
+      {tab==="conserto"&&p.repairs&&<ConsertaPage ctx={ctx}/>}
+      {tab==="teste"&&p.testing&&<TestePage ctx={ctx}/>}
       {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
       {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&isAdmin&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&isAdmin&&<ApprovalsPage ctx={ctx}/>}
       {tab==="team"&&isAdmin&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
@@ -931,7 +931,7 @@ function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
     {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
     {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
     {!isAdmin&&myRejectedHashes.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>❌ HASHs Recusadas ({myRejectedHashes.length})</div>{myRejectedHashes.map(a=><Card key={a._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {a.sn}{a.machineSN?` (na máquina ${a.machineSN})`:""}</div>{a.notes&&<div style={{fontSize:12,marginTop:4}}>📝 {a.notes}</div>}</Card>)}</div>}
-    {user.permissions?.testing&&!isAdmin&&<div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontWeight:800,fontSize:14}}>⏳ Para Testar</div><Tag color={toTest.length>0?C.amber:"#1a2d42"}>{toTest.length}</Tag></div>{toTest.slice(0,3).map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · 👷 ${repName}`:""}</div></div><HP s={h.status}/></div>})}<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn></div>}
+    {user.permissions?.testing&&<div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontWeight:800,fontSize:14}}>⏳ Para Testar</div><Tag color={toTest.length>0?C.amber:"#1a2d42"}>{toTest.length}</Tag></div>{toTest.slice(0,3).map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · 👷 ${repName}`:""}</div></div><HP s={h.status}/></div>})}<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn></div>}
     {isAdmin&&<AdminSummary data={data}/>}
     <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
   </div>;
@@ -2834,6 +2834,38 @@ function CfgPage({ctx}){
     }catch(e){setResetRes("✗ Erro: "+e.message)}
     setResetting(false);setResetProg("");setResetConfirmText("");
   };
+  const[linkTecProg,setLinkTecProg]=useState(""),[linkTecRes,setLinkTecRes]=useState(""),[linkingTec,setLinkingTec]=useState(false);
+  // Vincula o técnico (nome que já está na planilha) nas HASHs que já foram
+  // cadastradas antes e ficaram sem esse vínculo — cria o registro de
+  // conserto pra elas, usando a data que a HASH já tinha.
+  const linkTecnicos=async()=>{
+    setLinkingTec(true);setLinkTecRes("");setLinkTecProg("Lendo a planilha...");
+    try{
+      const sheetHashes=await importHashesFromSheet(webhookUrl);
+      const targets=data.hashes.filter(h=>validSN(h.sn)&&!h.repairedBy);
+      let linked=0,noMatch=0;
+      const hashWrites=[],repairWrites=[];
+      targets.forEach((h,i)=>{
+        const sheetH=sheetHashes.find(sh=>validSN(sh.sn)===validSN(h.sn));
+        const tecnicoName=(sheetH?.tecnico||"").trim();
+        if(!tecnicoName)return;
+        const emp=data.employees.find(e=>e.name.trim().toLowerCase()===tecnicoName.toLowerCase());
+        if(!emp){noMatch++;return}
+        const date=h.addedAt||TODAY();
+        hashWrites.push({c:"hashes",id:h._id,d:{...h,repairedBy:emp._id,repairedByName:emp.name}});
+        repairWrites.push({c:"repairs",id:uid(),d:{hashSN:h.sn,model:h.model,type:"repair",employeeId:emp._id,_by:emp._id,_byName:emp.name,_at:date,date,status:"TESTAR"}});
+        linked++;
+      });
+      setLinkTecProg(`Salvando ${linked} vínculo(s)...`);
+      const allWrites=[...hashWrites,...repairWrites];
+      for(let i=0;i<allWrites.length;i+=200)await fbBatch(allWrites.slice(i,i+200));
+      mutate("hashes",arr=>arr.map(h=>{const w=hashWrites.find(x=>x.id===h._id);return w?w.d:h}));
+      mutate("repairs",arr=>[...arr,...repairWrites.map(w=>({...w.d,_id:w.id}))]);
+      await markChanged("hashes");await markChanged("repairs");
+      setLinkTecRes(`✓ ${linked} HASH(s) vinculada(s) ao técnico${noMatch?` (${noMatch} não encontraram um funcionário com esse nome cadastrado)`:""}.`);
+    }catch(e){setLinkTecRes("✗ Erro: "+e.message)}
+    setLinkingTec(false);setLinkTecProg("");
+  };
   const recalcProtection=()=>{
     resetMaxCount("machines",data.machines.length);
     resetMaxCount("hashes",data.hashes.length);
@@ -2933,6 +2965,13 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       {resetProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {resetProg}</div>}
       {resetRes&&<Alrt type={resetRes.startsWith("✓")?"ok":"err"}>{resetRes}</Alrt>}
       <Btn v="d" onClick={resetAndReimport} disabled={resetting||resetConfirmText.trim().toUpperCase()!=="RESETAR MAQUINAS"} style={{width:"100%"}}>{resetting?"Processando...":"💣 Apagar e Reimportar Tudo"}</Btn>
+    </Card>
+    <Card style={{marginBottom:14,border:`1px solid ${C.blue}`}}>
+      <SL>👷 VINCULAR TÉCNICO ÀS HASHs JÁ CADASTRADAS</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Pra HASHs que já existem no app mas não têm o técnico vinculado — busca o nome na planilha, casa com um funcionário já cadastrado, e cria o conserto no histórico dele com a data que a HASH já tinha.</div>
+      {linkTecProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {linkTecProg}</div>}
+      {linkTecRes&&<Alrt type={linkTecRes.startsWith("✓")?"ok":"err"}>{linkTecRes}</Alrt>}
+      <Btn v="b" onClick={linkTecnicos} disabled={linkingTec} style={{width:"100%"}}>{linkingTec?"Processando...":"👷 Vincular Técnicos"}</Btn>
     </Card>
     <MigrationPanel ctx={ctx}/>
     <Card style={{marginBottom:14,border:`1px solid ${C.green}`}}>
