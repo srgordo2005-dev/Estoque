@@ -587,11 +587,13 @@ export default function App(){
         feedbacks:out.feedbacks!==undefined?(out.feedbacks.length?out.feedbacks:prev.feedbacks):prev.feedbacks,
         approvals:out.pendingApprovals!==undefined?(out.pendingApprovals.length?out.pendingApprovals:prev.approvals):prev.approvals,
         customModels:out.customModels!==undefined?(out.customModels.length?out.customModels:prev.customModels):prev.customModels,
-        pallets:out.pallets!==undefined?(out.pallets.length?out.pallets:prev.pallets):prev.pallets,
-        clients:out.clients!==undefined?(out.clients.length?out.clients:prev.clients):prev.clients,
+        pallets:merge("pallets",out.pallets),
+        clients:merge("clients",out.clients),
       };
       if(next.machines.length)localStorage.setItem("hs_machines",JSON.stringify(next.machines));
       if(next.hashes.length)localStorage.setItem("hs_hashes",JSON.stringify(next.hashes));
+      if(next.pallets.length)localStorage.setItem("hs_pallets",JSON.stringify(next.pallets));
+      if(next.clients.length)localStorage.setItem("hs_clients",JSON.stringify(next.clients));
       if(warnings.length)setDataWarnings(w=>[...warnings.map(m=>({msg:m,at:stamp()})),...w].slice(0,20));
       return next;
     });
@@ -613,6 +615,8 @@ export default function App(){
         ...d,
         machines:JSON.parse(localStorage.getItem("hs_machines")||"[]"),
         hashes:JSON.parse(localStorage.getItem("hs_hashes")||"[]"),
+        pallets:JSON.parse(localStorage.getItem("hs_pallets")||"[]"),
+        clients:JSON.parse(localStorage.getItem("hs_clients")||"[]"),
       }));
       setLoading(false);
       return;
@@ -643,9 +647,13 @@ export default function App(){
       const{out,errs}=await fetchAllCollections();
       const cachedM=JSON.parse(localStorage.getItem("hs_machines")||"[]");
       const cachedH=JSON.parse(localStorage.getItem("hs_hashes")||"[]");
+      const cachedP=JSON.parse(localStorage.getItem("hs_pallets")||"[]");
+      const cachedC=JSON.parse(localStorage.getItem("hs_clients")||"[]");
       const gM=guardCount("machines",out.machines,cachedM);
       const gH=guardCount("hashes",out.hashes,cachedH);
-      const warnings=[...errs,gM.warn,gH.warn].filter(Boolean);
+      const gP=guardCount("pallets",out.pallets,cachedP);
+      const gC=guardCount("clients",out.clients,cachedC);
+      const warnings=[...errs,gM.warn,gH.warn,gP.warn,gC.warn].filter(Boolean);
       setData(d=>({
         ...d,
         machines:gM.use.length?gM.use:cachedM,
@@ -655,11 +663,13 @@ export default function App(){
         feedbacks:out.feedbacks.length?out.feedbacks:d.feedbacks,
         approvals:out.pendingApprovals.length?out.pendingApprovals:d.approvals,
         customModels:out.customModels.length?out.customModels:d.customModels,
-        pallets:out.pallets.length?out.pallets:d.pallets,
-        clients:out.clients.length?out.clients:d.clients,
+        pallets:gP.use.length?gP.use:cachedP,
+        clients:gC.use.length?gC.use:cachedC,
       }));
       if(gM.use.length)localStorage.setItem("hs_machines",JSON.stringify(gM.use));
       if(gH.use.length)localStorage.setItem("hs_hashes",JSON.stringify(gH.use));
+      if(gP.use.length)localStorage.setItem("hs_pallets",JSON.stringify(gP.use));
+      if(gC.use.length)localStorage.setItem("hs_clients",JSON.stringify(gC.use));
       localStorage.setItem("hs_lastFullFetch",String(Date.now()));
       if(warnings.length)setDataWarnings(w=>[...warnings.map(m=>({msg:m,at:stamp()})),...w].slice(0,20));
     }catch(e){
