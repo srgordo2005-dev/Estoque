@@ -3035,7 +3035,7 @@ function SheetCompareReview({ctx,onClose}){
         const blankM=data.machines.filter(m=>!validSN(m.sn));
         const blankH=data.hashes.filter(h=>!validSN(h.sn));
         const countBy={};data.machines.forEach(m=>{const k=validSN(m.sn);if(k)countBy[k]=(countBy[k]||0)+1});
-        const dupM=Object.entries(countBy).filter(([,c])=>c>1).map(([sn,c])=>({sn,count:c}));
+        const dupM=Object.entries(countBy).filter(([,c])=>c>1).map(([sn,c])=>({sn,count:c,items:data.machines.filter(m=>validSN(m.sn)===sn)}));
         const countByH={};data.hashes.forEach(h=>{const k=validSN(h.sn);if(k)countByH[k]=(countByH[k]||0)+1});
         const dupH=Object.entries(countByH).filter(([,c])=>c>1).map(([sn,c])=>({sn,count:c}));
         setDupInfo({blankM,blankH,dupM,dupH});
@@ -3191,7 +3191,16 @@ function SheetCompareReview({ctx,onClose}){
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 CONTAGEM NÃO BATE? Achei isso no app:</div>
     {dupInfo.blankM.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ {dupInfo.blankM.length} máquina(s) SEM SN no app (não aparecem na comparação normal)</div>}
     {dupInfo.blankH.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ {dupInfo.blankH.length} HASH(s) SEM SN no app</div>}
-    {dupInfo.dupM.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ SN duplicado em máquinas: {dupInfo.dupM.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
+    {dupInfo.dupM.length>0&&<div style={{marginTop:8}}>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>⚠️ SN duplicado em máquinas — confira e apague a errada:</div>
+      {dupInfo.dupM.map(d=><div key={d.sn} style={{background:"#1a0a0a",borderRadius:8,padding:8,marginBottom:8}}>
+        <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>{d.sn} ({d.count}x)</div>
+        {d.items.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderTop:`1px solid ${C.border}`}}>
+          <div style={{fontSize:11}}>{m.model} · {m.situacao} · adicionada {m.addedAt||"?"} {m.destino?`· cliente: ${m.destino}`:""}</div>
+          <button onClick={async()=>{if(!confirm(`Apagar essa cópia de ${m.sn} (${m.model} · ${m.situacao})? A outra cópia continua.`))return;await fbDel("machines",m._id);mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await markChanged("machines");setDupInfo(di=>({...di,dupM:di.dupM.map(x=>x.sn===d.sn?{...x,items:x.items.filter(it=>it._id!==m._id),count:x.count-1}:x).filter(x=>x.count>1)}))}} style={{background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0,marginLeft:8}}>🗑️ Apagar essa</button>
+        </div>)}
+      </div>)}
+    </div>}
     {dupInfo.dupH.length>0&&<div style={{fontSize:12}}>⚠️ SN duplicado em HASHs: {dupInfo.dupH.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
   </div>;
   const GroupDiffBox=groupDiffs.length>0&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
