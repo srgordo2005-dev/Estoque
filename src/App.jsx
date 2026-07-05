@@ -40,7 +40,7 @@ const SUPABASE_KEY="sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h"; // sb_publi
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 
 // Nome da coleção (usado no resto do app, igual antes) → nome da tabela real no Postgres
-const TABLE_MAP={pendingApprovals:"pending_approvals",customModels:"custom_models"};
+const TABLE_MAP={pendingApprovals:"pending_approvals",customModels:"custom_models",loadPhotos:"load_photos"};
 const tableName=c=>TABLE_MAP[c]||c;
 
 // Mapa de campos: nome usado no app (camelCase/Firestore) → coluna no Postgres (snake_case).
@@ -515,7 +515,7 @@ class SafeTab extends React.Component{
 
 export default function App(){
   const[user,setUser]=useState(null);
-  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[]});
+  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
   const DEFAULT_WEBHOOK_URL="https://script.google.com/macros/s/AKfycbxZ1WpUhjvKWYEUAvQdaRHuu-mb1WLorVMOreihxvSJlMrddJYa-U1obUlu5tGtRjBv/exec";
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||DEFAULT_WEBHOOK_URL);
@@ -555,9 +555,9 @@ export default function App(){
   const resetMaxCount=(col,newCount)=>{localStorage.setItem("hs_maxcount_"+col,String(newCount))};
 
   // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore
-  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments"};
+  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos"};
   const fetchAllCollections=async(onlyKeys)=>{
-    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments"];
+    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments","loadPhotos"];
     const cols=onlyKeys?onlyKeys.map(k=>META_TO_COL[k]).filter(Boolean):allCols;
     // Espaça o INÍCIO de cada leitura em 120ms — evita disparar tudo junto
     // de uma vez (rajada), o que ajuda a não estourar limites por minuto
@@ -589,6 +589,7 @@ export default function App(){
         customModels:out.customModels!==undefined?(out.customModels.length?out.customModels:prev.customModels):prev.customModels,
         pallets:merge("pallets",out.pallets),
         clients:merge("clients",out.clients),
+        loadPhotos:out.loadPhotos!==undefined?(out.loadPhotos.length?out.loadPhotos:prev.loadPhotos):prev.loadPhotos,
       };
       if(next.machines.length)localStorage.setItem("hs_machines",JSON.stringify(next.machines));
       if(next.hashes.length)localStorage.setItem("hs_hashes",JSON.stringify(next.hashes));
@@ -665,6 +666,7 @@ export default function App(){
         customModels:out.customModels.length?out.customModels:d.customModels,
         pallets:gP.use.length?gP.use:cachedP,
         clients:gC.use.length?gC.use:cachedC,
+        loadPhotos:out.loadPhotos.length?out.loadPhotos:d.loadPhotos,
       }));
       if(gM.use.length)localStorage.setItem("hs_machines",JSON.stringify(gM.use));
       if(gH.use.length)localStorage.setItem("hs_hashes",JSON.stringify(gH.use));
@@ -686,7 +688,7 @@ export default function App(){
   // Supabase não cobra por leitura, não tem problema reler a coleção inteira
   // sempre que algo mudar.
   useEffect(()=>{
-    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments"};
+    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",load_photos:"loadPhotos"};
     const debounceTimers={};
     const channel=supabase.channel("hashstock-realtime");
     Object.keys(TABLE_TO_META).forEach(table=>{
@@ -1060,6 +1062,7 @@ function BatchSNForm({ctx,onClose}){
     writes.forEach(w=>{
       syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code});
       syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
+      ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn,field:k,to:w.d[k],employeeName:user.name,employeeCode:user.code}));
     });
     setSaving(false);clearPending();onClose();
   };
@@ -1107,7 +1110,10 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     // pro ciclo normal (o histórico dela no cliente continua existindo, só
     // não fica mais marcada como "saída" pra ele).
     syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
-    if(forceOn)["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}));
+    // Sempre manda o ON/OFF de cada componente pra planilha — antes só ia
+    // quando a situação era BOA (forceOn), então qualquer ON/OFF marcado
+    // manualmente com outra situação nunca chegava na planilha.
+    ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:k,to:d[k],employeeName:user.name,employeeCode:user.code}));
     // Cria (se for nova) ou vincula (se já existir) a HASH de cada slot —
     // antes isso nunca acontecia, só ficava o texto do SN salvo na máquina,
     // sem criar a HASH nem mandar o SN pra planilha de verdade.
@@ -1413,6 +1419,16 @@ function MachineDetail({ctx,machine}){
           }
         }
         await markChanged("pallets");
+        // Idem pros clientes — senão a ficha do cliente fica com contagem
+        // errada (SN fantasma que não existe mais).
+        for(const cl of data.clients){
+          if((cl.machinesSN||[]).includes(m.sn)){
+            const ns=(cl.machinesSN||[]).filter(s=>s!==m.sn);
+            const upd3={...cl,machinesSN:ns,...audit(user)};
+            mutate("clients",arr=>arr.map(x=>x._id===cl._id?upd3:x));await fbSet("clients",cl._id,upd3);
+          }
+        }
+        await markChanged("clients");
         mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);await markChanged("machines");setModal(null)
       }} style={{width:"100%",marginTop:14}}>🗑 Remover</Btn>
     </div>
@@ -1702,6 +1718,14 @@ function HashDetail({ctx,hash}){
         }
       }
       await markChanged("pallets");
+      for(const cl of data.clients){
+        if((cl.hashesSN||[]).includes(h.sn)){
+          const ns=(cl.hashesSN||[]).filter(s=>s!==h.sn);
+          const upd3={...cl,hashesSN:ns,...audit(user)};
+          mutate("clients",arr=>arr.map(x=>x._id===cl._id?upd3:x));await fbSet("clients",cl._id,upd3);
+        }
+      }
+      await markChanged("clients");
       mutate("hashes",arr=>arr.filter(x=>x._id!==h._id));await fbDel("hashes",h._id);await markChanged("hashes");setModal(null)
     }} style={{width:"100%",marginTop:8}}>🗑 Remover</Btn>
   </div>;
@@ -2951,13 +2975,15 @@ function SheetCompareReview({ctx,onClose}){
     setSaving(true);
     for(const m of mToDel){
       for(const pl of data.pallets){if((pl.machinesSN||[]).includes(m.sn)){const ns=(pl.machinesSN||[]).filter(s=>s!==m.sn);const upd2={...pl,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2)}}
+      for(const cl of data.clients){if((cl.machinesSN||[]).includes(m.sn)){const ns=(cl.machinesSN||[]).filter(s=>s!==m.sn);const upd3={...cl,machinesSN:ns,...audit(user)};mutate("clients",arr=>arr.map(x=>x._id===cl._id?upd3:x));await fbSet("clients",cl._id,upd3)}}
       await fbDel("machines",m._id);mutate("machines",arr=>arr.filter(x=>x._id!==m._id))
     }
     for(const h of hToDel){
       for(const pl of data.pallets){if((pl.hashesSN||[]).includes(h.sn)){const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);const upd2={...pl,hashesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2)}}
+      for(const cl of data.clients){if((cl.hashesSN||[]).includes(h.sn)){const ns=(cl.hashesSN||[]).filter(s=>s!==h.sn);const upd3={...cl,hashesSN:ns,...audit(user)};mutate("clients",arr=>arr.map(x=>x._id===cl._id?upd3:x));await fbSet("clients",cl._id,upd3)}}
       await fbDel("hashes",h._id);mutate("hashes",arr=>arr.filter(x=>x._id!==h._id))
     }
-    await markChanged("pallets");
+    await markChanged("pallets");await markChanged("clients");
     // Avisa a blindagem de dados que essa contagem menor é de propósito —
     // senão ela ia "proteger" e trazer de volta o que acabamos de apagar.
     if(mToDel.length)resetMaxCount("machines",data.machines.length-mToDel.length);
@@ -3222,7 +3248,7 @@ function ClientesPage({ctx}){
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>Clientes</div><div style={{color:C.muted,fontSize:12}}>{clients.length} clientes</div></div><Btn onClick={openAdd}>+ Cliente</Btn></div>
     {clients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente</div></div>
       :clients.map(c=>{const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);return<Card key={c._id} onClick={()=>openDetail(c)}>
-        <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:14}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.muted,fontSize:12}}>📱 {c.phone}</div>}</div><Tag color={C.accent}>{c.machinesSN?.length||0} máq.</Tag></div>
+        <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:14}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.muted,fontSize:12}}>📱 {c.phone}</div>}</div><Tag color={C.accent}>{macs.length} máq.</Tag></div>
         {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:(SIT_C[m.situacao]||C.muted)+"22",borderRadius:6,padding:"2px 6px",fontSize:10,color:SIT_C[m.situacao]||C.muted}}>{m.sn?.slice(0,10)||"s/sn"}</span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
         <By by={c._byName} at={c._at}/>
       </Card>;})}
@@ -3234,11 +3260,43 @@ function AddClientForm({ctx,onClose}){
   const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),phone,notes,machinesSN:[],...audit(user),createdAt:TODAY()};await fbSet("clients",id,d);mutate("clients",c=>[...c,{...d,_id:id}]);await markChanged("clients");onClose()};
   return<div><Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: João Silva" autoFocus/><Inp label="Telefone" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(47) 99999-9999"/><Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Endereço, empresa..."/><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div></div>;
 }
+// Fotos da carga do envio — pode adicionar VÁRIAS, cada uma soma na lista
+// (não substitui a anterior), sempre com a data de hoje. Serve pra registrar
+// o carregamento físico (caminhão, palete, etc.) além das fotos de cada
+// máquina/HASH individual.
+function ClientLoadPhotos({ctx,client}){
+  const{data,mutate,user}=ctx;
+  const[adding,setAdding]=useState(false);
+  const myPhotos=(data.loadPhotos||[]).filter(p=>p.clientId===client._id).sort((a,b)=>(b._at||"").localeCompare(a._at||""));
+  const addPhoto=async(photoKey)=>{
+    if(!photoKey)return;
+    const id=uid();
+    const d={clientId:client._id,clientName:client.name,photoKey,date:TODAY(),...audit(user)};
+    await fbSet("loadPhotos",id,d);mutate("loadPhotos",arr=>[...arr,{...d,_id:id}]);await markChanged("loadPhotos");
+    setAdding(false);
+  };
+  return<div style={{marginBottom:14}}>
+    <SL>📸 Fotos da Carga do Envio ({myPhotos.length})</SL>
+    <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Pode adicionar quantas quiser — cada uma fica salva com a data de hoje, sem apagar as anteriores.</div>
+    {!adding?<Btn v="b" onClick={()=>setAdding(true)} style={{width:"100%",marginBottom:10}}>➕ Adicionar Foto da Carga</Btn>
+      :<div style={{marginBottom:10}}><PhotoCapture photoKey={null} onChange={addPhoto} folder="cargas" snHint={client.name}/></div>}
+    {myPhotos.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+      {myPhotos.map(p=><div key={p._id}><PhotoView photoKey={p.photoKey} style={{maxHeight:120}}/><div style={{fontSize:10,color:C.muted,marginTop:2,textAlign:"center"}}>{fmtDate(p.date)}</div></div>)}
+    </div>}
+  </div>;
+}
+
 function ClientDetail({ctx,client}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
   const[c,setC]=useState(client),[itemType,setItemType]=useState("machine"),[pending,setPending]=useState([]),[removeInput,setRemoveInput]=useState(""),[saving,setSaving]=useState(false),[blockMsg,setBlockMsg]=useState("");
   const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
   const hshs=(c.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
+  const ghostM=(c.machinesSN||[]).filter(sn=>!data.machines.find(m=>m.sn===sn));
+  const ghostH=(c.hashesSN||[]).filter(sn=>!data.hashes.find(h=>h.sn===sn));
+  const limparFantasmasCliente=async()=>{
+    const upd2={...c,machinesSN:(c.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(c.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
+    setC(upd2);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd2:x));await fbSet("clients",c._id,upd2);await markChanged("clients");
+  };
   // Item 1+2: bipagem em lote — cada SN bipado entra numa lista mostrando se
   // já existe (modelo/status) ou se é novo; só grava tudo quando aperta Salvar.
   const addToPending=(raw)=>{
@@ -3353,8 +3411,14 @@ function ClientDetail({ctx,client}){
   const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))remMac(sn);else if((c.hashesSN||[]).includes(sn))remHash(sn);setRemoveInput("")};
   const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
   return<div>
-    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}><div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}{c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}<div style={{marginTop:8,display:"flex",gap:8}}><div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:20}}>{c.machinesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>Máquinas</div></div><div style={{background:C.purple+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.purple,fontSize:20}}>{c.hashesSN?.length||0}</div><div style={{fontSize:10,color:C.muted}}>HASHs</div></div></div></div>
+    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}><div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}{c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}<div style={{marginTop:8,display:"flex",gap:8}}><div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:20}}>{macs.length}</div><div style={{fontSize:10,color:C.muted}}>Máquinas</div></div><div style={{background:C.purple+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.purple,fontSize:20}}>{hshs.length}</div><div style={{fontSize:10,color:C.muted}}>HASHs</div></div></div></div>
+    {(ghostM.length>0||ghostH.length>0)&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:12}}>
+      <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:6}}>⚠️ {ghostM.length+ghostH.length} SN(s) "fantasma" nessa ficha</div>
+      <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Foram removidos/apagados em outro lugar, mas continuavam contando aqui: {[...ghostM,...ghostH].join(", ")}</div>
+      <Btn v="b" onClick={limparFantasmasCliente} style={{width:"100%"}}>🧹 Limpar esses da ficha</Btn>
+    </div>}
     <Btn v="b" onClick={()=>setModal(<Modal title={`📋 Relatório — ${c.name}`} onClose={()=>setModal(null)}><ClientReport ctx={ctx} client={c}/></Modal>)} style={{width:"100%",marginBottom:14}}>📋 Relatório de Envios</Btn>
+    <ClientLoadPhotos ctx={ctx} client={c}/>
     <div style={{color:C.amber,fontSize:11,marginBottom:8}}>⚠️ Ao salvar, vai tudo pra SAIDA (máquina e HASHs internas dela também)</div>
     <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}>
       <SL>O QUE VOCÊ VAI ADICIONAR?</SL>
@@ -3387,12 +3451,22 @@ function ClientDetail({ctx,client}){
 // filtro por modelo e data.
 function ClientReport({ctx,client}){
   const{data,setModal}=ctx;
-  const[modelFilter,setModelFilter]=useState(""),[dateFilter,setDateFilter]=useState(""),[gen,setGen]=useState(false),[genProg,setGenProg]=useState("");
+  const[modelFilter,setModelFilter]=useState(""),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[gen,setGen]=useState(false),[genProg,setGenProg]=useState("");
   const macs=(client.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
   const hshs=(client.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
   const allModelsUsed=[...new Set([...macs.map(m=>m.model),...hshs.map(h=>h.model)].filter(Boolean))].sort();
-  const macsF=macs.filter(m=>(!modelFilter||m.model===modelFilter)&&(!dateFilter||(m._at||"").slice(0,10)===dateFilter));
-  const hshsF=hshs.filter(h=>(!modelFilter||h.model===modelFilter)&&(!dateFilter||(h._at||"").slice(0,10)===dateFilter));
+  // Período: se só preencher "De", filtra só aquele dia; se preencher os
+  // dois, filtra o intervalo (ex: 02 até 15).
+  const inRange=at=>{
+    if(!at)return!dateFrom&&!dateTo;
+    const d=at.slice(0,10);
+    if(dateFrom&&d<dateFrom)return false;
+    if(dateTo&&d>dateTo)return false;
+    if(dateFrom&&!dateTo&&d!==dateFrom)return false; // só "De" preenchido = só aquele dia
+    return true;
+  };
+  const macsF=macs.filter(m=>(!modelFilter||m.model===modelFilter)&&inRange(m._at));
+  const hshsF=hshs.filter(h=>(!modelFilter||h.model===modelFilter)&&inRange(h._at));
   const baixarPDF=async()=>{
     setGen(true);setGenProg("Montando...");
     try{await generateClientPDF(client,macsF,hshsF,data,(done,total)=>setGenProg(`Montando... ${done}/${total}`))}
@@ -3402,7 +3476,11 @@ function ClientReport({ctx,client}){
   return<div>
     <div style={{display:"flex",gap:8,marginBottom:10}}>
       <Sel label="MODELO" value={modelFilter} onChange={e=>setModelFilter(e.target.value)} style={{flex:1}}><option value="">Todos</option>{allModelsUsed.map(m=><option key={m}>{m}</option>)}</Sel>
-      <DateInp label="DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)} style={{flex:1}}/>
+    </div>
+    <div style={{display:"flex",gap:8,marginBottom:4,alignItems:"flex-end"}}>
+      <DateInp label="DE" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{flex:1}}/>
+      <DateInp label="ATÉ (opcional — deixe vazio pra só 1 dia)" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{flex:1}}/>
+      {(dateFrom||dateTo)&&<Btn v="s" onClick={()=>{setDateFrom("");setDateTo("")}} style={{marginBottom:12}}>Limpar</Btn>}
     </div>
     <Btn v="g" onClick={baixarPDF} disabled={gen||(macsF.length+hshsF.length===0)} style={{width:"100%",marginBottom:10}}>{gen?genProg:"📄 Baixar PDF"}</Btn>
     <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{macsF.length} máquina(s) · {hshsF.length} HASH(s) avulsa(s)</div>
@@ -3427,15 +3505,30 @@ function ClientReport({ctx,client}){
     </>}
     {macsF.length===0&&hshsF.length===0&&<div style={{textAlign:"center",color:C.muted,padding:24}}>Nada encontrado com esse filtro</div>}
     {(()=>{
-      const ships=(data.shipments||[]).filter(s=>s.clientId===client._id).sort((a,b)=>(b.sentAt||"").localeCompare(a.sentAt||""));
-      if(!ships.length)return null;
-      return<><SL mt={18}>📦 HISTÓRICO DE ENVIOS ({ships.length})</SL>
+      const ships=(data.shipments||[]).filter(s=>s.clientId===client._id&&inRange(s.sentAt));
+      const loadPhotosF=(data.loadPhotos||[]).filter(p=>p.clientId===client._id&&inRange(p._at));
+      if(!ships.length&&!loadPhotosF.length)return null;
+      // Agrupa por dia — mostra as máquinas enviadas naquele dia, e a(s)
+      // foto(s) da carga daquele dia logo em seguida, antes de passar pro
+      // próximo dia.
+      const days=[...new Set([...ships.map(s=>(s.sentAt||"").slice(0,10)),...loadPhotosF.map(p=>p.date)])].filter(Boolean).sort().reverse();
+      return<><SL mt={18}>📦 HISTÓRICO DE ENVIOS POR DIA</SL>
         <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Cada envio fica registrado aqui pra sempre — se a máquina voltar e for mandada de novo, aparece como um envio novo, separado.</div>
-        {ships.map(s=><Card key={s._id}>
-          <div style={{fontWeight:800,fontSize:13,color:C.accent}}>{s.machineSN}{s.model?` · ${s.model}`:""}</div>
-          <div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {fmtTS(s.sentAt)}</div>
-          {s.photoKey&&<PhotoView photoKey={s.photoKey} style={{marginTop:8,maxHeight:140}}/>}
-        </Card>)}
+        {days.map(day=>{
+          const dayShips=ships.filter(s=>(s.sentAt||"").slice(0,10)===day);
+          const dayPhotos=loadPhotosF.filter(p=>p.date===day);
+          return<div key={day} style={{marginBottom:16}}>
+            <div style={{fontWeight:800,fontSize:13,color:C.accent,marginBottom:6}}>{fmtDate(day)}</div>
+            {dayShips.map(s=><Card key={s._id} style={{marginBottom:6}}>
+              <div style={{fontWeight:700,fontSize:13}}>{s.machineSN}{s.model?` · ${s.model}`:""}</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada às {fmtTS(s.sentAt).split(", ")[1]||fmtTS(s.sentAt)}</div>
+              {s.photoKey&&<PhotoView photoKey={s.photoKey} style={{marginTop:8,maxHeight:140}}/>}
+            </Card>)}
+            {dayPhotos.length>0?<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:6}}>
+              {dayPhotos.map(p=><PhotoView key={p._id} photoKey={p.photoKey} style={{maxHeight:140}}/>)}
+            </div>:<div style={{color:C.muted,fontSize:11,fontStyle:"italic"}}>Sem foto da carga nesse dia</div>}
+          </div>;
+        })}
       </>;
     })()}
   </div>;
