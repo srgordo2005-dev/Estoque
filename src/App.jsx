@@ -54,6 +54,7 @@ const FIELD_MAP={
   _reviewedByName:"reviewed_by_name",_reviewedAt:"reviewed_at",
   machineSN:"machine_sn",repairedBy:"repaired_by",repairedByName:"repaired_by_name",
   clientId:"client_id",clientName:"client_name",sentAt:"sent_at",
+  sheetRow:"sheet_row",
   hashSN:"hash_sn",obsManual:"obs_manual",employeeId:"employee_id",
   slot0HashSN:"slot0_hash_sn",slot0Result:"slot0_result",slot0Photo:"slot0_photo",
   slot1HashSN:"slot1_hash_sn",slot1Result:"slot1_result",slot1Photo:"slot1_photo",
@@ -1778,6 +1779,28 @@ function HashDetail({ctx,hash}){
 }
 
 /* ═══ CONSERTO ══════════════════════════════════════════════════ */
+// Busca uma HASH pelo SN e mostra tudo sobre ela (quem consertou primeiro,
+// fotos/observações de cada conserto, o que o teste registrou se ficou
+// ruim, etc.) — pra qualquer técnico poder conferir o histórico completo,
+// mesmo que não tenha sido ele quem mexeu nela antes.
+function HashSearchBox({ctx}){
+  const{data,setModal}=ctx;
+  const[q,setQ]=useState("");
+  const found=q.trim()?data.hashes.find(h=>h.sn===q.toUpperCase().trim()):null;
+  return<div style={{background:"#080e17",borderRadius:10,padding:12,marginBottom:14}}>
+    <SL>🔍 BUSCAR HASH (histórico completo)</SL>
+    <SNInput value={q} onChange={setQ} placeholder="Bipe ou digite o SN da HASH..."/>
+    {q.trim()&&!found&&<div style={{color:C.muted,fontSize:12}}>Nenhuma HASH encontrada com esse SN</div>}
+    {found&&<div style={{background:C.card2,borderRadius:8,padding:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><span style={{fontWeight:800,color:C.blue}}>⚡ {found.sn}</span> <span style={{color:C.muted,fontSize:12}}>{found.model}</span></div>
+        <HP s={found.status}/>
+      </div>
+      <Btn v="b" onClick={()=>setModal(<Modal title={`⚡ ${found.sn}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={found}/></Modal>)} style={{width:"100%",marginTop:8}}>📋 Ver Histórico Completo</Btn>
+    </div>}
+  </div>;
+}
+
 function ConsertaPage({ctx}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
   const[f,setF]=useState({hashSN:"",model:models[0]?.m||"M30S",material:"",boardChips:"",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
@@ -1825,6 +1848,7 @@ function ConsertaPage({ctx}){
   };
 
   return<div>
+    <HashSearchBox ctx={ctx}/>
     {saved==="repair"&&<Alrt type="ok">✓ Conserto registrado! HASH vai para fila de teste.</Alrt>}
     {saved==="already_good"&&<Alrt type="ok">✅ Registrada como já estava boa! Vai para fila de teste.</Alrt>}
     <Card>
@@ -1854,7 +1878,7 @@ function ConsertaPage({ctx}){
       <PhotoCapture label="FOTO / PRINT (obrigatória)" photoKey={photoKey} onChange={k=>{setPhotoKey(k);setPhotoErr("")}} folder="consertos" snHint={f.hashSN} onUploadFail={setPhotoBlocked} required/>
       {photoErr&&<Alrt type="err">{photoErr}</Alrt>}
       <div style={{display:"flex",gap:8}}>
-        <Btn v="y" onClick={()=>doSubmit("already_good")} disabled={photoBlocked} style={{flex:1}}>✅ Já Estava Boa</Btn>
+        <Btn v="y" onClick={()=>{if(confirm(`Confirma que a HASH ${f.hashSN||"(sem SN)"} já estava boa, sem precisar de conserto?`))doSubmit("already_good")}} disabled={photoBlocked} style={{flex:1}}>✅ Já Estava Boa</Btn>
         <Btn onClick={()=>doSubmit("repair")} disabled={photoBlocked} style={{flex:1}}>🔧 Consertada</Btn>
       </div>
       <div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:8}}>Ambas vão para fila de Teste</div>
@@ -2032,6 +2056,7 @@ function TestePage({ctx}){
   const needsChars=unknownSlots.length>0&&!session?.newHashChars;
 
   return<div>
+    <HashSearchBox ctx={ctx}/>
     {scanning&&<BarcodeScanner onScan={v=>{setMacInput(v.toUpperCase());setScanning(false);loadMachine(v)}} onClose={()=>setScanning(false)}/>}
     {done&&<Alrt type="ok">✓ Enviado para revisão do admin!</Alrt>}
     {err&&<Alrt type="err">{err}</Alrt>}
@@ -2783,6 +2808,25 @@ function CfgPage({ctx}){
     resetMaxCount("hashes",data.hashes.length);
     alert(`✓ Recalculado! Máquinas: ${data.machines.length} · HASHs: ${data.hashes.length}\nAgora esses números viram a nova referência — sem avisos falsos de "sumiço".`);
   };
+  // Corrige em massa máquinas SEM SN que tiveram o modelo corrompido (ex: o
+  // bug antigo do comparador que trocou M30S por M21S em várias de uma vez).
+  // Só mexe em quem NÃO tem SN — quem tem SN já é resolvido pela comparação
+  // normal, com segurança, uma a uma.
+  const[fixFrom,setFixFrom]=useState(""),[fixTo,setFixTo]=useState(""),[fixing,setFixing]=useState(false),[fixRes,setFixRes]=useState("");
+  const fixTargets=data.machines.filter(m=>m.model===fixFrom&&!(m.sn||"").trim());
+  const bulkFixModel=async()=>{
+    if(!fixFrom||!fixTo||fixFrom===fixTo)return;
+    if(!confirm(`Confirma? Vai mudar ${fixTargets.length} máquina(s) SEM SN de "${fixFrom}" pra "${fixTo}". Não afeta nenhuma máquina com SN preenchido.`))return;
+    setFixing(true);
+    for(let i=0;i<fixTargets.length;i+=200){
+      const batch=fixTargets.slice(i,i+200);
+      await fbBatch(batch.map(m=>({c:"machines",id:m._id,d:{...m,model:fixTo}})));
+    }
+    mutate("machines",arr=>arr.map(m=>m.model===fixFrom&&!(m.sn||"").trim()?{...m,model:fixTo}:m));
+    await markChanged("machines");
+    setFixRes(`✓ ${fixTargets.length} máquina(s) corrigida(s) de "${fixFrom}" pra "${fixTo}".`);
+    setFixing(false);
+  };
   const exportBackup=()=>{
     const backup={exportedAt:stamp(),employees:data.employees,machines:data.machines,hashes:data.hashes,repairs:data.repairs,tests:data.tests,feedbacks:data.feedbacks,approvals:data.approvals,customModels:data.customModels,pallets:data.pallets,clients:data.clients};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
@@ -2840,6 +2884,17 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       <Btn v="y" onClick={recalcProtection} style={{width:"100%",marginBottom:10}}>🔄 Recalcular proteção (o número atual está certo)</Btn>
       {dataWarnings.map((w,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,color:"#ff9b9b"}}>{w.msg}<div style={{color:C.muted,fontSize:10}}>{fmtTS(w.at)}</div></div>)}
     </Card>}
+    <Card style={{marginBottom:14,border:`1px solid ${C.amber}`}}>
+      <SL>🔧 CORRIGIR MODELO EM MASSA (só máquinas sem SN)</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Use isso quando várias máquinas SEM SN ficaram com o modelo errado (ex: o bug do comparador antigo). Só muda quem não tem SN preenchido — quem tem SN, resolve pela comparação normal.</div>
+      <div style={{display:"flex",gap:8,marginBottom:8}}>
+        <Sel label="MODELO ERRADO (de)" value={fixFrom} onChange={e=>setFixFrom(e.target.value)} style={{flex:1}}><option value="">Selecionar...</option>{[...new Set(data.machines.map(m=>m.model))].filter(Boolean).sort().map(m=><option key={m}>{m}</option>)}</Sel>
+        <Sel label="MODELO CERTO (para)" value={fixTo} onChange={e=>setFixTo(e.target.value)} style={{flex:1}}><option value="">Selecionar...</option>{allModels().map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+      </div>
+      {fixFrom&&<div style={{color:C.amber,fontSize:12,marginBottom:8}}>⚠️ {fixTargets.length} máquina(s) sem SN com modelo "{fixFrom}" serão corrigidas.</div>}
+      {fixRes&&<Alrt type="ok">{fixRes}</Alrt>}
+      <Btn v="y" onClick={bulkFixModel} disabled={fixing||!fixFrom||!fixTo||fixFrom===fixTo} style={{width:"100%"}}>{fixing?"Corrigindo...":"🔧 Corrigir "+(fixTargets.length||0)+" máquina(s)"}</Btn>
+    </Card>
     <MigrationPanel ctx={ctx}/>
     <Card style={{marginBottom:14,border:`1px solid ${C.green}`}}>
       <SL>💾 BACKUP (garantia extra)</SL>
@@ -2894,8 +2949,10 @@ async function computeSheetDiffs(data,webhookUrl){
   const eh=data.hashes.filter(h=>(h.sn||"").trim()&&!sheetHSN.has(h.sn.trim().toUpperCase())).length;
   let dm=0;
   data.machines.forEach(appM=>{
-    const appSN=(appM.sn||"").trim();if(!appSN)return;
-    const sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+    const appSN=(appM.sn||"").trim();
+    let sheetM=null;
+    if(appSN)sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+    else if(appM.sheetRow)sheetM=sheetMachines.find(m=>m.sheetRow===appM.sheetRow); // sem SN, mas já sabemos a linha de antes
     if(!sheetM)return;
     if(M_FIELDS.some(([f])=>normCompare(appM[f])!==normCompare(sheetM[f])))dm++;
   });
@@ -2947,11 +3004,12 @@ function SheetCompareReview({ctx,onClose}){
         const dm=[];
         data.machines.forEach(appM=>{
           const appSN=(appM.sn||"").trim();
-          if(!appSN)return;
-          const sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+          let sheetM=null;
+          if(appSN)sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
+          else if(appM.sheetRow)sheetM=sheetMachines.find(m=>m.sheetRow===appM.sheetRow);
           if(!sheetM)return;
           const diffs=M_FIELDS.filter(([f])=>norm(appM[f])!==norm(sheetM[f])).map(([f,label])=>({field:f,label,appVal:appM[f],sheetVal:sheetM[f]}));
-          if(diffs.length)dm.push({sn:appM.sn,appItem:appM,sheetItem:sheetM,diffs});
+          if(diffs.length)dm.push({sn:appM.sn||`(linha ${appM.sheetRow})`,appItem:appM,sheetItem:sheetM,diffs});
         });
         const dh=[];
         data.hashes.forEach(appH=>{
@@ -2985,6 +3043,7 @@ function SheetCompareReview({ctx,onClose}){
     if(useSheet){
       // Traz os valores da planilha pro app
       const patch={};d.diffs.forEach(x=>{patch[x.field]=x.sheetVal});
+      if(isMachine&&d.sheetItem.sheetRow)patch.sheetRow=d.sheetItem.sheetRow;
       const u={...d.appItem,...patch,...audit(user)};
       mutate(isMachine?"machines":"hashes",arr=>arr.map(x=>x._id===d.appItem._id?u:x));
       await fbSet(isMachine?"machines":"hashes",d.appItem._id,u);
@@ -2992,7 +3051,7 @@ function SheetCompareReview({ctx,onClose}){
       // Manda os valores do app pra planilha — cada campo tem seu jeito certo de sincronizar
       d.diffs.forEach(x=>{
         if(isMachine){
-          syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:x.field,to:x.appVal,employeeName:user.name,employeeCode:user.code});
+          syncSheet(webhookUrl,"updateMachine",{sn:d.appItem.sn||undefined,row:!d.appItem.sn?d.sheetItem.sheetRow:undefined,field:x.field,to:x.appVal,employeeName:user.name,employeeCode:user.code});
         }else if(x.field==="chips"){
           syncSheet(webhookUrl,"updateHashChips",{sn:d.sn,model:d.appItem.model,chips:x.appVal,employeeName:user.name,employeeCode:user.code});
         }else{
