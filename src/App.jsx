@@ -1254,7 +1254,7 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
       </div>
     </div>}
     {notFound&&<div style={{width:"calc(100% - 58px)",marginLeft:58,marginTop:4}}>
-      <button onClick={()=>setModal(<Modal title="Nova HASH" onClose={()=>setModal(null)}><AddHashForm ctx={ctx} initSN={localSN.toUpperCase().trim()} onClose={()=>setModal(null)}/></Modal>)} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>➕ Essa HASH não existe — cadastrar agora</button>
+      <button onClick={()=>setModal(<Modal title="Nova HASH" onClose={()=>setModal(null)}><AddHashForm ctx={ctx} initSN={localSN.toUpperCase().trim()} linkToMachine={{sn:m.sn,slot:i}} onClose={async(savedSN)=>{setModal(null);if(savedSN)await upd(slotField,savedSN)}}/></Modal>)} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>➕ Essa HASH não existe — cadastrar agora</button>
     </div>}
   </div>;
 }
@@ -1585,20 +1585,28 @@ function MaterialPicker({value,onChange}){
   </div>;
 }
 
-function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
+function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
-  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[material,setMaterial]=useState(""),[status,setStatus]=useState("REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null),[photoBlocked,setPhotoBlocked]=useState(false);
+  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[material,setMaterial]=useState(""),[status,setStatus]=useState(linkToMachine?"NA MAQUINA":"REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null),[photoBlocked,setPhotoBlocked]=useState(false);
   const checkSN=v=>{setSN(v);const s=v.toUpperCase().trim();if(!s){setSnInfo(null);return}const ex=data.hashes.find(h=>h.sn===s);if(ex)setSnInfo({type:"exists",item:ex});else{const mac=data.machines.find(m=>m.sn===s);if(mac)setSnInfo({type:"mac",item:mac});else setSnInfo(null)}};
   const save=async()=>{
     const s=sn.toUpperCase().trim();
     if(s&&data.hashes.find(h=>h.sn===s)){alert("SN já cadastrado!");return}
     const id=uid();
-    const d={sn:s,model,material,status,location,obs,...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,repairedBy:"",photoKey:photoKey||""};
+    const d={sn:s,model,material,status,location,obs,...audit(user),addedAt:TODAY(),
+      machineSN:linkToMachine?linkToMachine.sn:"",slot:linkToMachine?linkToMachine.slot:-1,
+      repairedBy:"",photoKey:photoKey||""};
     await fbSet("hashes",id,d);
     mutate("hashes",h=>[...h,{...d,_id:id}]);
     await markChanged("hashes");
     if(webhookUrl)syncSheet(webhookUrl,"addHash",{sn:s,model,status,obs,employeeName:user.name,employeeCode:user.code});
-    onClose();
+    // Se veio de dentro do editar de uma máquina (slot que não existia
+    // ainda), já vincula ela na máquina e manda o SN pro slot certo na
+    // planilha — antes isso nunca acontecia, ficava só cadastrada solta.
+    if(linkToMachine&&webhookUrl){
+      syncSheet(webhookUrl,"hashApproved",{sn:s,model,machineSN:linkToMachine.sn,slot:linkToMachine.slot,employeeName:user.name,employeeCode:user.code});
+    }
+    onClose(linkToMachine?s:undefined);
   };
   return<div>
     <SNInput label="SN (deixe vazio se não tiver)" value={sn} onChange={checkSN} placeholder="SN da HASH"/>
@@ -1612,7 +1620,7 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null}){
     <Inp label="Observação" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: Chip U3 trocado, Chain Break corrigida..."/>
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} onUploadFail={setPhotoBlocked}/>
     {photoBlocked&&<Alrt type="err">⚠️ A foto não subiu pro Drive — corrige isso (ou tira a foto) antes de salvar.</Alrt>}
-    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={snInfo?.type==="exists"||photoBlocked} style={{flex:1}}>Salvar</Btn></div>
+    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>onClose()} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={snInfo?.type==="exists"||photoBlocked} style={{flex:1}}>Salvar</Btn></div>
   </div>;
 }
 
