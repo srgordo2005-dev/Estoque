@@ -2939,7 +2939,7 @@ const normCompare=v=>String(v??"").trim().toUpperCase();
 // própria planilha) — isso NÃO é um SN de verdade e nunca pode ser usado
 // pra comparar/casar registros (foi exatamente isso que causou o bug de
 // várias máquinas sem SN "casando" umas com as outras por engano).
-const INVALID_SN_TEXTS=["SEM SN","SEMSN","SEM S/N","S/N","SN","N/A","NA","-","--","NENHUM","VAZIO"];
+const INVALID_SN_TEXTS=["SEM SN","SEMSN","SEM S/N","S/N","SN","N/A","NA","-","--","NENHUM","VAZIO","SN INLEGIVEL","SN ILEGIVEL","SN ILEGÍVEL","ILEGIVEL","ILEGÍVEL","INLEGIVEL","INLEGÍVEL","NAO LEGIVEL","NÃO LEGÍVEL","APAGADO","BORRADO"];
 const validSN=s=>{const v=(s||"").trim().toUpperCase();return v&&!INVALID_SN_TEXTS.includes(v)?v:""};
 // Compara tudo (presença + campo a campo) e devolve só os números — usado
 // pela checagem automática diária, sem precisar abrir a tela de comparação.
