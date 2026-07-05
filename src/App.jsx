@@ -2950,9 +2950,8 @@ async function computeSheetDiffs(data,webhookUrl){
   let dm=0;
   data.machines.forEach(appM=>{
     const appSN=(appM.sn||"").trim();
-    let sheetM=null;
-    if(appSN)sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
-    else if(appM.sheetRow)sheetM=sheetMachines.find(m=>m.sheetRow===appM.sheetRow); // sem SN, mas já sabemos a linha de antes
+    if(!appSN)return; // sem SN não compara — o "por linha" foi desativado até ficar 100% confiável
+    const sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
     if(!sheetM)return;
     if(M_FIELDS.some(([f])=>normCompare(appM[f])!==normCompare(sheetM[f])))dm++;
   });
@@ -2975,6 +2974,7 @@ function SheetCompareReview({ctx,onClose}){
   const[selAppM,setSelAppM]=useState(new Set()),[selAppH,setSelAppH]=useState(new Set());
   const[diffsM,setDiffsM]=useState([]),[diffsH,setDiffsH]=useState([]),[resolved,setResolved]=useState(new Set());
   const[dupInfo,setDupInfo]=useState({blankM:[],blankH:[],dupM:[],dupH:[]});
+  const[groupDiffs,setGroupDiffs]=useState([]);
   const[saving,setSaving]=useState(false),[err,setErr]=useState("");
   // Campos comparados campo a campo (máquina e HASH) — label é o que aparece pro Admin
   const norm=normCompare;
@@ -3004,12 +3004,11 @@ function SheetCompareReview({ctx,onClose}){
         const dm=[];
         data.machines.forEach(appM=>{
           const appSN=(appM.sn||"").trim();
-          let sheetM=null;
-          if(appSN)sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
-          else if(appM.sheetRow)sheetM=sheetMachines.find(m=>m.sheetRow===appM.sheetRow);
+          if(!appSN)return; // sem SN não compara — "por linha" desativado até ficar 100% confiável
+          const sheetM=sheetMachines.find(m=>{const s=(m.sn||"").trim();return s&&s.toUpperCase()===appSN.toUpperCase()});
           if(!sheetM)return;
           const diffs=M_FIELDS.filter(([f])=>norm(appM[f])!==norm(sheetM[f])).map(([f,label])=>({field:f,label,appVal:appM[f],sheetVal:sheetM[f]}));
-          if(diffs.length)dm.push({sn:appM.sn||`(linha ${appM.sheetRow})`,appItem:appM,sheetItem:sheetM,diffs});
+          if(diffs.length)dm.push({sn:appM.sn,appItem:appM,sheetItem:sheetM,diffs});
         });
         const dh=[];
         data.hashes.forEach(appH=>{
@@ -3032,6 +3031,23 @@ function SheetCompareReview({ctx,onClose}){
         const countByH={};data.hashes.forEach(h=>{if(h.sn&&h.sn.trim()){const k=h.sn.trim().toUpperCase();countByH[k]=(countByH[k]||0)+1}});
         const dupH=Object.entries(countByH).filter(([,c])=>c>1).map(([sn,c])=>({sn,count:c}));
         setDupInfo({blankM,blankH,dupM,dupH});
+        // Comparação por GRUPO (modelo + T/H + REF), só pras máquinas sem
+        // SN — como são idênticas dentro do grupo, não precisa saber "qual é
+        // qual", só se a QUANTIDADE bate entre app e planilha. É assim que
+        // pega o tipo de erro "modelo errado em massa" sem nunca arriscar
+        // casar a linha errada com a máquina errada.
+        const groupKey=m=>`${m.model}|||${m.th}|||${(m.ref||"").trim().toUpperCase()}`;
+        const appBlank=data.machines.filter(m=>!(m.sn||"").trim());
+        const sheetBlank=sheetMachines.filter(m=>!(m.sn||"").trim());
+        const appGroups={};appBlank.forEach(m=>{const k=groupKey(m);appGroups[k]=(appGroups[k]||0)+1});
+        const sheetGroups={};sheetBlank.forEach(m=>{const k=groupKey(m);sheetGroups[k]=(sheetGroups[k]||0)+1});
+        const allKeys=[...new Set([...Object.keys(appGroups),...Object.keys(sheetGroups)])];
+        const gd=allKeys.map(k=>{
+          const[model,th,ref]=k.split("|||");
+          const appCount=appGroups[k]||0,sheetCount=sheetGroups[k]||0;
+          return{model,th,ref,appCount,sheetCount,match:appCount===sheetCount};
+        }).filter(g=>!g.match); // só mostra os grupos que NÃO batem
+        setGroupDiffs(gd);
       }catch(e){setErr(e.message)}
       setLoading(false);
     })();
@@ -3139,7 +3155,7 @@ function SheetCompareReview({ctx,onClose}){
   if(err)return<Alrt type="err">✗ {err}</Alrt>;
   const pendingDiffsM=diffsM.filter(d=>!resolved.has("m:"+d.sn));
   const pendingDiffsH=diffsH.filter(d=>!resolved.has("h:"+d.sn));
-  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length+pendingDiffsM.length+pendingDiffsH.length;
+  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length+pendingDiffsM.length+pendingDiffsH.length+groupDiffs.length;
   const hasDupInfo=dupInfo.blankM.length+dupInfo.blankH.length+dupInfo.dupM.length+dupInfo.dupH.length>0;
   const DupInfoBox=hasDupInfo&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 CONTAGEM NÃO BATE? Achei isso no app:</div>
@@ -3148,9 +3164,19 @@ function SheetCompareReview({ctx,onClose}){
     {dupInfo.dupM.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ SN duplicado em máquinas: {dupInfo.dupM.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
     {dupInfo.dupH.length>0&&<div style={{fontSize:12}}>⚠️ SN duplicado em HASHs: {dupInfo.dupH.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
   </div>;
+  const GroupDiffBox=groupDiffs.length>0&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
+    <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 MÁQUINAS SEM SN — QUANTIDADE NÃO BATE POR GRUPO ({groupDiffs.length})</div>
+    <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Comparando por Modelo + T/H + Referência (não dá pra saber "qual é qual" sem SN, mas dá pra saber se a QUANTIDADE bate).</div>
+    {groupDiffs.map((g,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
+      <b>{g.model}</b> · {g.th}TH · REF "{g.ref||"—"}" — <span style={{color:C.accent}}>App: {g.appCount}</span> · <span style={{color:C.blue}}>Planilha: {g.sheetCount}</span>
+      {g.appCount>g.sheetCount&&<div style={{color:C.red,fontSize:11}}>⚠️ App tem {g.appCount-g.sheetCount} a mais do que a planilha — confira se não é modelo/dado errado</div>}
+      {g.sheetCount>g.appCount&&<div style={{color:C.amber,fontSize:11}}>⚠️ Planilha tem {g.sheetCount-g.appCount} a mais do que o app — pode ter máquina faltando importar</div>}
+    </div>)}
+  </div>;
   if(totalDiff===0)return<div>{DupInfoBox}<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente (por SN) — app e planilha estão iguais nesse quesito.</div></div>;
   return<div>
     {DupInfoBox}
+    {GroupDiffBox}
     {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
       <div style={{display:"flex",gap:8,marginBottom:10}}>
