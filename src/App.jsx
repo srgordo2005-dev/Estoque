@@ -268,7 +268,7 @@ async function loadImageAsDataURL(url){
     return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onloadend=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob)});
   }catch{return null}
 }
-async function generateClientPDF(client,macsF,hshsF,data,onProgress){
+async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,onProgress){
   const doc=new jsPDF();
   const pageW=210,marginX=14,pageH=290;
   let y=20;
@@ -278,7 +278,7 @@ async function generateClientPDF(client,macsF,hshsF,data,onProgress){
   // Cabeçalho
   doc.setFillColor(30,41,59);doc.rect(0,0,pageW,26,"F");
   doc.setTextColor(255,255,255);doc.setFontSize(16);doc.setFont(undefined,"bold");
-  doc.text("HashStock — Relatorio de Envios",marginX,14);
+  doc.text("Relatorio de Envios",marginX,14);
   doc.setFontSize(10);doc.setFont(undefined,"normal");
   doc.text(`Cliente: ${client.name}`,marginX,21);
   doc.setTextColor(0);y=34;
@@ -286,7 +286,7 @@ async function generateClientPDF(client,macsF,hshsF,data,onProgress){
   doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}  -  ${macsF.length} maquina(s)  -  ${hshsF.length} HASH(s) avulsa(s)`,marginX,y);
   doc.setTextColor(0);y+=10;
 
-  let done=0;const total=macsF.length+hshsF.length;
+  let done=0;const total=macsF.length+hshsF.length+(loadPhotosF?.length||0);
   if(macsF.length){
     doc.setFontSize(13);doc.setFont(undefined,"bold");doc.text("Maquinas",marginX,y);y+=8;
     for(const m of macsF){
@@ -324,6 +324,24 @@ async function generateClientPDF(client,macsF,hshsF,data,onProgress){
     for(const h of hshsF){
       ensureSpace(8);
       doc.text(`${h.sn||"SEM SN"}  -  ${h.model}  -  ${h.status}  -  ${h._at?fmtTS(h._at):"-"}`,marginX,y);y+=6;
+      done++;onProgress?.(done,total);
+    }
+  }
+  if(loadPhotosF?.length){
+    ensureSpace(20);
+    doc.setFontSize(13);doc.setFont(undefined,"bold");doc.setTextColor(0);doc.text("Fotos da Carga do Envio",marginX,y);y+=8;
+    for(const p of loadPhotosF){
+      const img=await loadImageAsDataURL(p.photoKey);
+      if(img){
+        ensureSpace(112);
+        try{
+          doc.addImage(img,"JPEG",marginX,y,130,97);
+          doc.setFontSize(8);doc.setTextColor(140);
+          doc.text(`Carga - ${fmtDate(p.date)}`,marginX,y+103);
+          doc.setTextColor(0);
+          y+=112;
+        }catch{y+=4}
+      }
       done++;onProgress?.(done,total);
     }
   }
@@ -467,7 +485,7 @@ function PhotoCapture({label,photoKey,onChange,folder="photos",required,snHint,o
     }
     setUp(false);
   };
-  return<div style={{marginBottom:14}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>{label}{required&&<span style={{color:C.red}}> *</span>}</div>}{up&&<div style={{color:C.amber,fontSize:12,marginBottom:6}}>⏳ Enviando pro Drive...</div>}{failed&&<div style={{color:C.red,fontSize:12,marginBottom:6}}>✗ Não consegui enviar a foto pro Drive. Confere a conexão e tenta de novo (não salva no banco pra não lotar).</div>}{src?<div style={{position:"relative"}}><img src={src} alt="" style={{width:"100%",borderRadius:10,maxHeight:220,objectFit:"cover"}}/><button onClick={()=>{setSrc(null);onChange(null)}} style={{position:"absolute",top:6,right:6,background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>✕</button></div>:<div style={{display:"flex",gap:8}}><button onClick={()=>ref.current.click()} style={{flex:1,background:"#080e17",border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>📷 {required?"(Obrigatória)":"Foto"}</button><button onClick={async()=>{try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(t=>t.startsWith("image/"));if(type){const blob=await item.getType(type);const file=new File([blob],"paste.jpg",{type});await pick(file);return}}alert("Nenhuma imagem no clipboard")}catch{alert("Copie uma imagem (print screen) e toque Colar")}}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.blue,borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}} title="Colar print">📋 Colar</button></div>}<input ref={ref} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&pick(e.target.files[0])}/></div>;
+  return<div style={{marginBottom:14}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>{label}{required&&<span style={{color:C.red}}> *</span>}</div>}{up&&<div style={{color:C.amber,fontSize:12,marginBottom:6}}>⏳ Enviando pro Drive...</div>}{failed&&<div style={{color:C.red,fontSize:12,marginBottom:6}}>✗ Não consegui enviar a foto pro Drive. Confere a conexão e tenta de novo (não salva no banco pra não lotar).</div>}{src?<div style={{position:"relative"}}><img src={src} alt="" style={{width:"100%",borderRadius:10,maxHeight:220,objectFit:"cover"}}/><button onClick={()=>{deleteDrivePhoto(src);setSrc(null);onChange(null)}} style={{position:"absolute",top:6,right:6,background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>✕</button></div>:<div style={{display:"flex",gap:8}}><button onClick={()=>ref.current.click()} style={{flex:1,background:"#080e17",border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>📷 {required?"(Obrigatória)":"Foto"}</button><button onClick={async()=>{try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(t=>t.startsWith("image/"));if(type){const blob=await item.getType(type);const file=new File([blob],"paste.jpg",{type});await pick(file);return}}alert("Nenhuma imagem no clipboard")}catch{alert("Copie uma imagem (print screen) e toque Colar")}}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.blue,borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}} title="Colar print">📋 Colar</button></div>}<input ref={ref} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&pick(e.target.files[0])}/></div>;
 }
 function PhotoView({photoKey,style}){
   const[src,setSrc]=useState(null),[big,setBig]=useState(false);
@@ -3412,11 +3430,7 @@ function ClientDetail({ctx,client}){
   const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
   return<div>
     <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}><div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}{c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}<div style={{marginTop:8,display:"flex",gap:8}}><div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:20}}>{macs.length}</div><div style={{fontSize:10,color:C.muted}}>Máquinas</div></div><div style={{background:C.purple+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.purple,fontSize:20}}>{hshs.length}</div><div style={{fontSize:10,color:C.muted}}>HASHs</div></div></div></div>
-    {(ghostM.length>0||ghostH.length>0)&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:12}}>
-      <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:6}}>⚠️ {ghostM.length+ghostH.length} SN(s) "fantasma" nessa ficha</div>
-      <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Foram removidos/apagados em outro lugar, mas continuavam contando aqui: {[...ghostM,...ghostH].join(", ")}</div>
-      <Btn v="b" onClick={limparFantasmasCliente} style={{width:"100%"}}>🧹 Limpar esses da ficha</Btn>
-    </div>}
+    <div style={{color:C.muted,fontSize:11,marginBottom:10}}>ℹ️ Isso mostra só as máquinas/HASHs que ainda existem no estoque. O histórico de tudo que já foi enviado — mesmo se a máquina depois for apagada — fica sempre no "📋 Relatório de Envios" abaixo, não some daqui.</div>
     <Btn v="b" onClick={()=>setModal(<Modal title={`📋 Relatório — ${c.name}`} onClose={()=>setModal(null)}><ClientReport ctx={ctx} client={c}/></Modal>)} style={{width:"100%",marginBottom:14}}>📋 Relatório de Envios</Btn>
     <ClientLoadPhotos ctx={ctx} client={c}/>
     <div style={{color:C.amber,fontSize:11,marginBottom:8}}>⚠️ Ao salvar, vai tudo pra SAIDA (máquina e HASHs internas dela também)</div>
@@ -3467,9 +3481,10 @@ function ClientReport({ctx,client}){
   };
   const macsF=macs.filter(m=>(!modelFilter||m.model===modelFilter)&&inRange(m._at));
   const hshsF=hshs.filter(h=>(!modelFilter||h.model===modelFilter)&&inRange(h._at));
+  const loadPhotosF=(data.loadPhotos||[]).filter(p=>p.clientId===client._id&&inRange(p._at));
   const baixarPDF=async()=>{
     setGen(true);setGenProg("Montando...");
-    try{await generateClientPDF(client,macsF,hshsF,data,(done,total)=>setGenProg(`Montando... ${done}/${total}`))}
+    try{await generateClientPDF(client,macsF,hshsF,data,loadPhotosF,(done,total)=>setGenProg(`Montando... ${done}/${total}`))}
     catch(e){alert("Erro ao gerar PDF: "+e.message)}
     setGen(false);setGenProg("");
   };
@@ -3506,7 +3521,6 @@ function ClientReport({ctx,client}){
     {macsF.length===0&&hshsF.length===0&&<div style={{textAlign:"center",color:C.muted,padding:24}}>Nada encontrado com esse filtro</div>}
     {(()=>{
       const ships=(data.shipments||[]).filter(s=>s.clientId===client._id&&inRange(s.sentAt));
-      const loadPhotosF=(data.loadPhotos||[]).filter(p=>p.clientId===client._id&&inRange(p._at));
       if(!ships.length&&!loadPhotosF.length)return null;
       // Agrupa por dia — mostra as máquinas enviadas naquele dia, e a(s)
       // foto(s) da carga daquele dia logo em seguida, antes de passar pro
