@@ -1379,6 +1379,7 @@ function MachineDetail({ctx,machine}){
           <div><div style={{color:C.muted,fontSize:10}}>T/H</div><div style={{fontWeight:700}}>{m.th}</div></div>
           <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>TIPO</div><select value={m.type||"complete"} onChange={e=>upd("type",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}><option value="complete">Completa</option><option value="shell">Carcaça</option></select></div>
         </div>
+        {m.sheetRow&&<div style={{color:C.muted,fontSize:10,marginTop:8}}>📍 Linha {m.sheetRow} na planilha (referência, não atualiza sozinho)</div>}
         <By by={m._byName} at={m._at}/>
       </div>
       <SL>Situação</SL>
@@ -2981,6 +2982,7 @@ function SheetCompareReview({ctx,onClose}){
   const[diffsM,setDiffsM]=useState([]),[diffsH,setDiffsH]=useState([]),[resolved,setResolved]=useState(new Set());
   const[dupInfo,setDupInfo]=useState({blankM:[],blankH:[],dupM:[],dupH:[]});
   const[groupDiffs,setGroupDiffs]=useState([]);
+  const[totals,setTotals]=useState(null);
   const[saving,setSaving]=useState(false),[err,setErr]=useState("");
   // Campos comparados campo a campo (máquina e HASH) — label é o que aparece pro Admin
   const norm=normCompare;
@@ -3054,6 +3056,7 @@ function SheetCompareReview({ctx,onClose}){
           return{model,th,ref,appCount,sheetCount,match:appCount===sheetCount};
         }).filter(g=>!g.match); // só mostra os grupos que NÃO batem
         setGroupDiffs(gd);
+        setTotals({appM:data.machines.length,sheetM:sheetMachines.length,appH:data.hashes.length,sheetH:sheetHashes.length});
       }catch(e){setErr(e.message)}
       setLoading(false);
     })();
@@ -3201,8 +3204,13 @@ function SheetCompareReview({ctx,onClose}){
       <Btn v={g.sheetCount>g.appCount?"g":"d"} onClick={()=>fixGroup(g)} style={{width:"100%"}}>{g.sheetCount>g.appCount?`📥 Importar as ${g.sheetCount-g.appCount} que faltam`:`🗑️ Excluir as ${g.appCount-g.sheetCount} a mais do app`}</Btn>
     </div>)}
   </div>;
-  if(totalDiff===0)return<div>{DupInfoBox}<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente (por SN) — app e planilha estão iguais nesse quesito.</div></div>;
+  const TotalsBox=totals&&<div style={{marginBottom:16,background:C.card2,borderRadius:10,padding:12,display:"flex",gap:16}}>
+    <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>MÁQUINAS</div><div style={{fontWeight:800}}>App: {totals.appM} · Planilha: {totals.sheetM} {totals.appM!==totals.sheetM&&<span style={{color:C.red}}>({totals.appM>totals.sheetM?"+":""}{totals.appM-totals.sheetM})</span>}</div></div>
+    <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>HASHs</div><div style={{fontWeight:800}}>App: {totals.appH} · Planilha: {totals.sheetH} {totals.appH!==totals.sheetH&&<span style={{color:C.red}}>({totals.appH>totals.sheetH?"+":""}{totals.appH-totals.sheetH})</span>}</div></div>
+  </div>;
+  if(totalDiff===0)return<div>{TotalsBox}{DupInfoBox}<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente (por SN) — app e planilha estão iguais nesse quesito.</div></div>;
   return<div>
+    {TotalsBox}
     {DupInfoBox}
     {GroupDiffBox}
     {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
