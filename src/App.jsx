@@ -2804,6 +2804,36 @@ function MigrationPanel({ctx}){
 function CfgPage({ctx}){
   const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal,resetMaxCount,gTH,allModels}=ctx;
   const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
+  const[resetConfirmText,setResetConfirmText]=useState(""),[resetting,setResetting]=useState(false),[resetProg,setResetProg]=useState(""),[resetRes,setResetRes]=useState("");
+  // Apaga TODAS as máquinas do app e reimporta tudo de novo direto da
+  // planilha, já com o número da linha certinho em cada uma. É uma ação
+  // grande — só roda depois de digitar a frase de confirmação.
+  const resetAndReimport=async()=>{
+    if(resetConfirmText.trim().toUpperCase()!=="RESETAR MAQUINAS")return;
+    setResetting(true);setResetRes("");
+    try{
+      setResetProg("Lendo a planilha...");
+      const sheetMachines=await importMachinesFromSheet(webhookUrl);
+      setResetProg(`Apagando ${data.machines.length} máquina(s) do app...`);
+      const ids=data.machines.map(m=>m._id);
+      for(let i=0;i<ids.length;i+=300){
+        await Promise.all(ids.slice(i,i+300).map(id=>fbDel("machines",id)));
+        setResetProg(`Apagando... ${Math.min(i+300,ids.length)}/${ids.length}`);
+      }
+      mutate("machines",()=>[]);
+      setResetProg(`Recriando ${sheetMachines.length} máquina(s) com número da linha...`);
+      const writes=sheetMachines.map(m=>{const id=uid();return{c:"machines",id,d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}});
+      for(let i=0;i<writes.length;i+=300){
+        await fbBatch(writes.slice(i,i+300));
+        setResetProg(`Recriando... ${Math.min(i+300,writes.length)}/${writes.length}`);
+      }
+      mutate("machines",()=>writes.map(w=>({...w.d,_id:w.id})));
+      resetMaxCount("machines",writes.length);
+      await markChanged("machines");
+      setResetRes(`✓ Pronto! ${writes.length} máquina(s) recriadas, todas com o número da linha da planilha.`);
+    }catch(e){setResetRes("✗ Erro: "+e.message)}
+    setResetting(false);setResetProg("");setResetConfirmText("");
+  };
   const recalcProtection=()=>{
     resetMaxCount("machines",data.machines.length);
     resetMaxCount("hashes",data.hashes.length);
@@ -2895,6 +2925,14 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       {fixFrom&&<div style={{color:C.amber,fontSize:12,marginBottom:8}}>⚠️ {fixTargets.length} máquina(s) sem SN com modelo "{fixFrom}" serão corrigidas.</div>}
       {fixRes&&<Alrt type="ok">{fixRes}</Alrt>}
       <Btn v="y" onClick={bulkFixModel} disabled={fixing||!fixFrom||!fixTo||fixFrom===fixTo} style={{width:"100%"}}>{fixing?"Corrigindo...":"🔧 Corrigir "+(fixTargets.length||0)+" máquina(s)"}</Btn>
+    </Card>
+    <Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
+      <SL>💣 RESETAR E REIMPORTAR TODAS AS MÁQUINAS</SL>
+      <div style={{color:C.red,fontSize:12,marginBottom:10}}>⚠️ Isso APAGA as {data.machines.length} máquina(s) que tem no app AGORA e recria TODAS do zero, direto da planilha — cada uma já com o número da linha certinho. Não mexe em HASHs, paletes ou clientes. Não dá pra desfazer.</div>
+      <Inp label='Pra confirmar, digite: RESETAR MAQUINAS' value={resetConfirmText} onChange={e=>setResetConfirmText(e.target.value)} placeholder="RESETAR MAQUINAS"/>
+      {resetProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {resetProg}</div>}
+      {resetRes&&<Alrt type={resetRes.startsWith("✓")?"ok":"err"}>{resetRes}</Alrt>}
+      <Btn v="d" onClick={resetAndReimport} disabled={resetting||resetConfirmText.trim().toUpperCase()!=="RESETAR MAQUINAS"} style={{width:"100%"}}>{resetting?"Processando...":"💣 Apagar e Reimportar Tudo"}</Btn>
     </Card>
     <MigrationPanel ctx={ctx}/>
     <Card style={{marginBottom:14,border:`1px solid ${C.green}`}}>
@@ -3010,14 +3048,24 @@ function SheetCompareReview({ctx,onClose}){
         // aplicado em TODOS os outros sem SN — foi exatamente isso que
         // corrompeu o modelo de várias máquinas antes.
         const dm=[];
+        const rowUpdates=[];
         data.machines.forEach(appM=>{
           const appSN=validSN(appM.sn);
           if(!appSN)return; // sem SN (ou "SEM SN" literal) não compara
           const sheetM=sheetMachines.find(m=>validSN(m.sn)===appSN);
           if(!sheetM)return;
+          // Aproveita que já achou a máquina certa e guarda a linha dela —
+          // assim, da próxima vez, já aparece na tela de editar mesmo sem
+          // ter precisado corrigir nada.
+          if(sheetM.sheetRow&&appM.sheetRow!==sheetM.sheetRow)rowUpdates.push({id:appM._id,sheetRow:sheetM.sheetRow});
           const diffs=M_FIELDS.filter(([f])=>norm(appM[f])!==norm(sheetM[f])).map(([f,label])=>({field:f,label,appVal:appM[f],sheetVal:sheetM[f]}));
           if(diffs.length)dm.push({sn:appM.sn,appItem:appM,sheetItem:sheetM,diffs});
         });
+        if(rowUpdates.length){
+          const writes=rowUpdates.map(r=>{const full=data.machines.find(m=>m._id===r.id);return{c:"machines",id:r.id,d:{...full,sheetRow:r.sheetRow}}});
+          for(let i=0;i<writes.length;i+=200)await fbBatch(writes.slice(i,i+200));
+          mutate("machines",arr=>arr.map(m=>{const u=rowUpdates.find(r=>r.id===m._id);return u?{...m,sheetRow:u.sheetRow}:m}));
+        }
         const dh=[];
         data.hashes.forEach(appH=>{
           const appSN=validSN(appH.sn);
@@ -3192,7 +3240,7 @@ function SheetCompareReview({ctx,onClose}){
     {dupInfo.blankM.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ {dupInfo.blankM.length} máquina(s) SEM SN no app (não aparecem na comparação normal)</div>}
     {dupInfo.blankH.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ {dupInfo.blankH.length} HASH(s) SEM SN no app</div>}
     {dupInfo.dupM.length>0&&<div style={{marginTop:8}}>
-      <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>⚠️ SN duplicado em máquinas — confira e apague a errada:</div>
+      <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>⚠️ SN duplicado em máquinas — confira e apague a errada (só apaga do app, a planilha nunca é tocada):</div>
       {dupInfo.dupM.map(d=><div key={d.sn} style={{background:"#1a0a0a",borderRadius:8,padding:8,marginBottom:8}}>
         <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>{d.sn} ({d.count}x)</div>
         {d.items.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderTop:`1px solid ${C.border}`}}>
