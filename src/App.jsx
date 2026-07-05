@@ -2801,7 +2801,7 @@ function MigrationPanel({ctx}){
 }
 
 function CfgPage({ctx}){
-  const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal,resetMaxCount,gTH}=ctx;
+  const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal,resetMaxCount,gTH,allModels}=ctx;
   const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
   const recalcProtection=()=>{
     resetMaxCount("machines",data.machines.length);
