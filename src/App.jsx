@@ -53,6 +53,7 @@ const FIELD_MAP={
   adminNote:"admin_note",lastTesterId:"last_tester_id",
   _reviewedByName:"reviewed_by_name",_reviewedAt:"reviewed_at",
   machineSN:"machine_sn",repairedBy:"repaired_by",repairedByName:"repaired_by_name",
+  clientId:"client_id",clientName:"client_name",sentAt:"sent_at",
   hashSN:"hash_sn",obsManual:"obs_manual",employeeId:"employee_id",
   slot0HashSN:"slot0_hash_sn",slot0Result:"slot0_result",slot0Photo:"slot0_photo",
   slot1HashSN:"slot1_hash_sn",slot1Result:"slot1_result",slot1Photo:"slot1_photo",
@@ -493,7 +494,7 @@ class SafeTab extends React.Component{
 
 export default function App(){
   const[user,setUser]=useState(null);
-  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[]});
+  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
   const DEFAULT_WEBHOOK_URL="https://script.google.com/macros/s/AKfycbxZ1WpUhjvKWYEUAvQdaRHuu-mb1WLorVMOreihxvSJlMrddJYa-U1obUlu5tGtRjBv/exec";
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||DEFAULT_WEBHOOK_URL);
@@ -533,9 +534,9 @@ export default function App(){
   const resetMaxCount=(col,newCount)=>{localStorage.setItem("hs_maxcount_"+col,String(newCount))};
 
   // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore
-  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients"};
+  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments"};
   const fetchAllCollections=async(onlyKeys)=>{
-    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients"];
+    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments"];
     const cols=onlyKeys?onlyKeys.map(k=>META_TO_COL[k]).filter(Boolean):allCols;
     // Espaça o INÍCIO de cada leitura em 120ms — evita disparar tudo junto
     // de uma vez (rajada), o que ajuda a não estourar limites por minuto
@@ -654,7 +655,7 @@ export default function App(){
   // Supabase não cobra por leitura, não tem problema reler a coleção inteira
   // sempre que algo mudar.
   useEffect(()=>{
-    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients"};
+    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments"};
     const debounceTimers={};
     const channel=supabase.channel("hashstock-realtime");
     Object.keys(TABLE_TO_META).forEach(table=>{
@@ -855,9 +856,9 @@ function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
     <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:18}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
     {isAdmin&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
-    {myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
-    {myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
-    {myRejectedHashes.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>❌ HASHs Recusadas ({myRejectedHashes.length})</div>{myRejectedHashes.map(a=><Card key={a._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {a.sn}{a.machineSN?` (na máquina ${a.machineSN})`:""}</div>{a.notes&&<div style={{fontSize:12,marginTop:4}}>📝 {a.notes}</div>}</Card>)}</div>}
+    {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
+    {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
+    {!isAdmin&&myRejectedHashes.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>❌ HASHs Recusadas ({myRejectedHashes.length})</div>{myRejectedHashes.map(a=><Card key={a._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {a.sn}{a.machineSN?` (na máquina ${a.machineSN})`:""}</div>{a.notes&&<div style={{fontSize:12,marginTop:4}}>📝 {a.notes}</div>}</Card>)}</div>}
     {user.permissions?.testing&&!isAdmin&&<div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontWeight:800,fontSize:14}}>⏳ Para Testar</div><Tag color={toTest.length>0?C.amber:"#1a2d42"}>{toTest.length}</Tag></div>{toTest.slice(0,3).map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · 👷 ${repName}`:""}</div></div><HP s={h.status}/></div>})}<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn></div>}
     {isAdmin&&<AdminSummary data={data}/>}
     <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
@@ -1004,16 +1005,33 @@ function AddModeSelect({ctx,onClose}){
 function BatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending]=useState([]),[saving,setSaving]=useState(false);
-  const[dupMsg,setDupMsg]=useState("");
   const addSN=(raw)=>{
     const s=raw.toUpperCase().trim();if(!s)return;
-    setDupMsg("");
-    if(pending.includes(s))return;
+    if(pending.some(p=>p.sn===s))return;
     const ex=data.machines.find(m=>m.sn===s);
-    if(ex){setDupMsg(`⚠️ SN ${s} já existe no estoque (${ex.model} · ${ex.situacao}) — não foi adicionado.`);return}
-    setPending(p=>[...p,s]);
+    // Se já existe, ainda adiciona no lote — mas marcado como "atualizar
+    // existente" e mostrando o status/cliente atual, em vez de bloquear.
+    setPending(p=>[...p,{sn:s,existing:ex||null}]);
   };
-  const saveAll=async()=>{if(!pending.length)return;setSaving(true);const writes=pending.map(sn=>{const id=uid();return{c:"machines",id,d:{sn,model,th:Number(th),type,situacao:sit,hash0,hash1,hash2,controladora:ctr,fonte,fans,ref,location:"",...audit(user),addedAt:TODAY(),destino:""}}});await fbBatch(writes);mutate("machines",m=>[...m,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");writes.forEach(w=>syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code}));setSaving(false);onClose()};
+  const saveAll=async()=>{
+    if(!pending.length)return;setSaving(true);
+    const writes=pending.map(p=>{
+      const isUpdate=!!p.existing;const id=isUpdate?p.existing._id:uid();
+      return{c:"machines",id,d:{sn:p.sn,model,th:Number(th),type,situacao:sit,hash0,hash1,hash2,controladora:ctr,fonte,fans,ref,location:"",...audit(user),addedAt:TODAY(),destino:""}};
+    });
+    await fbBatch(writes);
+    mutate("machines",m=>{
+      const updIds=new Set(writes.filter((w,i)=>pending[i].existing).map(w=>w.id));
+      const kept=m.filter(x=>!updIds.has(x._id));
+      return[...kept,...writes.map(w=>({...w.d,_id:w.id}))];
+    });
+    await markChanged("machines");
+    writes.forEach(w=>{
+      syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code});
+      syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
+    });
+    setSaving(false);onClose();
+  };
   return<div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/></div><div style={{display:"flex",gap:8}}><Sel label="TIPO" value={type} onChange={e=>setType(e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div><Inp label="Referência (REF, aplicada a todos)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
   <div style={{color:C.muted,fontSize:11,marginBottom:6}}>As opções abaixo valem pra TODAS as máquinas desse lote:</div>
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
@@ -1022,7 +1040,13 @@ function BatchSNForm({ctx,onClose}){
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
     {[["ctr","CTR",ctr,setCtr],["fonte","FONTE",fonte,setFonte],["fans","FANS",fans,setFans]].map(([k,l,v,setV])=><Sel key={k} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}
   </div>
-  <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/>{dupMsg&&<Alrt type="err">{dupMsg}</Alrt>}<div style={{maxHeight:160,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((s,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13,fontFamily:"monospace",color:C.blue}}>{s}</span><button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button></div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
+  <div style={{background:"#080e17",borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/><div style={{maxHeight:220,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((p,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span style={{fontSize:13,fontFamily:"monospace",color:p.existing?C.amber:C.blue}}>{p.sn}</span>
+      <button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button>
+    </div>
+    {p.existing&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>⚠️ Já existe ({p.existing.model} · {p.existing.situacao}){p.existing.destino?<> · 👤 foi pro cliente <b>{p.existing.destino}</b></>:""} — vai atualizar essa máquina</div>}
+  </div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
 }
 
 function BatchNoSNForm({ctx,onClose}){
@@ -1035,29 +1059,58 @@ function BatchNoSNForm({ctx,onClose}){
 function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[f,setF]=useState({sn:initSN,ref:user.code,model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),type:"complete",hash0:"OFF",hash1:"OFF",hash2:"OFF",hashSN0:"",hashSN1:"",hashSN2:"",controladora:"OFF",fonte:"OFF",fans:"OFF",situacao:"STOCK",destino:"",location:""});
-  const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false);
+  const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false),[confirmOverwrite,setConfirmOverwrite]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const dupMachine=f.sn.trim()?data.machines.find(m=>m.sn===f.sn.toUpperCase().trim()):null;
-  const save=async()=>{
-    if(dupMachine)return;
-    setSaving(true);const id=uid();
+  const doSave=async(asNewSN)=>{
+    setSaving(true);const isUpdate=!!dupMachine&&!asNewSN;const id=isUpdate?dupMachine._id:uid();
     const forceOn=f.situacao==="BOA";
-    const d={...f,th:Number(f.th),sn:f.sn.toUpperCase().trim(),...(forceOn?{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"}:{}),...audit(user),addedAt:TODAY(),photoKey:photoKey||""};
-    await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);await markChanged("machines");
+    const finalSN=asNewSN?asNewSN:f.sn.toUpperCase().trim();
+    const d={...f,th:Number(f.th),sn:finalSN,...(forceOn?{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"}:{}),...audit(user),addedAt:TODAY(),photoKey:photoKey||""};
+    await fbSet("machines",id,d);
+    if(isUpdate)mutate("machines",m=>m.map(x=>x._id===id?{...d,_id:id}:x));
+    else mutate("machines",m=>[...m,{...d,_id:id}]);
+    await markChanged("machines");
     syncSheet(webhookUrl,"addMachine",{sn:d.sn,model:d.model,th:d.th,situacao:d.situacao,ref:d.ref,employeeName:user.name,employeeCode:user.code});
+    // Sempre limpa o destino na planilha ao readicionar — a máquina volta
+    // pro ciclo normal (o histórico dela no cliente continua existindo, só
+    // não fica mais marcada como "saída" pra ele).
+    syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
     if(forceOn)["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}));
     setSaving(false);onClose();
   };
+  // Gera um SN "livre" (SN-2, SN-3...) quando o usuário confirma que são
+  // duas máquinas físicas diferentes com o mesmo SN impresso (acontece).
+  const nextFreeSN=()=>{
+    const base=f.sn.toUpperCase().trim();let i=2;
+    while(data.machines.find(m=>m.sn===`${base}-${i}`))i++;
+    return`${base}-${i}`;
+  };
+  const save=()=>{if(dupMachine){setConfirmOverwrite(true);return}doSave()};
   return<div>
-    <SNInput label="SN" value={f.sn} onChange={v=>set("sn",v)} placeholder="Deixe vazio se não tiver"/>
-    {dupMachine&&<div style={{background:"#3a0a0a",border:"1px solid "+C.red,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.red,fontWeight:800}}>⚠️ SN já existe!</div><div style={{fontSize:12,color:C.muted}}>{dupMachine.model} · <SP s={dupMachine.situacao}/></div></div>}
+    <SNInput label="SN" value={f.sn} onChange={v=>{set("sn",v);setConfirmOverwrite(false)}} placeholder="Deixe vazio se não tiver"/>
+    {dupMachine&&<div style={{background:"#3a0a0a",border:"1px solid "+C.red,borderRadius:10,padding:10,marginBottom:10}}>
+      <div style={{color:C.red,fontWeight:800}}>⚠️ SN já existe no estoque!</div>
+      <div style={{fontSize:12,color:C.muted,marginTop:2}}>{dupMachine.model} · <SP s={dupMachine.situacao}/></div>
+      {dupMachine.destino&&<div style={{fontSize:12,color:C.purple,marginTop:2}}>👤 Foi pro cliente: <b>{dupMachine.destino}</b></div>}
+    </div>}
     <Inp label="Referência (REF)" value={f.ref} onChange={e=>set("ref",e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
     <div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={f.model} onChange={e=>{set("model",e.target.value);set("th",gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={f.th} onChange={e=>set("th",e.target.value)} style={{width:70}}/></div>
     <div style={{display:"flex",gap:8}}><Sel label="TIPO" value={f.type} onChange={e=>set("type",e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={f.situacao} onChange={e=>set("situacao",e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div>
     <PalletLocationPicker pallets={data.pallets} value={f.location} onChange={v=>set("location",v)}/>
     <>{[0,1,2].map(i=><div key={i} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center"}}><span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span><input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/><select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select></div>)}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey}/>
-    <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving||dupMachine} style={{flex:1}}>{saving?"...":"💾 Salvar"}</Btn></div>
+    {confirmOverwrite&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
+      <div style={{fontWeight:800,color:C.amber,marginBottom:4}}>Tem certeza?</div>
+      <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Essa máquina já existe como <SP s={dupMachine.situacao}/>{dupMachine.destino?` (foi pro cliente ${dupMachine.destino})`:""}. Vou atualizar ela pra <b><SP s={f.situacao}/></b> e devolver ao ciclo normal do estoque (o histórico dela no cliente continua existindo, só não fica mais marcada como saída).</div>
+      <div style={{display:"flex",gap:8,marginBottom:8}}>
+        <Btn v="s" onClick={()=>setConfirmOverwrite(false)} style={{flex:1}}>Cancelar</Btn>
+        <Btn v="g" onClick={()=>doSave()} disabled={saving} style={{flex:1}}>{saving?"...":"✓ Atualizar essa"}</Btn>
+      </div>
+      <div style={{color:C.muted,fontSize:11,marginBottom:6}}>Ou, se são DUAS máquinas físicas diferentes com o mesmo SN impresso (pode acontecer):</div>
+      <Btn v="b" onClick={()=>doSave(nextFreeSN())} disabled={saving} style={{width:"100%"}}>➕ Cadastrar como NOVA máquina ({nextFreeSN()})</Btn>
+    </div>}
+    <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving||confirmOverwrite} style={{flex:1}}>{saving?"...":dupMachine?"⚠️ Já existe — clique pra ver opções":"💾 Salvar"}</Btn></div>
   </div>;
 }
 
@@ -2833,6 +2886,10 @@ function SheetCompareReview({ctx,onClose}){
     {DupInfoBox}
     {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <Btn v="s" onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];for(const d of all)await resolveDiff(d,d.isMachine,false)}} style={{flex:1}}>Manter do App pra todos ({pendingDiffsM.length+pendingDiffsH.length})</Btn>
+        <Btn v="g" onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];for(const d of all)await resolveDiff(d,d.isMachine,true)}} style={{flex:1}}>Usar da Planilha pra todos</Btn>
+      </div>
       {[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))].map(d=>
         <div key={(d.isMachine?"m:":"h:")+d.sn} style={{background:"#2a1a0c",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
           <div style={{fontWeight:800,fontSize:13,marginBottom:8}}>{d.isMachine?"🖥️":"⚡"} {d.sn}</div>
@@ -3122,6 +3179,17 @@ function ClientDetail({ctx,client}){
           syncSheet(webhookUrl,"addMachine",{sn:row.sn,model:d.model,situacao:"SAIDA",destino:c.name,employeeName:user.name,employeeCode:user.code});
         }
         newMSNs.push(row.sn);
+        // Registro de ENVIO — nunca é apagado nem sobrescrito, mesmo que
+        // essa máquina volte e seja mandada de novo (pro mesmo cliente ou
+        // outro). Cada envio vira uma linha própria no histórico do cliente.
+        {
+          const mForShip=data.machines.find(m=>m.sn===row.sn);
+          const testForShip=[...data.tests].reverse().find(t=>t.machineSN===row.sn&&t.overallResult==="good");
+          const shipPhoto=mForShip?.photoKey||testForShip?.testPhoto||"";
+          const shipId=uid();
+          await fbSet("shipments",shipId,{clientId:c._id,clientName:c.name,machineSN:row.sn,model:mForShip?.model||"",photoKey:shipPhoto,sentAt:stamp(),...audit(user)});
+          mutate("shipments",arr=>[...arr,{clientId:c._id,clientName:c.name,machineSN:row.sn,model:mForShip?.model||"",photoKey:shipPhoto,sentAt:stamp(),_id:shipId}]);
+        }
       }else{
         if(row.existing){
           const ex=data.hashes.find(h=>h._id===row._id);if(!ex)continue;
@@ -3248,6 +3316,18 @@ function ClientReport({ctx,client}){
       {hshsF.map(h=><Card key={h._id}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontWeight:800,fontSize:13,color:C.blue}}>{h.sn} · {h.model}</div><button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{background:"#1a2d42",border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div><div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {h._at?fmtTS(h._at):"—"} · <HP s={h.status}/></div></Card>)}
     </>}
     {macsF.length===0&&hshsF.length===0&&<div style={{textAlign:"center",color:C.muted,padding:24}}>Nada encontrado com esse filtro</div>}
+    {(()=>{
+      const ships=(data.shipments||[]).filter(s=>s.clientId===client._id).sort((a,b)=>(b.sentAt||"").localeCompare(a.sentAt||""));
+      if(!ships.length)return null;
+      return<><SL mt={18}>📦 HISTÓRICO DE ENVIOS ({ships.length})</SL>
+        <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Cada envio fica registrado aqui pra sempre — se a máquina voltar e for mandada de novo, aparece como um envio novo, separado.</div>
+        {ships.map(s=><Card key={s._id}>
+          <div style={{fontWeight:800,fontSize:13,color:C.accent}}>{s.machineSN}{s.model?` · ${s.model}`:""}</div>
+          <div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {fmtTS(s.sentAt)}</div>
+          {s.photoKey&&<PhotoView photoKey={s.photoKey} style={{marginTop:8,maxHeight:140}}/>}
+        </Card>)}
+      </>;
+    })()}
   </div>;
 }
 
