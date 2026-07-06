@@ -411,13 +411,15 @@ function BarcodeScanner({onScan,onClose,continuous}){
           BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E,
           BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX,
         ]);
-        hints.set(DecodeHintType.TRY_HARDER,true);
+        // Sem TRY_HARDER: mais rapido e melhor para codigos de barras 1D (lineares)
+        // TRY_HARDER favorece QR e deixa lento para CODE_128/CODE_39
         const reader=new BrowserMultiFormatReader(hints);
         readerRef.current=reader;
         const hiddenCanvas=canvasRef.current;
         const hiddenCtx=hiddenCanvas.getContext("2d",{willReadFrequently:true});
-        // Loop de leitura no canvas escondido
-        const tryDecode=()=>{
+        // Loop de leitura assincrono — decodeFromImageUrl e mais confiavel
+        // para codigos de barras 1D (CODE_128, CODE_39 etc.) do que decodeFromCanvas
+        const tryDecode=async()=>{
           if(stopped||busy)return;
           const video=vRef.current;
           if(!video.videoWidth)return;
@@ -427,11 +429,13 @@ function BarcodeScanner({onScan,onClose,continuous}){
             const z=zoomRef.current;
             const cropW=vw/z,cropH=vh/z;
             const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
-            const outW=960,outH=Math.round(outW*(cropH/cropW));
+            // 640px e rapido o suficiente para leitura de barcode sem travar
+            const outW=640,outH=Math.round(outW*(cropH/cropW));
             hiddenCanvas.width=outW;hiddenCanvas.height=outH;
             hiddenCtx.drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
-            const result=reader.decodeFromCanvas(hiddenCanvas);
-            if(result){
+            const dataUrl=hiddenCanvas.toDataURL("image/jpeg",0.85);
+            const result=await reader.decodeFromImageUrl(dataUrl);
+            if(result&&!stopped){
               const text=result.getText();
               if(continuous){
                 onScan(text);setFound(text);
@@ -448,7 +452,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
           }
           busy=false;
         };
-        intervalRef.current=setInterval(tryDecode,250);
+        intervalRef.current=setInterval(tryDecode,300);
         // Loop de exibição — desenha no canvas visível com zoom aplicado
         const drawLive=()=>{
           if(stopped)return;
@@ -1233,10 +1237,14 @@ function AddModeSelect({ctx,onClose}){
 function BatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending,clearPending]=usePersistedBatch(user._id+"-machines-lote",[]),[saving,setSaving]=useState(false);
+  const[dupMsg,setDupMsg]=useState("");
   const addSN=(raw)=>{
     const s=raw.toUpperCase().trim();if(!s)return;
+    const inBatch=pending.some(p=>p.sn===s);
     const ex=data.machines.find(m=>m.sn===s);
-    setPending(p=>[...p,{sn:s,existing:ex||null}]);
+    if(inBatch)setDupMsg("⚠️ "+s+" já está na lista deste lote — adicionado de novo mesmo assim.");
+    else setDupMsg("");
+    setPending(p=>[...p,{sn:s,existing:ex||null,dupInBatch:inBatch}]);
   };
   const saveAll=async()=>{
     if(!pending.length)return;setSaving(true);
@@ -1266,13 +1274,15 @@ function BatchSNForm({ctx,onClose}){
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
     {[["ctr","CTR",ctr,setCtr],["fonte","FONTE",fonte,setFonte],["fans","FANS",fans,setFans]].map(([k,l,v,setV])=><Sel key={k} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}
   </div>
-  <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/><div style={{maxHeight:220,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((p,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+  <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/>
+  {dupMsg&&<div style={{color:C.amber,fontSize:12,marginTop:6,fontWeight:700}}>{dupMsg}</div>}
+  <div style={{maxHeight:220,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((p,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <span style={{fontSize:13,fontFamily:"monospace",color:p.existing?C.amber:C.blue}}>{p.sn}</span>
-      <button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>✕</button>
+      <span style={{fontSize:13,fontFamily:"monospace",color:p.dupInBatch?C.red:p.existing?C.amber:C.blue}}>{p.sn}{p.dupInBatch?<span style={{fontSize:10,marginLeft:6,background:C.red,color:"#fff",borderRadius:4,padding:"1px 5px"}}>DUP</span>:null}</span>
+      <button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>X</button>
     </div>
-    {p.existing&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>⚠️ Já existe ({p.existing.model} · {p.existing.situacao}){p.existing.destino?<> · 👤 foi pro cliente <b>{p.existing.destino}</b></>:""} — vai atualizar essa máquina</div>}
-  </div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>{clearPending();onClose()}} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"💾 Salvar "+pending.length}</Btn></div></div>;
+    {p.existing&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>Ja existe ({p.existing.model} - {p.existing.situacao}){p.existing.destino?<> - foi pro cliente <b>{p.existing.destino}</b></>:""} - vai atualizar essa maquina</div>}
+  </div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>{clearPending();onClose()}} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"Salvar "+pending.length}</Btn></div></div>;
 }
 
 function BatchNoSNForm({ctx,onClose}){
