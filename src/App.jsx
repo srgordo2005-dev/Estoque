@@ -37,8 +37,8 @@ function injectFreshCtx(element,ctx){
 }
 
 /* ═══ SUPABASE ═══════════════════════════════════════════════════ */
-const SUPABASE_URL="https://paelbarlmayswqilhoxa.supabase.co";
-const SUPABASE_KEY="sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h"; // sb_publishable_...
+const SUPABASE_URL=import.meta.env.VITE_SUPABASE_URL||"https://paelbarlmayswqilhoxa.supabase.co";
+const SUPABASE_KEY=import.meta.env.VITE_SUPABASE_KEY||"";
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 
 // Nome da coleção (usado no resto do app, igual antes) → nome da tabela real no Postgres
@@ -1285,11 +1285,12 @@ function MacPage({ctx}){
       <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>MODELO (múltipla escolha){modelFilters.size>0&&<button onClick={()=>setModelFilters(new Set())} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:10,marginLeft:8}}>limpar</button>}</div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{allModelsUsed.map(mo=><button key={mo} onClick={()=>toggleModel(mo)} style={{background:modelFilters.has(mo)?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{mo}</button>)}</div>
     </div>}
-    {selMode&&selected.size>0&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      <Tag color={C.accent}>{selected.size} selecionadas</Tag>
+    {selMode&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <button onClick={()=>{const all=new Set(filtered.map(m=>m._id));setSelected(prev=>prev.size===filtered.length?new Set():all)}} style={{background:selected.size===filtered.length&&filtered.length>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{selected.size===filtered.length&&filtered.length>0?"✓ Todos selecionados":"Selecionar tudo ("+filtered.length+")"}</button>
+      {selected.size>0&&<><Tag color={C.accent}>{selected.size} selecionadas</Tag>
       <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🏷️ Mudar Status</Btn>
       <Btn v="p" onClick={()=>setBulkAction("pallet")} style={{fontSize:11,padding:"6px 10px"}}>📦 Mover p/ Palete</Btn>
-      <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>👤 Enviar p/ Cliente</Btn>
+      <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>👤 Enviar p/ Cliente</Btn></> }
     </div>}
     {filtered.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>🖥️</div>Nenhuma máquina</div>
       :filtered.map(m=><div key={m._id} style={{position:"relative"}}>
@@ -1778,7 +1779,8 @@ function HashPage({ctx}){
       <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>MODELO (múltipla escolha){modelFilters.size>0&&<button onClick={()=>setModelFilters(new Set())} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:10,marginLeft:8}}>limpar</button>}</div>
       <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{allModelsUsed.map(mo=><button key={mo} onClick={()=>toggleModel(mo)} style={{background:modelFilters.has(mo)?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{mo}</button>)}</div>
     </div>}
-    {selMode&&selected.size>0&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+    {selMode&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <button onClick={()=>{const all=new Set(filtered.map(h=>h._id));setSelected(prev=>prev.size===filtered.length&&filtered.length>0?new Set():all)}} style={{background:selected.size===filtered.length&&filtered.length>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{selected.size===filtered.length&&filtered.length>0?"✓ Todos selecionados":"Selecionar tudo ("+filtered.length+")"}</button>
       <Tag color={C.accent}>{selected.size} selecionadas</Tag>
       <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🏷️ Mudar Status</Btn>
       <Btn v="p" onClick={()=>setBulkAction("location")} style={{fontSize:11,padding:"6px 10px"}}>📍 Mudar Local</Btn>
@@ -3011,14 +3013,14 @@ function ApprovalsPage({ctx}){
 /* ═══ TEAM ══════════════════════════════════════════════════════ */
 function TeamPage({ctx,canSeeEmp}){
   const{data,mutate,setModal,user}=ctx;const today=TODAY();
-  const[subTab,setSubTab]=useState("list");
+  const[subTab,setSubTab]=useState("list"),[dailyEmp,setDailyEmp]=useState("");
   const isSuper=user.code==="019";const openAdd=()=>setModal(<Modal title="Novo Funcionário" onClose={()=>setModal(null)}><AddEmpForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openProfile=e=>setModal(<Modal title={`${e.name} #${e.code}`} onClose={()=>setModal(null)}><EmpProfile ctx={ctx} emp={e}/></Modal>);
   return<div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>
       {[["list","👷 Equipe"],["daily","📅 Relatório do Dia"]].map(([id,l])=><button key={id} onClick={()=>setSubTab(id)} style={{flex:1,background:subTab===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}
     </div>
-    {subTab==="daily"?<DailyTeamReport ctx={ctx}/>:<>
+    {subTab==="daily"?<DailyTeamReport ctx={ctx} initEmp={dailyEmp} employees={data.employees}/>:<>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div><div style={{fontWeight:900,fontSize:18}}>Equipe</div><div style={{color:C.muted,fontSize:12}}>{data.employees.filter(e=>isSuper||e.code!=="019").length} funcionários</div></div><Btn onClick={openAdd}>+ Funcionário</Btn></div>
     {data.employees.map(e=>{
       if(e.code==="019"&&!isSuper)return null; // ninguém além do próprio 019 vê essa conta
@@ -3039,6 +3041,7 @@ function TeamPage({ctx,canSeeEmp}){
         </div>
         <div style={{display:"flex",gap:6,marginTop:10}}>
           <Btn v="s" onClick={()=>setModal(<Modal title={"📋 "+e.name} onClose={()=>setModal(null)}><EmpHistory ctx={ctx} emp={e}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>📋 Histórico</Btn>
+          <Btn v="b" onClick={()=>{setSubTab("daily");setDailyEmp(e._id)}} style={{flex:1,fontSize:11,padding:"7px"}}>📅 Ver Hoje</Btn>
           {isSuper&&<Btn v="s" onClick={()=>setModal(<Modal title={"✏️ "+e.name} onClose={()=>setModal(null)}><EmpEdit ctx={ctx} emp={e} onClose={()=>setModal(null)}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>✏️ Editar</Btn>}
           <Btn v="s" onClick={()=>copyReport(e,data.repairs,data.tests,TODAY())} style={{fontSize:11,padding:"7px"}}>📤</Btn>
         </div>
@@ -3050,23 +3053,48 @@ function TeamPage({ctx,canSeeEmp}){
 
 // Item 8: relatório com filtro por data mostrando TUDO que foi feito por
 // TODO MUNDO junto naquele dia, com data/hora de cada movimentação.
-function DailyTeamReport({ctx}){
-  const{data}=ctx;const[date,setDate]=useState(TODAY());
-  const dayRepairs=data.repairs.filter(r=>r.date===date);
-  const dayTests=data.tests.filter(t=>t.date===date);
-  const machineLogs=[];data.machines.forEach(m=>(m.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date)machineLogs.push({...l,sn:m.sn,kind:"machine"})}));
-  const hashLogs=[];data.hashes.forEach(h=>(h.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date)hashLogs.push({...l,sn:h.sn,kind:"hash"})}));
+function DailyTeamReport({ctx,initEmp="",employees=[]}){
+  const{data}=ctx;
+  const[date,setDate]=useState(TODAY());
+  const[empFilter,setEmpFilter]=useState(initEmp);
+  // Filtra por funcionário se selecionado
+  const matchEmp=(byId,byName)=>{
+    if(!empFilter)return true;
+    const emp=employees.find(e=>e._id===empFilter);
+    if(!emp)return true;
+    return byId===empFilter||byName===emp.name;
+  };
+  const dayRepairs=data.repairs.filter(r=>r.date===date&&matchEmp(r._by||r.employeeId,r._byName));
+  const dayTests=data.tests.filter(t=>t.date===date&&matchEmp(t._by||t.employeeId,t._byName));
+  const machineLogs=[];data.machines.forEach(m=>(m.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date&&matchEmp(null,l.by))machineLogs.push({...l,sn:m.sn})}));
+  const hashLogs=[];data.hashes.forEach(h=>(h.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date&&matchEmp(null,l.by))hashLogs.push({...l,sn:h.sn})}));
   const items=[
-    ...dayRepairs.map(r=>({at:r._at,text:`🔧 ${r._byName||"?"} ${r.type==="already_good"?"verificou (já boa)":"consertou"} a HASH ${r.hashSN||"SEM SN"} (${r.model})`})),
-    ...dayTests.map(t=>({at:t._at,text:`🧪 ${t._byName||"?"} testou a máquina ${t.machineSN||"SEM SN"} — ${t.status==="pending"?"aguardando revisão":t.overallResult==="good"?"BOA":"RUIM"}`})),
-    ...machineLogs.map(l=>({at:l.at,text:`✏️ ${l.by} alterou ${l.label} da máquina ${l.sn||"SEM SN"}: "${l.from||"—"}" → "${l.to||"—"}"`})),
-    ...hashLogs.map(l=>({at:l.at,text:`✏️ ${l.by} alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" → "${l.to||"—"}"`})),
+    ...dayRepairs.map(r=>({at:r._at,who:r._byName||"?",text:`Consertou HASH ${r.hashSN||"SEM SN"} (${r.model}) — ${r.type==="already_good"?"ja estava boa":"conserto"}`})),
+    ...dayTests.map(t=>({at:t._at,who:t._byName||"?",text:`Testou maquina ${t.machineSN||"SEM SN"} — ${t.overallResult==="good"?"BOA":"RUIM/pendente"}`})),
+    ...machineLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da maquina ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
+    ...hashLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
   ].sort((a,b)=>(a.at||"")<(b.at||"")?1:-1);
+  const empName=empFilter?employees.find(e=>e._id===empFilter)?.name:"";
   return<div>
-    <DateInp label="DATA" value={date} onChange={e=>setDate(e.target.value)}/>
-    <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{items.length} movimentações nesse dia, de todos os funcionários</div>
-    {items.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24}}>Nada registrado nesta data</div>
-      :items.map((it,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontSize:13}}>{it.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(it.at)}</div></div>)}
+    <div style={{display:"flex",gap:8,marginBottom:10}}>
+      <div style={{flex:1}}><DateInp label="DATA" value={date} onChange={e=>setDate(e.target.value)}/></div>
+    </div>
+    <div style={{marginBottom:10}}>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>FILTRAR POR FUNCIONARIO</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        <button onClick={()=>setEmpFilter("")} style={{background:!empFilter?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todos</button>
+        {employees.filter(e=>e.code!=="019").map(e=><button key={e._id} onClick={()=>setEmpFilter(empFilter===e._id?"":e._id)} style={{background:empFilter===e._id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{e.name}</button>)}
+      </div>
+    </div>
+    <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{items.length} movimentacoes {empName?"de "+empName:"de todos os funcionarios"} nesse dia</div>
+    {items.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24}}>Nada registrado nesta data{empName?" para "+empName:""}</div>
+      :items.map((it,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+        <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+          <div style={{background:C.card2,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,color:C.accent,whiteSpace:"nowrap",flexShrink:0}}>{it.who}</div>
+          <div style={{fontSize:12}}>{it.text}</div>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:2,paddingLeft:4}}>{fmtTS(it.at)}</div>
+      </div>)}
   </div>;
 }
 

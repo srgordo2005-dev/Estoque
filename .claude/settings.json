@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m ' *)",
+      "Bash(grep -n \"const mUpd={...exMac,situacao:targetSituacao\" src/App.jsx)",
+      "Bash(awk -F: '$1>750 && $1<975')"
+    ]
+  }
+}
