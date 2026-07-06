@@ -71,7 +71,7 @@ const FIELD_MAP={
   newHashModel:"new_hash_model",newHashMaterial:"new_hash_material",newHashChips:"new_hash_chips",
   newHashChars:"new_hash_chars",
   existingId:"existing_id",logPhoto:"log_photo",
-  prepShipment:"prep_shipment",
+  prepShipment:"prep_shipment",prevSituacao:"prev_situacao",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
@@ -2183,49 +2183,90 @@ function TestePage({ctx}){
     setSessions(prev=>prev.some(x=>x._id===s._id)?prev.map(x=>x._id===s._id?s:x):[...prev,s]);
   };
 
-  const loadMachine=async(snParam)=>{
-    const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;
+  // Confere se outro testador já está com essa máquina em mãos, e se já tem
+  // uma sessão aberta pra ela — usado tanto pelo teste normal quanto pelo
+  // Preparar pra Envio.
+  const checkSessionConflicts=async(sn)=>{
     const allSessions = await fbList("sessions");
     const existingOther = allSessions.find(s=>s.machineSN===sn && s.employeeId!==user._id);
     if(existingOther){
       const emp = data.employees.find(e=>e._id===existingOther.employeeId);
       if(!window.confirm(`⚠️ A máquina ${sn} já está em teste por: ${emp?.name||"Outro usuário"}.\nDeseja abrir a sessão de teste mesmo assim?`)){
-        return;
+        return false;
       }
     }
     const existing=sessions.find(s=>s.machineSN===sn);
-    if(existing){setActiveId(existing._id);setMacInput(sn);return}
+    if(existing){setActiveId(existing._id);setMacInput(sn);return false}
+    return true;
+  };
+
+  const loadMachine=async(snParam)=>{
+    const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;
+    if(!await checkSessionConflicts(sn))return;
     const ex=data.machines.find(m=>normSNField(m.sn)===sn);
-    if(ex&&ex.situacao==="BOA"){
-      setModal(<Modal title="✅ Máquina já está BOA" onClose={()=>setModal(null)}>
-        <div style={{color:C.text,fontSize:13,marginBottom:16}}>A máquina <b>{sn}</b> já está marcada como BOA no estoque. O que deseja fazer?</div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <Btn v="y" onClick={()=>{setModal(null);startSession(sn,ex,true)}} style={{justifyContent:"center",padding:"12px 0"}}>📦 Preparar pra Envio</Btn>
-          <Btn v="b" onClick={()=>{setModal(null);startSession(sn,ex)}} style={{justifyContent:"center",padding:"12px 0"}}>🧪 Testar de Novo</Btn>
-          <Btn v="s" onClick={()=>setModal(null)} style={{justifyContent:"center",padding:"12px 0"}}>Cancelar</Btn>
-        </div>
-      </Modal>);
-      return;
-    }
+    if(ex&&ex.situacao==="BOA"&&!window.confirm(`Essa máquina já está marcada como BOA na planilha/estoque.\nQuer mesmo testar de novo?`))return;
     await startSession(sn,ex);
+  };
+
+  // Botão fixo — funciona com QUALQUER máquina (nova ou já cadastrada, em
+  // qualquer status), diferente do teste normal. Muda o status pra
+  // PREPARANDO NA HORA (app e planilha), guardando o status anterior: se o
+  // testador cancelar a sessão sem mandar pra revisão, volta pro status de
+  // antes — nunca fica "preso" em PREPARANDO à toa.
+  const prepareForShipment=async()=>{
+    const sn=macInput.toUpperCase().trim();
+    if(!sn){setErr("Digite ou bipe o SN da máquina primeiro.");return}
+    setErr("");
+    if(!await checkSessionConflicts(sn))return;
+    const ex=data.machines.find(m=>normSNField(m.sn)===sn);
+    const prevSituacao=ex?ex.situacao:"";
+    if(ex){
+      const u={...ex,situacao:"PREPARANDO",...audit(user)};
+      mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));
+      await fbSet("machines",ex._id,u);
+      await markChanged("machines");
+      syncSheet(webhookUrl,"updateMachine",{sn:ex.sn,field:"situacao",to:"PREPARANDO",employeeName:user.name,employeeCode:user.code});
+    }
+    await startSession(sn,ex,true,prevSituacao);
   };
 
   // "Preparar pra Envio" abre uma sessão igualzinha a um teste normal (slots,
   // componentes, foto obrigatória) — só marca prepShipment pra, quando o
-  // Admin aprovar lá na Revisão, o status virar PREPARANDO em vez de BOA.
-  // Continua indo pra fila de espera, exatamente como um teste comum.
-  const startSession=async(sn,ex,prepShipment)=>{
+  // Admin aprovar lá na Revisão, o status PERMANECER PREPARANDO (em vez de
+  // virar BOA). Continua indo pra fila de espera, exatamente como um teste comum.
+  const startSession=async(sn,ex,prepShipment,prevSituacao)=>{
     const id=uid();
     const s={_id:id,employeeId:user._id,machineSN:sn,model:ex?.model||models[0]?.m||"M30S",th:ex?.th||0,
       slots:[
         {hashSN:ex?.hashSN0||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN1||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN2||"",status:"",photoKey:null}
-      ],controladora:"",fonte:"",fans:"",photoKey:null,adminNotes:[],prepShipment:!!prepShipment,updatedAt:stamp()};
+      ],controladora:"",fonte:"",fans:"",photoKey:null,adminNotes:[],prepShipment:!!prepShipment,prevSituacao:prevSituacao||"",updatedAt:stamp()};
     await saveSession(s);setActiveId(id);
   };
 
-  const closeSession=async(id)=>{await fbDel("sessions",id);setSessions(prev=>prev.filter(x=>x._id!==id));if(activeId===id){setActiveId(null);setMacInput("")}};
+  // Só remove a sessão localmente (sem mexer em status de máquina) — usado
+  // depois de ENVIAR com sucesso pra revisão, onde o PREPARANDO deve
+  // continuar valendo.
+  const removeSessionLocal=async(id)=>{await fbDel("sessions",id);setSessions(prev=>prev.filter(x=>x._id!==id));if(activeId===id){setActiveId(null);setMacInput("")}};
+
+  // CANCELAR uma sessão de Preparar pra Envio (botão ✕/🗑, não o envio pra
+  // revisão) desfaz a mudança pra PREPARANDO — a máquina volta pro status
+  // que tinha antes de começar.
+  const closeSession=async(id)=>{
+    const sess=sessions.find(s=>s._id===id);
+    if(sess?.prepShipment&&sess.prevSituacao){
+      const ex=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
+      if(ex&&ex.situacao==="PREPARANDO"){
+        const u={...ex,situacao:sess.prevSituacao,...audit(user)};
+        mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));
+        await fbSet("machines",ex._id,u);
+        await markChanged("machines");
+        syncSheet(webhookUrl,"updateMachine",{sn:ex.sn,field:"situacao",to:sess.prevSituacao,employeeName:user.name,employeeCode:user.code});
+      }
+    }
+    await removeSessionLocal(id);
+  };
 
   const applySlotSN=async(i,upperSn,existing,extraNote)=>{
     const newSlots=[...session.slots];
@@ -2312,20 +2353,15 @@ function TestePage({ctx}){
     const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
     await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
     const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
-    // Enquanto está esperando o Admin revisar, "Preparar pra Envio" mostra
-    // PREPARANDO em vez de AGUARD. REVISÃO — assim dá pra ver, olhando o
-    // estoque, que essa máquina já está BOA e só terminando de ser
-    // conferida antes do envio (não é uma máquina com problema).
+    // Preparar pra Envio já deixou a máquina em PREPARANDO (e já sincronizou
+    // a planilha) desde que a sessão começou — aqui só garante isso e marca
+    // quem testou. Teste comum vai pra AGUARD. REVISÃO (só some quando o
+    // Admin aprovar/reprovar de verdade).
     const pendingSituacao=sess.prepShipment?"PREPARANDO":"AGUARD. REVISÃO";
     if(exMac){const u={...exMac,situacao:pendingSituacao,lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
-    // "Preparar pra Envio" atualiza a planilha com PREPARANDO na hora — quem
-    // olha a planilha já vê que essa máquina está sendo preparada, sem
-    // precisar esperar a aprovação do Admin (diferente de um teste comum,
-    // que só mexe na planilha quando a revisão termina de verdade).
-    if(sess.prepShipment)syncSheet(webhookUrl,"updateMachine",{sn:sess.machineSN,field:"situacao",to:"PREPARANDO",employeeName:user.name,employeeCode:user.code});
     await markChanged("tests");await markChanged("approvals");await markChanged("machines");
     syncSheet(webhookUrl,"test",{...rec,employeeCode:user.code,employeeName:user.name});
-    await closeSession(sess._id);setSubmitting(false);setDone(true);setTimeout(()=>setDone(false),3000);
+    await removeSessionLocal(sess._id);setSubmitting(false);setDone(true);setTimeout(()=>setDone(false),3000);
   };
 
   const otherSessions=sessions.filter(s=>s._id!==activeId);
@@ -2356,7 +2392,7 @@ function TestePage({ctx}){
     </div>}
 
     {session?.rejected&&<Alrt type="err">{(session.adminNotes||[]).join(" · ")||"❌ Essa máquina foi reprovada na revisão. Corrija e envie de novo."}</Alrt>}
-    {session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — ao enviar, o status vira PREPARANDO (já atualiza na planilha). Quando o Admin aprovar, volta pra BOA.</Alrt>}
+    {session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — status já está PREPARANDO (planilha atualizada). Quando o Admin aprovar, permanece PREPARANDO. Se cancelar essa sessão, volta pro status de antes.</Alrt>}
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
@@ -2365,6 +2401,10 @@ function TestePage({ctx}){
         <input value={macInput} onChange={e=>setMacInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&loadMachine(macInput)} placeholder="Bipe ou escaneie o SN e Enter..." list="mac-list" style={{...inp,flex:1}}/>
         <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
       </div>
+      {/* Fixo — funciona com qualquer máquina, nova ou já cadastrada, em
+          qualquer status. Muda o status pra PREPARANDO na hora (não precisa
+          já estar BOA). */}
+      {!session&&<Btn v="y" onClick={prepareForShipment} style={{width:"100%",marginTop:8,justifyContent:"center"}}>📦 Preparar pra Envio</Btn>}
       <datalist id="mac-list">{data.machines.map(m=><option key={m._id} value={m.sn||""}>{m.model}</option>)}</datalist>
       {session&&<div style={{marginTop:8}}>
         <div style={{fontWeight:800,color:C.accent,marginBottom:6}}>{session.machineSN}</div>
@@ -2728,10 +2768,9 @@ function ApprovalsPage({ctx}){
     setProcessing(appr._id);const test=data.tests.find(t=>t._id===appr.testId);if(!test){setProcessing(null);return}
     const tUpd={...test,status:"approved",overallResult:"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
-    // "Preparar pra Envio" fica como PREPARANDO só enquanto espera a revisão
-    // (ver doSubmit) — assim que o Admin aprova, volta a ficar BOA igual um
-    // teste comum (a diferença é só durante a espera).
-    const targetSituacao="BOA";
+    // "Preparar pra Envio" PERMANECE PREPARANDO quando aprovado — só um
+    // teste comum volta a virar BOA.
+    const targetSituacao=appr.prepShipment?"PREPARANDO":"BOA";
     if(exMac){
       // Quando o teste dá "TUDO BOA", TODOS os parâmetros ficam ON — mesmo os
       // slots sem SN preenchido (a máquina toda foi aprovada como funcionando).
@@ -2749,9 +2788,9 @@ function ApprovalsPage({ctx}){
         await fbSet("customModels",cmid,cmd);mutate("customModels",arr=>[...arr,{...cmd,_id:cmid}]);
       }
     }else if(appr.machineSN){
-      // Máquina testada que ainda não existia no estoque — cria agora, já como BOA
+      // Máquina testada que ainda não existia no estoque — cria agora
       const mid=uid();
-      const mNew={sn:appr.machineSN,ref:appr.employeeCode||"",model:test.model,th:test.th||0,type:"complete",situacao:"BOA",
+      const mNew={sn:appr.machineSN,ref:appr.employeeCode||"",model:test.model,th:test.th||0,type:"complete",situacao:targetSituacao,
         hash0:"ON",hash1:"ON",hash2:"ON",
         hashSN0:test.slot0HashSN||"",hashSN1:test.slot1HashSN||"",hashSN2:test.slot2HashSN||"",
         controladora:"ON",fonte:"ON",fans:"ON",location:"",destino:"",...audit(user),addedAt:TODAY()};
@@ -2761,7 +2800,7 @@ function ApprovalsPage({ctx}){
       }else{
         mutate("machines",m=>[...m,{...mNew,_id:mid}]);
       }
-      syncSheet(webhookUrl,"addMachine",{sn:mNew.sn,model:mNew.model,th:mNew.th,situacao:"BOA",ref:mNew.ref,employeeName:user.name,employeeCode:user.code});
+      syncSheet(webhookUrl,"addMachine",{sn:mNew.sn,model:mNew.model,th:mNew.th,situacao:targetSituacao,ref:mNew.ref,employeeName:user.name,employeeCode:user.code});
       ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:mNew.sn,field:k,to:mNew[k],employeeName:user.name,employeeCode:user.code}));
     }
     let newH=[...data.hashes];
