@@ -381,66 +381,94 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
-  const vRef=useRef(),readerRef=useRef(),controlsRef=useRef(),trackRef=useRef();
+  const vRef=useRef(),canvasRef=useRef(),readerRef=useRef(),streamRef=useRef(),trackRef=useRef(),rafRef=useRef();
   const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState("");
+  const[zoom,setZoom]=useState(1.8); // zoom digital inicial — a maioria das etiquetas fica melhor já um pouco ampliada
+  const zoomRef=useRef(zoom);
+  useEffect(()=>{zoomRef.current=zoom},[zoom]);
   useEffect(()=>{
     let stopped=false,busy=false;
     const timeout=setTimeout(()=>{
-      if(!stopped&&!controlsRef.current)setErr("A câmera demorou demais pra iniciar.\n\nConfira nas Configurações do navegador se o site tem permissão de câmera liberada, e tenta de novo.");
+      if(!stopped&&!streamRef.current)setErr("A câmera demorou demais pra iniciar.\n\nConfira nas Configurações do navegador se o site tem permissão de câmera liberada, e tenta de novo.");
     },8000);
     (async()=>{
       try{
-        // ZXing funciona em QUALQUER navegador (Chrome/Safari, Android/iPhone)
-        // — diferente do antigo BarcodeDetector, que só existe no Chrome do
-        // Android. IMPORTANTE: usamos "decodeFromConstraints" (pede a câmera
-        // direto, com facingMode) em vez de listar câmeras antes — listar
-        // câmeras ANTES de ter permissão retorna nomes vazios em quase todo
-        // celular, o que fazia escolher a câmera errada (ou nenhuma) e a
-        // tela ficava preta sem escanear nada.
+        // ZXing funciona em QUALQUER navegador (Chrome/Safari, Android/iPhone).
+        // Em vez de deixar o ZXing controlar a câmera direto, pegamos o vídeo
+        // cru e fazemos NOSSO PRÓPRIO recorte com zoom digital antes de tentar
+        // ler — assim funciona mesmo no iPhone, que não deixa nenhum site
+        // controlar foco/zoom de verdade da câmera (limitação da Apple, não
+        // é um bug daqui).
+        const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}});
+        if(stopped){stream.getTracks().forEach(t=>t.stop());return}
+        streamRef.current=stream;
+        vRef.current.srcObject=stream;
+        await vRef.current.play();
+        clearTimeout(timeout);
+        setOk(true);
+        const track=stream.getVideoTracks()[0];
+        trackRef.current=track;
+        try{const caps=track.getCapabilities?.();if(caps&&caps.torch)setTorchSupported(true)}catch{}
         const reader=new BrowserMultiFormatReader();
         readerRef.current=reader;
-        // Resolução mais alta ajuda a ler código pequeno/próximo (etiqueta
-        // de placa) — em resolução baixa o código fica borrado de menos
-        // detalhe e o leitor não consegue decodificar.
-        const constraints={video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"}]}};
-        const controls=await reader.decodeFromConstraints(constraints,vRef.current,(result,error)=>{
-          if(stopped||busy)return;
-          if(result){
-            const text=result.getText();
-            if(continuous){
-              // Modo lote: NÃO fecha — mostra confirmação rapidinho e volta
-              // a escanear sozinho, até o usuário apertar o X.
-              busy=true;
-              onScan(text);
-              setFound(text);
-              setTimeout(()=>{setFound("");busy=false},900);
-            }else{
-              stopped=true;controls.stop();
-              setFound(text); // mostra o SN achado na tela antes de fechar
-              setTimeout(()=>onScan(text),700);
-            }
+        const canvas=canvasRef.current;
+        const ctx=canvas.getContext("2d",{willReadFrequently:true});
+        const loop=async()=>{
+          if(stopped)return;
+          const video=vRef.current;
+          if(video.videoWidth&&!busy){
+            const vw=video.videoWidth,vh=video.videoHeight;
+            const z=zoomRef.current;
+            const cropW=vw/z,cropH=vh/z;
+            const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
+            canvas.width=vw;canvas.height=vh;
+            ctx.drawImage(video,sx,sy,cropW,cropH,0,0,vw,vh);
+            try{
+              const result=reader.decodeFromCanvas(canvas);
+              if(result){
+                const text=result.getText();
+                if(continuous){
+                  busy=true;onScan(text);setFound(text);
+                  setTimeout(()=>{setFound("");busy=false},900);
+                }else{
+                  stopped=true;
+                  setFound(text);
+                  setTimeout(()=>onScan(text),700);
+                  return;
+                }
+              }
+            }catch{/* não achou código nesse frame — normal, tenta de novo */}
           }
-          // "NotFoundException" é disparado a cada frame sem código — normal, ignora
-        });
-        clearTimeout(timeout);
-        controlsRef.current=controls;
-        setOk(true);
-        // Lanterna — só funciona em alguns navegadores/aparelhos (Android
-        // Chrome principalmente; iPhone geralmente não deixa controlar por
-        // aqui). Se não der pra saber, o botão simplesmente não aparece.
-        try{
-          const track=vRef.current.srcObject?.getVideoTracks?.()[0];
-          if(track){trackRef.current=track;const caps=track.getCapabilities?.();if(caps&&caps.torch)setTorchSupported(true)}
-        }catch{}
+          rafRef.current=requestAnimationFrame(loop);
+        };
+        loop();
       }catch(e){clearTimeout(timeout);setErr("Câmera:\n"+(e.message||"não consegui acessar")+"\n\nConfira se deu permissão de câmera pro site nas configurações do navegador.")}
     })();
-    return()=>{stopped=true;clearTimeout(timeout);try{controlsRef.current?.stop()}catch{}};
+    return()=>{stopped=true;clearTimeout(timeout);if(rafRef.current)cancelAnimationFrame(rafRef.current);if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop())};
   },[]);
   const toggleTorch=async()=>{
     if(!trackRef.current)return;
     try{await trackRef.current.applyConstraints({advanced:[{torch:!torchOn}]});setTorchOn(t=>!t)}catch{}
   };
-  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<><video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.35)":"rgba(0,0,0,.55)"}}/><div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.35)":"0 0 0 9999px rgba(0,0,0,.55)",border:found?"3px solid #16a34a":"none"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/>}</div><div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px"}}>{found?`✓ ${found}`:(ok?"🔍 Aponte para o código...":"⏳ Iniciando...")}</div>{continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12}}>Modo lote — continua escaneando. Toque no ✕ quando terminar.</div>}</div>{torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}<button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button></>}</div>;
+  const zoomIn=()=>setZoom(z=>Math.min(z+0.5,5));
+  const zoomOut=()=>setZoom(z=>Math.max(z-0.5,1));
+  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<>
+    <video ref={vRef} style={{display:"none"}} playsInline muted/>
+    <canvas ref={canvasRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>
+    <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+      <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.35)":"rgba(0,0,0,.4)"}}/>
+      <div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.35)":"0 0 0 9999px rgba(0,0,0,.4)",border:found?"3px solid #16a34a":"none"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/>}</div>
+      <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",whiteSpace:"pre-line"}}>{found?`✓ ${found}`:(ok?"🔍 Aponte para o código":"⏳ Iniciando...")}</div>
+      {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12}}>Modo lote — continua escaneando. Toque no ✕ quando terminar.</div>}
+    </div>
+    {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.7)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
+      <button onClick={zoomOut} disabled={zoom<=1} style={{background:"none",border:"none",color:zoom<=1?"#666":"#fff",fontSize:22,fontWeight:900,cursor:"pointer",padding:"0 8px"}}>−</button>
+      <span style={{color:"#fff",fontSize:13,fontWeight:700,minWidth:40,textAlign:"center"}}>{zoom.toFixed(1)}x</span>
+      <button onClick={zoomIn} disabled={zoom>=5} style={{background:"none",border:"none",color:zoom>=5?"#666":"#fff",fontSize:22,fontWeight:900,cursor:"pointer",padding:"0 8px"}}>+</button>
+    </div>}
+    {torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}
+    <button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button>
+  </>}</div>;
 }
 
 function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
