@@ -1523,6 +1523,10 @@ function MachineDetail({ctx,machine}){
   data.tests.filter(t=>t.machineSN===m.sn&&m.sn).forEach(t=>{const emp=data.employees.find(e=>e._id===t.employeeId);history.push({date:t._at||t.date,text:"Testada por "+(emp?.name||t._byName||"?")+" — "+(t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"),photoKey:t.testPhoto})});
   (m.changeLog||[]).forEach(l=>history.push({date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
   history.sort((a,b)=>a.date<b.date?-1:1);
+  // Data do teste mais recente — só pra exibir na tela (não mexe em nada na
+  // planilha nem grava campo novo; é sempre calculado a partir dos testes
+  // já salvos).
+  const lastTest=data.tests.filter(t=>t.machineSN===m.sn&&m.sn).reduce((best,t)=>{const d=t._at||t.date;return(!best||d>(best._at||best.date))?t:best},null);
   const exitSits=["SAIDA","EXPORTADA","VENDIDA"];
   // Depois que a máquina sai pro cliente, ela fica travada — não dá mais pra
   // editar nem apagar foto, só desvincular do cliente e voltar pro estoque.
@@ -1634,6 +1638,7 @@ function MachineDetail({ctx,machine}){
       <Inp label="Referência (REF)" value={m.ref||""} onChange={e=>upd("ref",e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
       <Inp label="Localização" value={m.location||""} onChange={e=>upd("location",e.target.value.toUpperCase())} placeholder="Ex: PALETE 01 · PRATELEIRA B3"/>
       {m.destino&&<div style={{background:C.purple+"15",border:`1px solid ${C.purple}44`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:13}}>👤 Enviada pro cliente: <b style={{color:C.purple}}>{m.destino}</b></div>}
+      {lastTest&&<div style={{color:C.muted,fontSize:11,marginBottom:8}}>🕓 Último teste: {fmtTS(lastTest._at||lastTest.date)}</div>}
       <SL mt={8}>📷 FOTO DA MÁQUINA</SL>
       {m.photoKey?<div style={{marginBottom:14}}>
         <PhotoView photoKey={m.photoKey} style={{maxHeight:220,marginBottom:8}}/>
@@ -2774,7 +2779,13 @@ function ApprovalsPage({ctx}){
     if(exMac){
       // Quando o teste dá "TUDO BOA", TODOS os parâmetros ficam ON — mesmo os
       // slots sem SN preenchido (a máquina toda foi aprovada como funcionando).
-      const mUpd={...exMac,situacao:targetSituacao,model:test.model||exMac.model,th:test.th||exMac.th,hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON",hashSN0:test.slot0HashSN||exMac.hashSN0||"",hashSN1:test.slot1HashSN||exMac.hashSN1||"",hashSN2:test.slot2HashSN||exMac.hashSN2||"",...audit(user)};
+      // Preparar pra Envio: a foto da máquina sempre passa a ser a do teste
+      // mais recente (a antiga não some — continua no histórico, que lista
+      // TODOS os testes já feitos). Não mexe em nenhuma data — nem a de
+      // "adicionada" (não é tocada aqui mesmo), nem sincroniza data nenhuma
+      // pra planilha; o dia desse teste já fica no histórico da máquina.
+      const photoPatch=appr.prepShipment&&test.testPhoto?{photoKey:test.testPhoto}:{};
+      const mUpd={...exMac,situacao:targetSituacao,model:test.model||exMac.model,th:test.th||exMac.th,hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON",hashSN0:test.slot0HashSN||exMac.hashSN0||"",hashSN1:test.slot1HashSN||exMac.hashSN1||"",hashSN2:test.slot2HashSN||exMac.hashSN2||"",...photoPatch,...audit(user)};
       await fbSet("machines",exMac._id,mUpd);mutate("machines",m=>m.map(x=>x._id===exMac._id?mUpd:x));
       syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"situacao",to:targetSituacao,employeeName:user.name,employeeCode:user.code});
       if(test.model&&test.model!==exMac.model)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"model",to:test.model,employeeName:user.name,employeeCode:user.code});
