@@ -260,7 +260,16 @@ const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","SAIDA","IRREPARAVEL","NA M
 const CTR_OPTS=["ON","OFF","TESTAR"];
 const SIT_C={"STOCK":"#d97706","BOA":"#16a34a","AGUARD. REVISÃO":"#2563eb","REVISAR":"#dc2626","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#dc2626","CASTANHAO":"#92400e"};
 const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",SAIDA:"#ea580c",IRREPARAVEL:"#374151","NA MAQUINA":"#0ea5e9"};
-const TODAY=()=>new Date().toISOString().split("T")[0];
+// NUNCA usar toISOString() aqui — ela devolve a data em UTC, não no horário
+// local. Como o Brasil é UTC-3, entre 21h e 23h59 (horário local) o UTC já
+// virou o dia seguinte — TODAY() ficava adiantado em 1 dia bem nesse
+// horário (foi exatamente o que causou um conserto salvar com a data
+// errada). getFullYear/getMonth/getDate sempre respeitam o fuso horário do
+// aparelho, então usam a data local de verdade.
+const TODAY=()=>{
+  const d=new Date();
+  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
 const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"—";
 const fmtTS=s=>s?new Date(s).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
 const fmtTime=s=>s?new Date(s).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"";
