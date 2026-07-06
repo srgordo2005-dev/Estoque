@@ -425,7 +425,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
         readerRef.current=reader;
         const canvas=canvasRef.current;
         const ctx=canvas.getContext("2d",{willReadFrequently:true});
-        const tryDecode=async()=>{
+        const tryDecode=()=>{
           if(stopped||busy)return;
           const video=vRef.current;
           if(!video.videoWidth)return;
@@ -442,8 +442,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
             const outW=800,outH=Math.round(outW*(cropH/cropW));
             canvas.width=outW;canvas.height=outH;
             ctx.drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
-            const dataUrl=canvas.toDataURL("image/jpeg",0.75);
-            const result=await reader.decodeFromImageUrl(dataUrl);
+            const result=reader.decodeFromCanvas(canvas);
             if(result){
               const text=result.getText();
               if(continuous){
