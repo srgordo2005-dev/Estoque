@@ -491,7 +491,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
     </div>
     {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.8)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
       <button onClick={zoomOut} disabled={zoom<=1} style={{background:"none",border:"none",color:zoom<=1?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>−</button>
-      <span style={{color:"#fff",fontSize:14,fontWeight:700,minWidth:44,textAlign:"center"}}>{zoom.toFixed(1)}×</span>
+      <span style={{color:"#fff",fontSize:14,fontWeight:700,minWidth:44,textAlign:"center"}}>{zoom.toFixed(1)}x</span>
       <button onClick={zoomIn} disabled={zoom>=5} style={{background:"none",border:"none",color:zoom>=5?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>+</button>
     </div>}
     {torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}
