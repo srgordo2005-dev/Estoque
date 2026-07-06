@@ -606,6 +606,18 @@ function usePersistedBatch(key,initial){
   const clear=()=>{try{localStorage.removeItem("batch:"+key)}catch{}};
   return[val,setVal,clear];
 }
+// Mesma ideia do usePersistedBatch, mas pra um formulário único (não uma
+// lista) — usado em telas como Conserto, onde trocar de aba sem querer (ou
+// a página recarregar) não pode apagar o que já foi digitado/fotografado.
+function usePersistedField(key,initial){
+  const[val,setVal]=useState(()=>{
+    try{const saved=localStorage.getItem("field:"+key);return saved!==null?JSON.parse(saved):initial}catch{return initial}
+  });
+  useEffect(()=>{
+    try{localStorage.setItem("field:"+key,JSON.stringify(val))}catch{}
+  },[val,key]);
+  return[val,setVal];
+}
 
 function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
   const[mode,setMode]=useState("scan");
@@ -2029,8 +2041,12 @@ function HashSearchBox({ctx}){
 
 function ConsertaPage({ctx}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
-  const[f,setF]=useState({hashSN:"",model:models[0]?.m||"M30S",material:"",boardChips:"",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
-  const[photoKey,setPhotoKey]=useState(null),[saved,setSaved]=useState(null),[photoErr,setPhotoErr]=useState(""),[photoBlocked,setPhotoBlocked]=useState(false);
+  // Guardado no localStorage — se o usuário trocar de aba sem querer (ou o
+  // app recarregar) no meio de um conserto, o que já foi digitado/fotografado
+  // continua lá quando ele voltar pra essa tela.
+  const[f,setF]=usePersistedField("conserto-"+user._id,{hashSN:"",model:models[0]?.m||"M30S",material:"",boardChips:"",obsType:"quantity",chips:"",sensores:"",ldos:"",obsManual:"",notes:""});
+  const[photoKey,setPhotoKey]=usePersistedField("conserto-foto-"+user._id,null);
+  const[saved,setSaved]=useState(null),[photoErr,setPhotoErr]=useState(""),[photoBlocked,setPhotoBlocked]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const doSubmit=async(type)=>{
@@ -2301,6 +2317,11 @@ function TestePage({ctx}){
     // conferida antes do envio (não é uma máquina com problema).
     const pendingSituacao=sess.prepShipment?"PREPARANDO":"AGUARD. REVISÃO";
     if(exMac){const u={...exMac,situacao:pendingSituacao,lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
+    // "Preparar pra Envio" atualiza a planilha com PREPARANDO na hora — quem
+    // olha a planilha já vê que essa máquina está sendo preparada, sem
+    // precisar esperar a aprovação do Admin (diferente de um teste comum,
+    // que só mexe na planilha quando a revisão termina de verdade).
+    if(sess.prepShipment)syncSheet(webhookUrl,"updateMachine",{sn:sess.machineSN,field:"situacao",to:"PREPARANDO",employeeName:user.name,employeeCode:user.code});
     await markChanged("tests");await markChanged("approvals");await markChanged("machines");
     syncSheet(webhookUrl,"test",{...rec,employeeCode:user.code,employeeName:user.name});
     await closeSession(sess._id);setSubmitting(false);setDone(true);setTimeout(()=>setDone(false),3000);
@@ -2334,7 +2355,7 @@ function TestePage({ctx}){
     </div>}
 
     {session?.rejected&&<Alrt type="err">{(session.adminNotes||[]).join(" · ")||"❌ Essa máquina foi reprovada na revisão. Corrija e envie de novo."}</Alrt>}
-    {session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — quando o Admin aprovar, o status vira PREPARANDO (não BOA).</Alrt>}
+    {session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — ao enviar, o status vira PREPARANDO (já atualiza na planilha). Quando o Admin aprovar, volta pra BOA.</Alrt>}
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
