@@ -381,8 +381,8 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose}){
-  const vRef=useRef(),readerRef=useRef(),controlsRef=useRef();
-  const[err,setErr]=useState(""),[ok,setOk]=useState(false);
+  const vRef=useRef(),readerRef=useRef(),controlsRef=useRef(),trackRef=useRef();
+  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false);
   useEffect(()=>{
     let stopped=false;
     (async()=>{
@@ -404,11 +404,22 @@ function BarcodeScanner({onScan,onClose}){
         });
         controlsRef.current=controls;
         setOk(true);
+        // Lanterna — só funciona em alguns navegadores/aparelhos (Android
+        // Chrome principalmente; iPhone geralmente não deixa controlar por
+        // aqui). Se não der pra saber, o botão simplesmente não aparece.
+        try{
+          const track=vRef.current.srcObject?.getVideoTracks?.()[0];
+          if(track){trackRef.current=track;const caps=track.getCapabilities?.();if(caps&&caps.torch)setTorchSupported(true)}
+        }catch{}
       }catch(e){setErr("Câmera:\n"+(e.message||"não consegui acessar"))}
     })();
     return()=>{stopped=true;try{controlsRef.current?.stop()}catch{}};
   },[]);
-  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<><video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.55)"}}/><div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:"0 0 0 9999px rgba(0,0,0,.55)"}}><div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/></div><div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:14,fontWeight:700}}>{ok?"🔍 Aponte para o código...":"⏳ Iniciando..."}</div></div><button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button></>}</div>;
+  const toggleTorch=async()=>{
+    if(!trackRef.current)return;
+    try{await trackRef.current.applyConstraints({advanced:[{torch:!torchOn}]});setTorchOn(t=>!t)}catch{}
+  };
+  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<><video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.55)"}}/><div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:"0 0 0 9999px rgba(0,0,0,.55)"}}><div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/></div><div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:14,fontWeight:700}}>{ok?"🔍 Aponte para o código...":"⏳ Iniciando..."}</div></div>{torchSupported&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}<button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button></>}</div>;
 }
 
 function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
@@ -481,10 +492,12 @@ function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
   const handleKeyDown=e=>{if(e.key==="Enter"){e.preventDefault();commit()}};
   const shownCount=count!==undefined?count:localCount;
   return<div>
-    <div style={{display:"flex",gap:6,marginBottom:6}}>
-      <button type="button" onClick={()=>setMode("scan")} style={{flex:1,background:mode==="scan"?C.blue:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>📡 Bipar</button>
-      <button type="button" onClick={()=>setMode("manual")} style={{flex:1,background:mode==="manual"?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>⌨️ Digitar</button>
-      <div style={{background:C.card2,color:C.accent,borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:800,whiteSpace:"nowrap",display:"flex",alignItems:"center"}}>{shownCount} bipado(s)</div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+      <div style={{display:"flex",gap:6,flex:1}}>
+        <button type="button" onClick={()=>setMode("scan")} style={{flex:1,background:mode==="scan"?C.blue:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>📡 Bipar</button>
+        <button type="button" onClick={()=>setMode("manual")} style={{flex:1,background:mode==="manual"?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>⌨️ Digitar</button>
+      </div>
+      <div style={{background:C.accent,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:900,whiteSpace:"nowrap",marginLeft:8,flexShrink:0}}>{shownCount} bipado(s)</div>
     </div>
     <div style={{display:"flex",gap:8}}>
       <input ref={inputRef} value={val} onChange={e=>setVal(e.target.value.toUpperCase())} onKeyDown={handleKeyDown} placeholder={mode==="scan"?"Aponte o leitor e bipe...":(placeholder||"Digite o SN...")} autoFocus={autoFocus} disabled={disabled} style={{...inp,flex:1}}/>
@@ -1113,7 +1126,7 @@ function BulkMachineAction({ctx,action,machines,onDone}){
     }else if(action==="client"&&clientId){
       const cl=data.clients.find(c=>c._id===clientId);if(cl){
         const sns=machines.map(m=>m.sn).filter(Boolean);
-        for(const m of machines){const mHashes=data.hashes.filter(h=>h.machineSN===m.sn);for(const h of mHashes){const uh={...h,status:"SAIDA",location:"Vendida: "+cl.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?uh:x));await fbSet("hashes",h._id,uh);syncSheet(webhookUrl,"hashSaida",{sn:uh.sn,machineSN:m.sn,employeeName:user.name,employeeCode:user.code})}const um={...m,situacao:"SAIDA",destino:cl.name,...audit(user)};mutate("machines",arr=>arr.map(x=>x._id===m._id?um:x));await fbSet("machines",m._id,um);syncSheet(webhookUrl,"updateMachine",{sn:m.sn,field:"situacao",to:"SAIDA",employeeName:user.name,employeeCode:user.code})}
+        for(const m of machines){const mHashes=data.hashes.filter(h=>h.machineSN===m.sn);for(const h of mHashes){const uh={...h,status:"SAIDA",location:"Vendida: "+cl.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?uh:x));await fbSet("hashes",h._id,uh);syncSheet(webhookUrl,"hashSaida",{sn:uh.sn,machineSN:m.sn,employeeName:user.name,employeeCode:user.code})}const um={...m,situacao:"SAIDA",destino:cl.name,...audit(user)};mutate("machines",arr=>arr.map(x=>x._id===m._id?um:x));await fbSet("machines",m._id,um);syncSheet(webhookUrl,"machineToClient",{sn:m.sn,destino:cl.name,employeeName:user.name,employeeCode:user.code})}
         const ns=[...new Set([...(cl.machinesSN||[]),...sns])];const updc={...cl,machinesSN:ns,...audit(user)};mutate("clients",arr=>arr.map(x=>x._id===clientId?updc:x));await fbSet("clients",clientId,updc);
         await markChanged("machines");await markChanged("hashes");await markChanged("clients");
       }
@@ -1370,7 +1383,7 @@ function MachineDetail({ctx,machine}){
     setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));
     await fbSet("machines",m._id,u);await markChanged("machines");
     syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
-    syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
+    syncSheet(webhookUrl,"machineFromClient",{sn:u.sn,employeeName:user.name,employeeCode:user.code});
     // As HASHs que estavam dentro dessa máquina também voltam ao estoque —
     // senão ficavam "presas" como SAIDA pra sempre.
     const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
@@ -3123,6 +3136,7 @@ function SheetCompareReview({ctx,onClose}){
   const[diffsM,setDiffsM]=useState([]),[diffsH,setDiffsH]=useState([]),[resolved,setResolved]=useState(new Set());
   const[dupInfo,setDupInfo]=useState({blankM:[],blankH:[],dupM:[],dupH:[]});
   const[groupDiffs,setGroupDiffs]=useState([]);
+  const[tecDiffs,setTecDiffs]=useState([]);
   const[totals,setTotals]=useState(null);
   const[saving,setSaving]=useState(false),[err,setErr]=useState("");
   // Campos comparados campo a campo (máquina e HASH) — label é o que aparece pro Admin
@@ -3179,6 +3193,20 @@ function SheetCompareReview({ctx,onClose}){
           if(diffs.length)dh.push({sn:appH.sn,appItem:appH,sheetItem:sheetH,diffs});
         });
         setDiffsM(dm);setDiffsH(dh);
+        // Comparação específica de TÉCNICO — separado do resto porque o
+        // nome do campo é diferente dos dois lados (repairedByName no app,
+        // tecnico na planilha), então não entra no H_FIELDS comum.
+        const tecD=[];
+        data.hashes.forEach(appH=>{
+          const appSN=validSN(appH.sn);if(!appSN)return;
+          const sheetH=sheetHashes.find(h=>validSN(h.sn)===appSN);if(!sheetH)return;
+          const appTec=(appH.repairedByName||"").trim();
+          const sheetTec=(sheetH.tecnico||"").trim();
+          if(appTec&&normCompare(appTec)!==normCompare(sheetTec)){
+            tecD.push({sn:appH.sn,model:appH.model,appTec,sheetTec:sheetTec||"(vazio)"});
+          }
+        });
+        setTecDiffs(tecD);
         // Diagnóstico extra: máquinas/HASHs sem SN e SNs duplicados no APP —
         // a comparação normal (por presença de SN) não pega isso, e é
         // exatamente o que explica "a contagem bate diferente mas não achei
@@ -3337,7 +3365,7 @@ function SheetCompareReview({ctx,onClose}){
   if(err)return<Alrt type="err">✗ {err}</Alrt>;
   const pendingDiffsM=diffsM.filter(d=>!resolved.has("m:"+d.sn));
   const pendingDiffsH=diffsH.filter(d=>!resolved.has("h:"+d.sn));
-  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length+pendingDiffsM.length+pendingDiffsH.length+groupDiffs.length;
+  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length+pendingDiffsM.length+pendingDiffsH.length+groupDiffs.length+tecDiffs.length;
   const hasDupInfo=dupInfo.blankM.length+dupInfo.blankH.length+dupInfo.dupM.length+dupInfo.dupH.length>0;
   const DupInfoBox=hasDupInfo&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 CONTAGEM NÃO BATE? Achei isso no app:</div>
@@ -3360,6 +3388,13 @@ function SheetCompareReview({ctx,onClose}){
     </div>}
     {dupInfo.dupH.length>0&&<div style={{fontSize:12}}>⚠️ SN duplicado em HASHs: {dupInfo.dupH.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
   </div>;
+  const TecDiffBox=tecDiffs.length>0&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
+    <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>👷 TÉCNICO DIFERENTE ENTRE APP E PLANILHA ({tecDiffs.length})</div>
+    {tecDiffs.map((t,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
+      <b>{t.sn}</b> · {t.model} — <span style={{color:C.accent}}>App: {t.appTec}</span> · <span style={{color:C.blue}}>Planilha: {t.sheetTec}</span>
+      <Btn v="g" onClick={()=>{syncSheet(webhookUrl,"updateHashTecnico",{sn:t.sn,tecnico:t.appTec,employeeName:user.name,employeeCode:user.code});setTecDiffs(td=>td.filter((_,j)=>j!==i))}} style={{width:"100%",marginTop:6}}>Corrigir na planilha (usar "{t.appTec}")</Btn>
+    </div>)}
+  </div>;
   const GroupDiffBox=groupDiffs.length>0&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 MÁQUINAS SEM SN — QUANTIDADE NÃO BATE POR GRUPO ({groupDiffs.length})</div>
     <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Comparando por Modelo + T/H + Referência (não dá pra saber "qual é qual" sem SN, mas dá pra saber se a QUANTIDADE bate).</div>
@@ -3379,6 +3414,7 @@ function SheetCompareReview({ctx,onClose}){
     {TotalsBox}
     {DupInfoBox}
     {GroupDiffBox}
+    {TecDiffBox}
     {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
       <div style={{display:"flex",gap:8,marginBottom:10}}>
@@ -3710,8 +3746,7 @@ function ClientDetail({ctx,client}){
           for(const h of mHashes){const u={...h,status:"SAIDA",location:"Vendida: "+c.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);syncSheet(webhookUrl,"hashSaida",{sn:u.sn,machineSN:row.sn,employeeName:user.name,employeeCode:user.code})}
           const u={...ex,situacao:"SAIDA",destino:c.name,changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"SAIDA",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
           mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));await fbSet("machines",ex._id,u);
-          syncSheet(webhookUrl,"updateMachine",{sn:row.sn,field:"situacao",to:"SAIDA",employeeName:user.name,employeeCode:user.code});
-          syncSheet(webhookUrl,"updateMachine",{sn:row.sn,field:"destino",to:c.name,employeeName:user.name,employeeCode:user.code});
+          syncSheet(webhookUrl,"machineToClient",{sn:row.sn,destino:c.name,employeeName:user.name,employeeCode:user.code});
           await removeFromAllPallets(row.sn,false);
         }else{
           const id=uid();const d={sn:row.sn,model:"M30S",th:86,type:"complete",situacao:"SAIDA",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",destino:c.name,...audit(user),addedAt:TODAY()};
