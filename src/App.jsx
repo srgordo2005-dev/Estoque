@@ -770,7 +770,13 @@ export default function App(){
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||DEFAULT_WEBHOOK_URL);
   const setCol=(col,val)=>setData(d=>({...d,[col]:val}));
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
-  const allModels=useCallback(()=>[...DEF_MODELS,...data.customModels].sort((a,b)=>a.m.localeCompare(b.m)),[data.customModels]);
+  const allModels=useCallback(()=>{
+    const hiddenNames=new Set(data.customModels.filter(m=>m._hidden).map(m=>m.m));
+    const customs=data.customModels.filter(m=>!m.chips&&!m._hidden);
+    const customNames=new Set(customs.map(m=>m.m));
+    const defs=DEF_MODELS.filter(m=>!hiddenNames.has(m.m)&&!customNames.has(m.m));
+    return [...defs,...customs].sort((a,b)=>a.m.localeCompare(b.m));
+  },[data.customModels]);
   const gTH=useCallback(m=>{const f=[...DEF_MODELS,...data.customModels].find(x=>x.m===m);return f?.th||0},[data.customModels]);
   const gChips=useCallback((m,material)=>{
     if(material){const exact=data.customModels.find(x=>x.m===m&&x.material===material&&x.chips);if(exact)return exact.chips}
@@ -3479,7 +3485,40 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       <div style={{color:C.muted,fontSize:10,marginBottom:8}}>⚠️ Os botões acima importam TUDO de novo (pode duplicar). Prefira o botão abaixo — ele só mostra o que é realmente novo na planilha.</div>
       <Btn v="y" onClick={()=>setModal(<Modal title="🔍 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} disabled={!url} style={{width:"100%"}}>🔍 Comparar com Planilha (só mostra o que é novo)</Btn>
     </Card>
-    <Card style={{marginBottom:14}}><SL>MODELOS CUSTOMIZADOS (T/H)</SL>{data.customModels.filter(m=>!m.chips).map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.muted,fontSize:12}}>{m.th}TH</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}<div style={{display:"flex",gap:8,marginTop:12}}><Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/><Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/><Btn onClick={addModel}>+</Btn></div></Card>
+    <Card style={{marginBottom:14}}><SL>TODOS OS MODELOS (T/H)</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Modelos padrao (hardcoded) e customizados. Voce pode apagar qualquer um — inclusive os padrao. Se apagar um padrao, ele some dos menus mas as maquinas ja cadastradas com ele ficam intactas.</div>
+      {(()=>{
+        // Unifica DEF_MODELS + customModels sem duplicar
+        const customByName=new Map(data.customModels.filter(m=>!m.chips).map(m=>[m.m,m]));
+        const hiddenNames=new Set((data.customModels.filter(m=>m._hidden)).map(m=>m.m));
+        const defRows=DEF_MODELS.filter(m=>!customByName.has(m.m)).map(m=>({...m,_isDefault:true}));
+        const allRows=[...defRows,...data.customModels.filter(m=>!m.chips)].sort((a,b)=>a.m.localeCompare(b.m));
+        return allRows.map(m=><div key={m._id||m.m} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            <span style={{fontWeight:700}}>{m.m}</span>
+            {m._isDefault&&<Tag color={C.subtle} small>Padrao</Tag>}
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{color:C.muted,fontSize:12}}>{m.th}TH</span>
+            <button onClick={async()=>{
+              if(!confirm("Apagar modelo "+m.m+"? Ele vai sumir dos menus mas as maquinas existentes nao mudam."))return;
+              if(m._isDefault){
+                // Para modelos padrao, salva um registro "bloqueado" para remover do allModels
+                const id=uid();const d={m:m.m,th:m.th,_hidden:true};
+                await fbSet("customModels",id,d);mutate("customModels",arr=>[...arr,{...d,_id:id}]);
+              }else{
+                await fbDel("customModels",m._id);mutate("customModels",arr=>arr.filter(x=>x._id!==m._id));
+              }
+            }} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:18,lineHeight:1}}>X</button>
+          </div>
+        </div>);
+      })()}
+      <div style={{display:"flex",gap:8,marginTop:12}}>
+        <Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/>
+        <Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/>
+        <Btn onClick={addModel}>+</Btn>
+      </div>
+    </Card>
     <Card style={{marginBottom:14}}><SL>⚡ CHIPS POR MODELO (E MATERIAL)</SL>
       <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Lista separada dos modelos de T/H. Um mesmo modelo pode ter placa de Fibra ou Alumínio, com quantidade de chips diferente — aparece nos cards e é usada automaticamente no conserto quando não for informado.</div>
       <div style={{color:C.muted,fontSize:10,marginBottom:10}}>Já vem com os valores reais mais comuns pré-carregados (S19, S19 Pro, S19j Pro, S19k Pro, S19 XP, S21, S21XP, T21, T19, S17, T17, S15, S9, L3+) — você pode editar qualquer um.</div>
