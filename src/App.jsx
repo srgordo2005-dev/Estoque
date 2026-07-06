@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from './supabaseClient'; // Ou o caminho correto do seu cliente Supabase
+import { createClient } from '@supabase/supabase-js';
 import { jsPDF } from 'jspdf';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { DecodeHintType, BarcodeFormat } from '@zxing/library';
