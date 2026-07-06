@@ -382,9 +382,9 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
-  const vRef=useRef(),canvasRef=useRef(),readerRef=useRef(),streamRef=useRef(),trackRef=useRef(),intervalRef=useRef();
+  const vRef=useRef(),canvasRef=useRef(),liveCanvasRef=useRef(),readerRef=useRef(),streamRef=useRef(),trackRef=useRef(),intervalRef=useRef();
   const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[debugErr,setDebugErr]=useState("");
-  const[zoom,setZoom]=useState(1.8); // zoom digital inicial — a maioria das etiquetas fica melhor já um pouco ampliada
+  const[zoom,setZoom]=useState(1.8);
   const zoomRef=useRef(zoom);
   useEffect(()=>{zoomRef.current=zoom},[zoom]);
   useEffect(()=>{
@@ -394,11 +394,6 @@ function BarcodeScanner({onScan,onClose,continuous}){
     },8000);
     (async()=>{
       try{
-        // ZXing funciona em QUALQUER navegador (Chrome/Safari, Android/iPhone).
-        // O VÍDEO fica sempre ao vivo e suave na tela — o processamento de
-        // leitura roda por trás, devagar de propósito (a cada ~350ms, numa
-        // cópia pequena da imagem), pra não travar a visualização nem tentar
-        // ler frame borrado de movimento.
         const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}});
         if(stopped){stream.getTracks().forEach(t=>t.stop());return}
         streamRef.current=stream;
@@ -409,11 +404,6 @@ function BarcodeScanner({onScan,onClose,continuous}){
         const track=stream.getVideoTracks()[0];
         trackRef.current=track;
         try{const caps=track.getCapabilities?.();if(caps&&caps.torch)setTorchSupported(true)}catch{}
-        // Sem isso, o leitor tende a favorecer QR Code e demora mais (ou
-        // nem consegue) achar código de barras "normal" (linear) como o das
-        // etiquetas de placa. Diz explicitamente quais formatos procurar.
-        // TRY_HARDER desligado aqui — deixa mais rápido e evita leitura
-        // errada por "forçar demais" uma imagem ruim.
         const hints=new Map();
         hints.set(DecodeHintType.POSSIBLE_FORMATS,[
           BarcodeFormat.CODE_128,BarcodeFormat.CODE_39,BarcodeFormat.CODE_93,
@@ -421,10 +411,12 @@ function BarcodeScanner({onScan,onClose,continuous}){
           BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E,
           BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX,
         ]);
+        hints.set(DecodeHintType.TRY_HARDER,true);
         const reader=new BrowserMultiFormatReader(hints);
         readerRef.current=reader;
-        const canvas=canvasRef.current;
-        const ctx=canvas.getContext("2d",{willReadFrequently:true});
+        const hiddenCanvas=canvasRef.current;
+        const hiddenCtx=hiddenCanvas.getContext("2d",{willReadFrequently:true});
+        // Loop de leitura no canvas escondido
         const tryDecode=()=>{
           if(stopped||busy)return;
           const video=vRef.current;
@@ -435,14 +427,10 @@ function BarcodeScanner({onScan,onClose,continuous}){
             const z=zoomRef.current;
             const cropW=vw/z,cropH=vh/z;
             const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
-            // Processa numa resolução BEM menor que a exibida — é rápido o
-            // suficiente pra não travar, e ainda dá detalhe de sobra pro
-            // código de barras (que não precisa de tanto pixel quanto uma
-            // foto normal).
-            const outW=800,outH=Math.round(outW*(cropH/cropW));
-            canvas.width=outW;canvas.height=outH;
-            ctx.drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
-            const result=reader.decodeFromCanvas(canvas);
+            const outW=960,outH=Math.round(outW*(cropH/cropW));
+            hiddenCanvas.width=outW;hiddenCanvas.height=outH;
+            hiddenCtx.drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
+            const result=reader.decodeFromCanvas(hiddenCanvas);
             if(result){
               const text=result.getText();
               if(continuous){
@@ -456,14 +444,30 @@ function BarcodeScanner({onScan,onClose,continuous}){
               }
             }
           }catch(e){
-            // "NotFoundException" acontece toda vez que não tem código no
-            // frame — é normal. Qualquer outro erro fica visível na tela,
-            // pra dar pra investigar se o scanner realmente travar de vez.
             if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){console.error("Erro no scanner:",e);setDebugErr(String(e?.name||"")+": "+String(e?.message||e))}
           }
           busy=false;
         };
-        intervalRef.current=setInterval(tryDecode,350);
+        intervalRef.current=setInterval(tryDecode,250);
+        // Loop de exibição — desenha no canvas visível com zoom aplicado
+        const drawLive=()=>{
+          if(stopped)return;
+          const video=vRef.current;
+          const canvas=liveCanvasRef.current;
+          if(canvas&&video&&video.videoWidth){
+            const vw=video.videoWidth,vh=video.videoHeight;
+            const z=zoomRef.current;
+            const cropW=vw/z,cropH=vh/z;
+            const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
+            if(canvas.width!==canvas.offsetWidth||canvas.height!==canvas.offsetHeight){
+              canvas.width=canvas.offsetWidth||window.innerWidth;
+              canvas.height=canvas.offsetHeight||window.innerHeight;
+            }
+            canvas.getContext("2d").drawImage(video,sx,sy,cropW,cropH,0,0,canvas.width,canvas.height);
+          }
+          requestAnimationFrame(drawLive);
+        };
+        requestAnimationFrame(drawLive);
       }catch(e){clearTimeout(timeout);setErr("Câmera:\n"+(e.message||"não consegui acessar")+"\n\nConfira se deu permissão de câmera pro site nas configurações do navegador.")}
     })();
     return()=>{stopped=true;clearTimeout(timeout);if(intervalRef.current)clearInterval(intervalRef.current);if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop())};
@@ -475,23 +479,24 @@ function BarcodeScanner({onScan,onClose,continuous}){
   const zoomIn=()=>setZoom(z=>Math.min(z+0.5,5));
   const zoomOut=()=>setZoom(z=>Math.max(z-0.5,1));
   return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<>
-    <video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/>
+    <video ref={vRef} style={{display:"none"}} playsInline muted/>
     <canvas ref={canvasRef} style={{display:"none"}}/>
+    <canvas ref={liveCanvasRef} style={{position:"absolute",inset:0,width:"100%",height:"100%"}}/>
     <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
-      <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.35)":"rgba(0,0,0,.4)"}}/>
-      <div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.35)":"0 0 0 9999px rgba(0,0,0,.4)",border:found?"3px solid #16a34a":"none"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/>}</div>
-      <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",whiteSpace:"pre-line"}}>{found?`✓ ${found}`:(ok?"🔍 Aponte para o código":"⏳ Iniciando...")}</div>
-      {debugErr&&<div style={{position:"relative",zIndex:1,color:"#ff9b9b",marginTop:8,fontSize:11,padding:"0 20px",textAlign:"center"}}>⚠️ {debugErr}</div>}
-      {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12}}>Modo lote — continua escaneando. Toque no ✕ quando terminar.</div>}
+      <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.25)":"rgba(0,0,0,.35)"}}/>
+      <div style={{position:"relative",zIndex:1,width:300,height:160,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.25)":"0 0 0 9999px rgba(0,0,0,.35)",border:found?"3px solid #16a34a":"2px solid rgba(255,255,255,0.6)"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2,boxShadow:"0 0 8px #f97316"}}/>}</div>
+      <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",whiteSpace:"pre-line",textShadow:"0 1px 4px #000"}}>{found?`✓ ${found}`:(ok?"🔍 Aponte para o código":"⏳ Iniciando...")}</div>
+      {debugErr&&<div style={{position:"relative",zIndex:1,color:"#ff9b9b",marginTop:8,fontSize:11,padding:"0 20px",textAlign:"center"}}>{debugErr}</div>}
+      {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12,textShadow:"0 1px 4px #000"}}>Modo lote — continua escaneando. Toque no ✕ quando terminar.</div>}
     </div>
-    {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.7)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
-      <button onClick={zoomOut} disabled={zoom<=1} style={{background:"none",border:"none",color:zoom<=1?"#666":"#fff",fontSize:22,fontWeight:900,cursor:"pointer",padding:"0 8px"}}>−</button>
-      <span style={{color:"#fff",fontSize:13,fontWeight:700,minWidth:40,textAlign:"center"}}>{zoom.toFixed(1)}x</span>
-      <button onClick={zoomIn} disabled={zoom>=5} style={{background:"none",border:"none",color:zoom>=5?"#666":"#fff",fontSize:22,fontWeight:900,cursor:"pointer",padding:"0 8px"}}>+</button>
+    {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.8)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
+      <button onClick={zoomOut} disabled={zoom<=1} style={{background:"none",border:"none",color:zoom<=1?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>−</button>
+      <span style={{color:"#fff",fontSize:14,fontWeight:700,minWidth:44,textAlign:"center"}}>{zoom.toFixed(1)}×</span>
+      <button onClick={zoomIn} disabled={zoom>=5} style={{background:"none",border:"none",color:zoom>=5?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>+</button>
     </div>}
-    {torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}
-    <button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button>
-  </>}</div>;
+    {torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}
+    <button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button>
+  </></div>;
 }
 
 function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
@@ -614,7 +619,7 @@ function PhotoView({photoKey,style}){
   return<>
     <div style={{position:"relative"}}>
       <img src={src} alt="" onClick={()=>setBig(true)} style={{width:"100%",borderRadius:8,objectFit:"cover",cursor:"zoom-in",...style}}/>
-      <button onClick={()=>downloadPhoto(src,"foto.jpg")} title="Baixar" style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:14}}>⬇️</button>
+      <button onClick={()=>downloadPhoto(src,"foto.jpg")} title="Baixar" style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",borderRadius:8,padding:"4px 8px",cursor:"pointer",fontSize:14}}>⬇️</button>
     </div>
     {big&&<div onClick={()=>setBig(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,cursor:"zoom-out"}}>
       <img src={src} alt="" style={{maxWidth:"100%",maxHeight:"100%",borderRadius:8,objectFit:"contain"}}/>
@@ -1230,10 +1235,7 @@ function BatchSNForm({ctx,onClose}){
   const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending,clearPending]=usePersistedBatch(user._id+"-machines-lote",[]),[saving,setSaving]=useState(false);
   const addSN=(raw)=>{
     const s=raw.toUpperCase().trim();if(!s)return;
-    if(pending.some(p=>p.sn===s))return;
     const ex=data.machines.find(m=>m.sn===s);
-    // Se já existe, ainda adiciona no lote — mas marcado como "atualizar
-    // existente" e mostrando o status/cliente atual, em vez de bloquear.
     setPending(p=>[...p,{sn:s,existing:ex||null}]);
   };
   const saveAll=async()=>{
@@ -1352,7 +1354,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
           <select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select>
         </div>
         {slotSN&&(existingHash?
-          <div style={{fontSize:11,color:C.blue,marginLeft:58,marginTop:2}}>⚡ Já existe: {existingHash.model} · <SP s={existingHash.status}/></div>
+          <div style={{fontSize:11,color:C.blue,marginLeft:58,marginTop:2}}>⚡ Já existe: {existingHash.model} · <HP s={existingHash.status}/></div>
           :<div style={{fontSize:11,color:C.green,marginLeft:58,marginTop:2}}>✓ Nova — vai ser criada como {f.model} ao salvar</div>
         )}
       </div>;
@@ -1497,7 +1499,7 @@ function MachineDetail({ctx,machine}){
       if(m.sn){
         for(const pl of data.pallets){
           if((pl.machinesSN||[]).includes(m.sn)){
-            const ns=(pl.machinesSN||[]).filter(x=>x!==m.sn);
+            const ns=(pl.machinesSN||[]).filter(s=>s!==m.sn);
             const upd2={...pl,machinesSN:ns,...audit(user)};
             mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2);
           }
