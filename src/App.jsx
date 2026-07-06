@@ -382,7 +382,7 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose}){
   const vRef=useRef(),readerRef=useRef(),controlsRef=useRef(),trackRef=useRef();
-  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false);
+  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState("");
   useEffect(()=>{
     let stopped=false;
     const timeout=setTimeout(()=>{
@@ -399,10 +399,18 @@ function BarcodeScanner({onScan,onClose}){
         // tela ficava preta sem escanear nada.
         const reader=new BrowserMultiFormatReader();
         readerRef.current=reader;
-        const constraints={video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}};
+        // Resolução mais alta ajuda a ler código pequeno/próximo (etiqueta
+        // de placa) — em resolução baixa o código fica borrado de menos
+        // detalhe e o leitor não consegue decodificar.
+        const constraints={video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"}]}};
         const controls=await reader.decodeFromConstraints(constraints,vRef.current,(result,error)=>{
           if(stopped)return;
-          if(result){stopped=true;controls.stop();onScan(result.getText())}
+          if(result){
+            stopped=true;controls.stop();
+            const text=result.getText();
+            setFound(text); // mostra o SN achado na tela antes de fechar
+            setTimeout(()=>onScan(text),700);
+          }
           // "NotFoundException" é disparado a cada frame sem código — normal, ignora
         });
         clearTimeout(timeout);
@@ -423,7 +431,7 @@ function BarcodeScanner({onScan,onClose}){
     if(!trackRef.current)return;
     try{await trackRef.current.applyConstraints({advanced:[{torch:!torchOn}]});setTorchOn(t=>!t)}catch{}
   };
-  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<><video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.55)"}}/><div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:"0 0 0 9999px rgba(0,0,0,.55)"}}><div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/></div><div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:14,fontWeight:700}}>{ok?"🔍 Aponte para o código...":"⏳ Iniciando..."}</div></div>{torchSupported&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}<button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button></>}</div>;
+  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<><video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.35)":"rgba(0,0,0,.55)"}}/><div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.35)":"0 0 0 9999px rgba(0,0,0,.55)",border:found?"3px solid #16a34a":"none"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/>}</div><div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px"}}>{found?`✓ ${found}`:(ok?"🔍 Aponte para o código...":"⏳ Iniciando...")}</div></div>{torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}<button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button></>}</div>;
 }
 
 function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
