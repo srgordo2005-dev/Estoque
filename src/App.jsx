@@ -389,7 +389,7 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
   const vRef=useRef(),streamRef=useRef(),trackRef=useRef();
-  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[zoom,setZoom]=useState(1),[hwZoom,setHwZoom]=useState(false);
+  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[zoom,setZoom]=useState(1),[hwZoom,setHwZoom]=useState(false),[debugErr,setDebugErr]=useState("");
   const zoomRef=useRef(1),hwZoomRef=useRef(false),zoomCapsRef=useRef(null);
   useEffect(()=>{zoomRef.current=zoom},[zoom]);
   useEffect(()=>{hwZoomRef.current=hwZoom},[hwZoom]);
@@ -448,9 +448,16 @@ function BarcodeScanner({onScan,onClose,continuous}){
         const vw=video.videoWidth,vh=video.videoHeight;
         const sw=window.innerWidth||vw,sh=window.innerHeight||vh;
         const boxW=300,boxH=160;
-        const z=hwZoomRef.current?1:zoomRef.current;
-        const cropW=Math.min(vw,(vw*Math.min(boxW/sw,1)/z)*1.2);
-        const cropH=Math.min(vh,(vh*Math.min(boxH/sh,1)/z)*1.2);
+        // object-fit:cover escala o vídeo por UM fator único (o maior entre
+        // largura e altura) e corta o resto, centralizado — câmera é
+        // paisagem (ex: 1920x1080) e a tela é retrato, então geralmente é a
+        // ALTURA que "bate" e a LARGURA que fica cortada. Tratar largura e
+        // altura como razões independentes (como estava antes) dá uma área
+        // de recorte errada — é por isso que não estava lendo.
+        const coverScale=Math.max(sw/vw,sh/vh);
+        const effScale=coverScale*(hwZoomRef.current?1:zoomRef.current);
+        const cropW=Math.min(vw,(boxW/effScale)*1.2);
+        const cropH=Math.min(vh,(boxH/effScale)*1.2);
         const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
         const outW=Math.min(1000,Math.max(500,Math.round(cropW)));
         const outH=Math.max(1,Math.round(outW*(cropH/cropW)));
@@ -462,6 +469,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
       }catch(e){
         if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){
           console.error("Scanner:",e);
+          setDebugErr(String(e?.name||"")+": "+String(e?.message||e));
         }
       }
       busy=false;
@@ -531,6 +539,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
           {found?("OK: "+found):(ok?"Alinhe o código dentro da caixa":"Iniciando...")}
         </div>
         {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12,textShadow:"0 1px 4px #000"}}>Modo lote - continua escaneando. Toque no X quando terminar.</div>}
+        {debugErr&&<div style={{position:"relative",zIndex:1,color:"#ff9b9b",marginTop:8,fontSize:11,padding:"0 20px",textAlign:"center"}}>{debugErr}</div>}
       </div>
       {/* Controles de zoom */}
       {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.8)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
