@@ -72,6 +72,7 @@ const FIELD_MAP={
   newHashChars:"new_hash_chars",
   existingId:"existing_id",logPhoto:"log_photo",
   prepShipment:"prep_shipment",prevSituacao:"prev_situacao",
+  boardChips:"board_chips",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
