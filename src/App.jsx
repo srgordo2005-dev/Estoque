@@ -380,11 +380,11 @@ const By=({by,at})=>by?<div style={{fontSize:10,color:C.muted,marginTop:3}}>✏�
 const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},err:{bg:"#2a0c0c",b:C.red,c:C.red},warn:{bg:"#2a1a00",b:C.amber,c:C.amber}};const s=m[type]||m.warn;return<div style={{background:s.bg,border:`1px solid ${s.b}`,borderRadius:10,padding:12,marginBottom:12,color:s.c,fontWeight:700,fontSize:13}}>{children}</div>};
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
-function BarcodeScanner({onScan,onClose}){
+function BarcodeScanner({onScan,onClose,continuous}){
   const vRef=useRef(),readerRef=useRef(),controlsRef=useRef(),trackRef=useRef();
   const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState("");
   useEffect(()=>{
-    let stopped=false;
+    let stopped=false,busy=false;
     const timeout=setTimeout(()=>{
       if(!stopped&&!controlsRef.current)setErr("A câmera demorou demais pra iniciar.\n\nConfira nas Configurações do navegador se o site tem permissão de câmera liberada, e tenta de novo.");
     },8000);
@@ -404,12 +404,21 @@ function BarcodeScanner({onScan,onClose}){
         // detalhe e o leitor não consegue decodificar.
         const constraints={video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"}]}};
         const controls=await reader.decodeFromConstraints(constraints,vRef.current,(result,error)=>{
-          if(stopped)return;
+          if(stopped||busy)return;
           if(result){
-            stopped=true;controls.stop();
             const text=result.getText();
-            setFound(text); // mostra o SN achado na tela antes de fechar
-            setTimeout(()=>onScan(text),700);
+            if(continuous){
+              // Modo lote: NÃO fecha — mostra confirmação rapidinho e volta
+              // a escanear sozinho, até o usuário apertar o X.
+              busy=true;
+              onScan(text);
+              setFound(text);
+              setTimeout(()=>{setFound("");busy=false},900);
+            }else{
+              stopped=true;controls.stop();
+              setFound(text); // mostra o SN achado na tela antes de fechar
+              setTimeout(()=>onScan(text),700);
+            }
           }
           // "NotFoundException" é disparado a cada frame sem código — normal, ignora
         });
@@ -431,7 +440,7 @@ function BarcodeScanner({onScan,onClose}){
     if(!trackRef.current)return;
     try{await trackRef.current.applyConstraints({advanced:[{torch:!torchOn}]});setTorchOn(t=>!t)}catch{}
   };
-  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<><video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.35)":"rgba(0,0,0,.55)"}}/><div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.35)":"0 0 0 9999px rgba(0,0,0,.55)",border:found?"3px solid #16a34a":"none"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/>}</div><div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px"}}>{found?`✓ ${found}`:(ok?"🔍 Aponte para o código...":"⏳ Iniciando...")}</div></div>{torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}<button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button></>}</div>;
+  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<><video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/><div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}><div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.35)":"rgba(0,0,0,.55)"}}/><div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.35)":"0 0 0 9999px rgba(0,0,0,.55)",border:found?"3px solid #16a34a":"none"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/>}</div><div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px"}}>{found?`✓ ${found}`:(ok?"🔍 Aponte para o código...":"⏳ Iniciando...")}</div>{continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12}}>Modo lote — continua escaneando. Toque no ✕ quando terminar.</div>}</div>{torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"🔦 Lanterna ON":"🔦 Lanterna"}</button>}<button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.7)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>✕</button></>}</div>;
 }
 
 function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
@@ -492,6 +501,7 @@ function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
   const[mode,setMode]=useState("scan");
   const[val,setVal]=useState("");
   const[localCount,setLocalCount]=useState(0);
+  const[camOpen,setCamOpen]=useState(false);
   const inputRef=useRef();
   const commit=()=>{
     const s=val.trim();
@@ -508,6 +518,7 @@ function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
       <div style={{display:"flex",gap:6,flex:1}}>
         <button type="button" onClick={()=>setMode("scan")} style={{flex:1,background:mode==="scan"?C.blue:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>📡 Bipar</button>
         <button type="button" onClick={()=>setMode("manual")} style={{flex:1,background:mode==="manual"?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>⌨️ Digitar</button>
+        <button type="button" onClick={()=>setCamOpen(true)} style={{flex:1,background:C.purple,color:"#fff",border:"none",borderRadius:8,padding:"6px 0",fontSize:11,fontWeight:700,cursor:"pointer"}}>📷 Câmera</button>
       </div>
       <div style={{background:C.accent,color:"#fff",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:900,whiteSpace:"nowrap",marginLeft:8,flexShrink:0}}>{shownCount} bipado(s)</div>
     </div>
@@ -516,6 +527,7 @@ function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
       {mode==="manual"&&<button type="button" onClick={commit} style={{background:C.accent,border:"none",color:"#fff",borderRadius:8,padding:"0 18px",cursor:"pointer",fontWeight:900,fontSize:16}}>+</button>}
     </div>
     {mode==="scan"&&<div style={{color:C.muted,fontSize:10,marginTop:4}}>O leitor confirma sozinho ao terminar de bipar (ele já manda Enter)</div>}
+    {camOpen&&<BarcodeScanner continuous onScan={v=>onDetect(v.toUpperCase(),true)} onClose={()=>setCamOpen(false)}/>}
   </div>;
 }
 
