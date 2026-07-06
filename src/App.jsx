@@ -417,22 +417,19 @@ function BarcodeScanner({onScan,onClose,continuous}){
         readerRef.current=reader;
         const hiddenCanvas=canvasRef.current;
         const hiddenCtx=hiddenCanvas.getContext("2d",{willReadFrequently:true});
-        // Loop de leitura assincrono — decodeFromImageUrl e mais confiavel
-        // para codigos de barras 1D (CODE_128, CODE_39 etc.) do que decodeFromCanvas
+        // Decodifica sempre do FRAME COMPLETO (sem corte de zoom).
+        // O zoom so afeta a exibicao visual — assim o CODE_128/CODE_39
+        // nunca fica cortado fora da area de leitura, independente do zoom.
         const tryDecode=async()=>{
           if(stopped||busy)return;
           const video=vRef.current;
           if(!video.videoWidth)return;
           busy=true;
           try{
-            const vw=video.videoWidth,vh=video.videoHeight;
-            const z=zoomRef.current;
-            const cropW=vw/z,cropH=vh/z;
-            const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
-            // 640px e rapido o suficiente para leitura de barcode sem travar
-            const outW=640,outH=Math.round(outW*(cropH/cropW));
+            // Frame completo, resolucao 800px — rapido e confiavel para todos os formatos
+            const outW=800,outH=Math.round(outW*(video.videoHeight/video.videoWidth));
             hiddenCanvas.width=outW;hiddenCanvas.height=outH;
-            hiddenCtx.drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
+            hiddenCtx.drawImage(video,0,0,video.videoWidth,video.videoHeight,0,0,outW,outH);
             const dataUrl=hiddenCanvas.toDataURL("image/jpeg",0.85);
             const result=await reader.decodeFromImageUrl(dataUrl);
             if(result&&!stopped){
