@@ -465,8 +465,6 @@ function BarcodeScanner({onScan,onClose,continuous}){
           busy=false;
         };
         intervalRef.current=setInterval(tryDecode,350);
-        };
-        loop();
       }catch(e){clearTimeout(timeout);setErr("Câmera:\n"+(e.message||"não consegui acessar")+"\n\nConfira se deu permissão de câmera pro site nas configurações do navegador.")}
     })();
     return()=>{stopped=true;clearTimeout(timeout);if(intervalRef.current)clearInterval(intervalRef.current);if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop())};
@@ -1075,7 +1073,7 @@ function AdminTestQueuePeek({data}){
 
 function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab}=ctx;const today=TODAY();
-  const toTest=data.hashes.filter(h=>h.status==="TESTAR");
+  const toTest=data.hashes.filter(h=>h.status==="TESTAR" && (isAdmin || h.repairedBy === user._id));
   const myRejectedHashes=(data.approvals||[]).filter(a=>a.type==="hashBad"&&a.status==="rejected"&&(a.employeeId===user._id||a._by===user._id));
   return<div>
     <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
@@ -1230,7 +1228,7 @@ function AddModeSelect({ctx,onClose}){
 
 function BatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
-  const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending,clearPending]=usePersistedBatch("machines-lote",[]),[saving,setSaving]=useState(false);
+  const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending,clearPending]=usePersistedBatch(user._id+"-machines-lote",[]),[saving,setSaving]=useState(false);
   const addSN=(raw)=>{
     const s=raw.toUpperCase().trim();if(!s)return;
     if(pending.some(p=>p.sn===s))return;
@@ -1710,7 +1708,7 @@ function HashAddMode({ctx,onClose}){
 // e a localização de todas.
 function HashBatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,webhookUrl}=ctx;const models=allModels();
-  const[model,setModel]=useState(models[0]?.m||"M30S"),[status,setStatus]=useState("REPARO"),[loc,setLoc]=useState(""),[rows,setRows,clearRows]=usePersistedBatch("hashes-lote",[]),[saving,setSaving]=useState(false);
+  const[model,setModel]=useState(models[0]?.m||"M30S"),[status,setStatus]=useState("REPARO"),[loc,setLoc]=useState(""),[rows,setRows,clearRows]=usePersistedBatch(user._id+"-hashes-lote",[]),[saving,setSaving]=useState(false);
   const addSN=(raw)=>{
     const sn=raw.toUpperCase().trim();if(!sn||rows.some(r=>r.sn===sn))return;
     const existing=data.hashes.find(h=>h.sn===sn);
@@ -2097,6 +2095,14 @@ function TestePage({ctx}){
 
   const loadMachine=async(snParam)=>{
     const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;
+    const allSessions = await fbList("sessions");
+    const existingOther = allSessions.find(s=>s.machineSN===sn && s.employeeId!==user._id);
+    if(existingOther){
+      const emp = data.employees.find(e=>e._id===existingOther.employeeId);
+      if(!window.confirm(`⚠️ A máquina ${sn} já está em teste por: ${emp?.name||"Outro usuário"}.\nDeseja abrir a sessão de teste mesmo assim?`)){
+        return;
+      }
+    }
     const existing=sessions.find(s=>s.machineSN===sn);
     if(existing){setActiveId(existing._id);setMacInput(sn);return}
     const ex=data.machines.find(m=>m.sn===sn);
@@ -2148,6 +2154,12 @@ function TestePage({ctx}){
       if(usedHere||usedElsewhere){setErr(`⚠️ SN ${upperSn} já está sendo usado em outra máquina em teste agora — não pode repetir.`);return}
     }
     const existing=upperSn?data.hashes.find(x=>x.sn===upperSn):null;
+    if(existing && existing.status === "TESTAR" && existing.repairedBy && existing.repairedBy !== user._id) {
+      const repEmp = data.employees.find(e=>e._id===existing.repairedBy);
+      if (!window.confirm(`⚠️ Esta HASH está na fila de teste de: ${repEmp?.name||"Outro usuário"}.\nDeseja testá-la mesmo assim?`)) {
+        return;
+      }
+    }
     // A HASH já está instalada em OUTRA máquina, ou já foi vendida pro
     // cliente — pergunta se quer desvincular antes de usar aqui
     if(existing&&(existing.status==="NA MAQUINA"||existing.status==="SAIDA")&&existing.machineSN!==session.machineSN){
@@ -3612,7 +3624,7 @@ function PalletsPage({ctx}){
 function MovimentacaoTab({ctx}){
   const{data,mutate,user}=ctx;
   const pallets=data.pallets||[];
-  const[src,setSrc]=useState(""),[dst,setDst]=useState(""),[scanned,setScanned,clearScanned]=usePersistedBatch("movimentacao",[]),[moving,setMoving]=useState(false),[log,setLog]=useState([]);
+  const[src,setSrc]=useState(""),[dst,setDst]=useState(""),[scanned,setScanned,clearScanned]=usePersistedBatch(user._id+"-movimentacao",[]),[moving,setMoving]=useState(false),[log,setLog]=useState([]);
   const addSN=v=>{const sn=v.toUpperCase().trim();if(!sn||scanned.includes(sn))return;setScanned(s=>[...s,sn]);};
   const doMove=async()=>{
     if(!src||!dst||!scanned.length)return;
