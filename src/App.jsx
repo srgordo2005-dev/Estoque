@@ -2116,10 +2116,28 @@ function ConsertaPage({ctx}){
     }else{
       mutate("repairs",r=>[...r,{...rec,_id:id}]);
     }
-    // Hash → TESTAR
+    // Hash → TESTAR. Confere se salvou de verdade no banco — sem isso, se o
+    // banco falhar (rede, coluna faltando etc), a tela mostra local que deu
+    // certo mas o registro de verdade nunca muda, e como o envio pra
+    // planilha é uma chamada separada que sempre dispara, dava exatamente o
+    // caso de "foi pra planilha mas não ficou no app".
     const ex=data.hashes.find(h=>h.sn===sn);
-    if(ex){const u={...ex,status:"TESTAR",material:f.material||ex.material,chips:boardChipsFinal||ex.chips,repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u)}
-    else{const hid=uid();const hd={sn,model:f.model,material:f.material,chips:boardChipsFinal,status:"TESTAR",repairedBy:type==="repair"?user._id:"",repairedByName:type==="repair"?user.name:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};await fbSet("hashes",hid,hd);mutate("hashes",h=>[...h,{...hd,_id:hid}])}
+    if(ex){
+      const u={...ex,status:"TESTAR",material:f.material||ex.material,chips:boardChipsFinal||ex.chips,repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};
+      mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));
+      const hashSaveRes=await fbSet("hashes",ex._id,u);
+      if(!hashSaveRes.ok){
+        alert(`⚠️ ERRO: a HASH ${sn} NÃO foi atualizada no banco de dados!\n\nErro: ${hashSaveRes.error}\n\nA planilha pode ter sido atualizada mesmo assim, mas essa HASH pode não aparecer certa aqui no app (nem entrar na fila de teste de verdade). Avisa o Admin pra corrigir isso.`);
+      }
+    }else{
+      const hid=uid();const hd={sn,model:f.model,material:f.material,chips:boardChipsFinal,status:"TESTAR",repairedBy:type==="repair"?user._id:"",repairedByName:type==="repair"?user.name:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};
+      const hashSaveRes=await fbSet("hashes",hid,hd);
+      if(!hashSaveRes.ok){
+        alert(`⚠️ ERRO: a HASH ${sn} NÃO foi criada no banco de dados!\n\nErro: ${hashSaveRes.error}\n\nA planilha pode ter sido atualizada mesmo assim, mas essa HASH pode não existir aqui no app. Avisa o Admin pra corrigir isso.`);
+      }else{
+        mutate("hashes",h=>[...h,{...hd,_id:hid}]);
+      }
+    }
     syncSheet(webhookUrl,type==="repair"?"repair":"alreadyGood",{...rec,employeeCode:user.code,employeeName:user.name,tecnico:user.name});
     // Se essa HASH tinha um aviso pendente pro técnico que consertou antes
     // (porque voltou ruim), esse aviso some da tela dele agora — um outro
