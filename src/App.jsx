@@ -382,7 +382,7 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
-  const vRef=useRef(),canvasRef=useRef(),readerRef=useRef(),streamRef=useRef(),trackRef=useRef(),rafRef=useRef();
+  const vRef=useRef(),canvasRef=useRef(),readerRef=useRef(),streamRef=useRef(),trackRef=useRef(),intervalRef=useRef();
   const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[debugErr,setDebugErr]=useState("");
   const[zoom,setZoom]=useState(1.8); // zoom digital inicial — a maioria das etiquetas fica melhor já um pouco ampliada
   const zoomRef=useRef(zoom);
@@ -395,11 +395,10 @@ function BarcodeScanner({onScan,onClose,continuous}){
     (async()=>{
       try{
         // ZXing funciona em QUALQUER navegador (Chrome/Safari, Android/iPhone).
-        // Em vez de deixar o ZXing controlar a câmera direto, pegamos o vídeo
-        // cru e fazemos NOSSO PRÓPRIO recorte com zoom digital antes de tentar
-        // ler — assim funciona mesmo no iPhone, que não deixa nenhum site
-        // controlar foco/zoom de verdade da câmera (limitação da Apple, não
-        // é um bug daqui).
+        // O VÍDEO fica sempre ao vivo e suave na tela — o processamento de
+        // leitura roda por trás, devagar de propósito (a cada ~350ms, numa
+        // cópia pequena da imagem), pra não travar a visualização nem tentar
+        // ler frame borrado de movimento.
         const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}});
         if(stopped){stream.getTracks().forEach(t=>t.stop());return}
         streamRef.current=stream;
@@ -412,9 +411,9 @@ function BarcodeScanner({onScan,onClose,continuous}){
         try{const caps=track.getCapabilities?.();if(caps&&caps.torch)setTorchSupported(true)}catch{}
         // Sem isso, o leitor tende a favorecer QR Code e demora mais (ou
         // nem consegue) achar código de barras "normal" (linear) como o das
-        // etiquetas de placa. Diz explicitamente quais formatos procurar e
-        // liga TRY_HARDER (força total), que melhora muito a leitura de
-        // código de barras linear, ao custo de ser um pouco mais lento.
+        // etiquetas de placa. Diz explicitamente quais formatos procurar.
+        // TRY_HARDER desligado aqui — deixa mais rápido e evita leitura
+        // errada por "forçar demais" uma imagem ruim.
         const hints=new Map();
         hints.set(DecodeHintType.POSSIBLE_FORMATS,[
           BarcodeFormat.CODE_128,BarcodeFormat.CODE_39,BarcodeFormat.CODE_93,
@@ -422,52 +421,55 @@ function BarcodeScanner({onScan,onClose,continuous}){
           BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E,
           BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX,
         ]);
-        hints.set(DecodeHintType.TRY_HARDER,true);
         const reader=new BrowserMultiFormatReader(hints);
         readerRef.current=reader;
         const canvas=canvasRef.current;
         const ctx=canvas.getContext("2d",{willReadFrequently:true});
-        const loop=async()=>{
-          if(stopped)return;
+        const tryDecode=async()=>{
+          if(stopped||busy)return;
           const video=vRef.current;
-          if(video.videoWidth&&!busy){
-            busy=true;
+          if(!video.videoWidth)return;
+          busy=true;
+          try{
             const vw=video.videoWidth,vh=video.videoHeight;
             const z=zoomRef.current;
             const cropW=vw/z,cropH=vh/z;
             const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
-            canvas.width=vw;canvas.height=vh;
-            ctx.drawImage(video,sx,sy,cropW,cropH,0,0,vw,vh);
-            try{
-              const dataUrl=canvas.toDataURL("image/jpeg",0.85);
-              const result=await reader.decodeFromImageUrl(dataUrl);
-              if(result){
-                const text=result.getText();
-                if(continuous){
-                  onScan(text);setFound(text);
-                  setTimeout(()=>{setFound("")},900);
-                }else{
-                  stopped=true;
-                  setFound(text);
-                  setTimeout(()=>onScan(text),700);
-                  return;
-                }
+            // Processa numa resolução BEM menor que a exibida — é rápido o
+            // suficiente pra não travar, e ainda dá detalhe de sobra pro
+            // código de barras (que não precisa de tanto pixel quanto uma
+            // foto normal).
+            const outW=800,outH=Math.round(outW*(cropH/cropW));
+            canvas.width=outW;canvas.height=outH;
+            ctx.drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
+            const dataUrl=canvas.toDataURL("image/jpeg",0.75);
+            const result=await reader.decodeFromImageUrl(dataUrl);
+            if(result){
+              const text=result.getText();
+              if(continuous){
+                onScan(text);setFound(text);
+                setTimeout(()=>setFound(""),900);
+              }else{
+                stopped=true;
+                if(intervalRef.current)clearInterval(intervalRef.current);
+                setFound(text);
+                setTimeout(()=>onScan(text),700);
               }
-            }catch(e){
-              // "NotFoundException" acontece em TODO frame sem código — é
-              // normal e não deve travar nada. Qualquer outro erro é
-              // registrado no console (F12), pra dar pra investigar se o
-              // scanner realmente não estiver funcionando de jeito nenhum.
-              if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){console.error("Erro no scanner:",e);setDebugErr(String(e?.name||"")+": "+String(e?.message||e))}
             }
-            busy=false;
+          }catch(e){
+            // "NotFoundException" acontece toda vez que não tem código no
+            // frame — é normal. Qualquer outro erro fica visível na tela,
+            // pra dar pra investigar se o scanner realmente travar de vez.
+            if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){console.error("Erro no scanner:",e);setDebugErr(String(e?.name||"")+": "+String(e?.message||e))}
           }
-          rafRef.current=requestAnimationFrame(loop);
+          busy=false;
+        };
+        intervalRef.current=setInterval(tryDecode,350);
         };
         loop();
       }catch(e){clearTimeout(timeout);setErr("Câmera:\n"+(e.message||"não consegui acessar")+"\n\nConfira se deu permissão de câmera pro site nas configurações do navegador.")}
     })();
-    return()=>{stopped=true;clearTimeout(timeout);if(rafRef.current)cancelAnimationFrame(rafRef.current);if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop())};
+    return()=>{stopped=true;clearTimeout(timeout);if(intervalRef.current)clearInterval(intervalRef.current);if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop())};
   },[]);
   const toggleTorch=async()=>{
     if(!trackRef.current)return;
@@ -476,8 +478,8 @@ function BarcodeScanner({onScan,onClose,continuous}){
   const zoomIn=()=>setZoom(z=>Math.min(z+0.5,5));
   const zoomOut=()=>setZoom(z=>Math.max(z-0.5,1));
   return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>📵</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<>
-    <video ref={vRef} style={{display:"none"}} playsInline muted/>
-    <canvas ref={canvasRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>
+    <video ref={vRef} style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}} playsInline muted/>
+    <canvas ref={canvasRef} style={{display:"none"}}/>
     <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
       <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.35)":"rgba(0,0,0,.4)"}}/>
       <div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.35)":"0 0 0 9999px rgba(0,0,0,.4)",border:found?"3px solid #16a34a":"none"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/>}</div>
