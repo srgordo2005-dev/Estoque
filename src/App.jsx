@@ -386,6 +386,11 @@ const HP=({s})=><span style={{background:HST_C[s]||C.muted,color:"#fff",borderRa
 const SP=({s})=><span style={{background:SIT_C[s]||C.muted,color:"#fff",borderRadius:6,padding:"2px 9px",fontSize:11,fontWeight:700}}>{s||"—"}</span>;
 const By=({by,at})=>by?<div style={{fontSize:10,color:C.muted,marginTop:3}}>✏️ {by} · {fmtTS(at)}</div>:null;
 const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},err:{bg:"#2a0c0c",b:C.red,c:C.red},warn:{bg:"#2a1a00",b:C.amber,c:C.amber}};const s=m[type]||m.warn;return<div style={{background:s.bg,border:`1px solid ${s.b}`,borderRadius:10,padding:12,marginBottom:12,color:s.c,fontWeight:700,fontSize:13}}>{children}</div>};
+// Formatos com dígito verificador embutido no próprio código — o ZXing só
+// decodifica com sucesso se o checksum bater, então uma leitura já é
+// confiável sozinha (não precisa esperar confirmar 2x, como os formatos
+// sem checksum obrigatório tipo CODE_39/Codabar/ITF).
+const CHECKSUM_SAFE_FORMATS=new Set([BarcodeFormat.CODE_128,BarcodeFormat.EAN_13,BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E,BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX]);
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
@@ -466,15 +471,23 @@ function BarcodeScanner({onScan,onClose,continuous}){
         hiddenCanvas.getContext("2d",{willReadFrequently:true}).drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
         const result=reader.decodeFromCanvas(hiddenCanvas);
         if(stopped)return;
-        // Blindagem contra leitura errada: só aceita o código depois de ler
-        // a MESMA coisa 2 vezes seguidas. Uma leitura isolada divergente
-        // (reflexo, sujeira, ângulo ruim) nunca é aceita sozinha — se o
-        // código mudar de uma vez pra outra, a contagem reinicia do zero.
         const text=result.getText();
-        if(text===lastText){lastCount++}else{lastText=text;lastCount=1;setConfirming(true)}
-        if(lastCount>=2){
+        if(CHECKSUM_SAFE_FORMATS.has(result.getBarcodeFormat())){
+          // CODE_128, EAN, UPC, QR e Data Matrix já têm checksum embutido no
+          // próprio código — o ZXing só decodifica se ele bater, então uma
+          // leitura já é confiável sozinha. Aceita na hora, sem esperar
+          // confirmar de novo (é o formato da etiqueta de placa/hashboard).
           lastText=null;lastCount=0;setConfirming(false);
           handleFound(text);
+        }else{
+          // CODE_39/Codabar/ITF não têm checksum obrigatório — só aceita
+          // depois de ler a MESMA coisa 2 vezes seguidas, pra não gravar uma
+          // leitura isolada errada (reflexo, sujeira, ângulo ruim).
+          if(text===lastText){lastCount++}else{lastText=text;lastCount=1;setConfirming(true)}
+          if(lastCount>=2){
+            lastText=null;lastCount=0;setConfirming(false);
+            handleFound(text);
+          }
         }
       }catch(e){
         lastText=null;lastCount=0;setConfirming(false);
@@ -508,7 +521,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
             await track.applyConstraints({advanced:[{focusMode:"continuous"}]});
           }
         }catch{}
-        intervalId=setInterval(tryDecode,250);
+        intervalId=setInterval(tryDecode,150);
       }catch(e){
         clearTimeout(timeout);
         setErr("Camera:\n"+(e.message||"sem acesso")+"\n\nConfira se deu permissao de camera pro site.");
