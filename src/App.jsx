@@ -385,23 +385,27 @@ function BarcodeScanner({onScan,onClose}){
   const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false);
   useEffect(()=>{
     let stopped=false;
+    const timeout=setTimeout(()=>{
+      if(!stopped&&!controlsRef.current)setErr("A câmera demorou demais pra iniciar.\n\nConfira nas Configurações do navegador se o site tem permissão de câmera liberada, e tenta de novo.");
+    },8000);
     (async()=>{
       try{
         // ZXing funciona em QUALQUER navegador (Chrome/Safari, Android/iPhone)
         // — diferente do antigo BarcodeDetector, que só existe no Chrome do
-        // Android (nenhum navegador do iPhone tem ele, nem o Chrome, porque
-        // no iOS todos usam o motor do Safari por baixo).
+        // Android. IMPORTANTE: usamos "decodeFromConstraints" (pede a câmera
+        // direto, com facingMode) em vez de listar câmeras antes — listar
+        // câmeras ANTES de ter permissão retorna nomes vazios em quase todo
+        // celular, o que fazia escolher a câmera errada (ou nenhuma) e a
+        // tela ficava preta sem escanear nada.
         const reader=new BrowserMultiFormatReader();
         readerRef.current=reader;
-        const devices=await BrowserMultiFormatReader.listVideoInputDevices();
-        // Prefere a câmera traseira quando dá pra identificar
-        const backCam=devices.find(d=>/back|rear|environment|traseira/i.test(d.label));
-        const deviceId=backCam?.deviceId||devices[devices.length-1]?.deviceId;
-        const controls=await reader.decodeFromVideoDevice(deviceId,vRef.current,(result,error)=>{
+        const constraints={video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}};
+        const controls=await reader.decodeFromConstraints(constraints,vRef.current,(result,error)=>{
           if(stopped)return;
           if(result){stopped=true;controls.stop();onScan(result.getText())}
           // "NotFoundException" é disparado a cada frame sem código — normal, ignora
         });
+        clearTimeout(timeout);
         controlsRef.current=controls;
         setOk(true);
         // Lanterna — só funciona em alguns navegadores/aparelhos (Android
@@ -411,9 +415,9 @@ function BarcodeScanner({onScan,onClose}){
           const track=vRef.current.srcObject?.getVideoTracks?.()[0];
           if(track){trackRef.current=track;const caps=track.getCapabilities?.();if(caps&&caps.torch)setTorchSupported(true)}
         }catch{}
-      }catch(e){setErr("Câmera:\n"+(e.message||"não consegui acessar"))}
+      }catch(e){clearTimeout(timeout);setErr("Câmera:\n"+(e.message||"não consegui acessar")+"\n\nConfira se deu permissão de câmera pro site nas configurações do navegador.")}
     })();
-    return()=>{stopped=true;try{controlsRef.current?.stop()}catch{}};
+    return()=>{stopped=true;clearTimeout(timeout);try{controlsRef.current?.stop()}catch{}};
   },[]);
   const toggleTorch=async()=>{
     if(!trackRef.current)return;
