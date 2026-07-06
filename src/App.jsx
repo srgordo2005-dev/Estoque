@@ -2943,6 +2943,25 @@ function CfgPage({ctx}){
     }catch(e){setLinkTecRes("✗ Erro: "+e.message)}
     setLinkingTec(false);setLinkTecProg("");
   };
+  const[fixHistProg,setFixHistProg]=useState(""),[fixHistRes,setFixHistRes]=useState(""),[fixingHist,setFixingHist]=useState(false);
+  // Acha HASHs que já têm o técnico vinculado (repairedBy preenchido) mas
+  // que NÃO têm nenhum registro de conserto no histórico — normalmente
+  // sobra de uma importação antiga, de antes do histórico se criar junto
+  // automaticamente. Cria o registro que falta pra cada uma.
+  const fixMissingHistory=async()=>{
+    setFixingHist(true);setFixHistRes("");setFixHistProg("Procurando...");
+    try{
+      const targets=data.hashes.filter(h=>validSN(h.sn)&&h.repairedBy);
+      const missing=targets.filter(h=>!data.repairs.some(r=>r.hashSN===h.sn&&(r.employeeId===h.repairedBy||r._by===h.repairedBy)));
+      setFixHistProg(`Criando ${missing.length} registro(s) que faltavam...`);
+      const writes=missing.map(h=>({c:"repairs",id:uid(),d:{hashSN:h.sn,model:h.model,type:"repair",employeeId:h.repairedBy,_by:h.repairedBy,_byName:h.repairedByName||"",_at:h.addedAt||TODAY(),date:h.addedAt||TODAY(),status:"TESTAR"}}));
+      for(let i=0;i<writes.length;i+=200)await fbBatch(writes.slice(i,i+200));
+      mutate("repairs",arr=>[...arr,...writes.map(w=>({...w.d,_id:w.id}))]);
+      await markChanged("repairs");
+      setFixHistRes(`✓ ${missing.length} registro(s) de conserto recriados no histórico.`);
+    }catch(e){setFixHistRes("✗ Erro: "+e.message)}
+    setFixingHist(false);setFixHistProg("");
+  };
   const recalcProtection=()=>{
     resetMaxCount("machines",data.machines.length);
     resetMaxCount("hashes",data.hashes.length);
@@ -3049,6 +3068,13 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       {linkTecProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {linkTecProg}</div>}
       {linkTecRes&&<Alrt type={linkTecRes.startsWith("✓")?"ok":"err"}>{linkTecRes}</Alrt>}
       <Btn v="b" onClick={linkTecnicos} disabled={linkingTec} style={{width:"100%"}}>{linkingTec?"Processando...":"👷 Vincular Técnicos"}</Btn>
+    </Card>
+    <Card style={{marginBottom:14,border:`1px solid ${C.blue}`}}>
+      <SL>📋 RECRIAR HISTÓRICO FALTANTE</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Acha HASHs que JÁ têm o técnico vinculado (aparece certo na HASH), mas que não têm nenhum registro de conserto no histórico dele — geralmente sobra de importação antiga. Cria o registro que falta, com a data que a HASH já tinha.</div>
+      {fixHistProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {fixHistProg}</div>}
+      {fixHistRes&&<Alrt type={fixHistRes.startsWith("✓")?"ok":"err"}>{fixHistRes}</Alrt>}
+      <Btn v="b" onClick={fixMissingHistory} disabled={fixingHist} style={{width:"100%"}}>{fixingHist?"Processando...":"📋 Recriar Histórico Faltante"}</Btn>
     </Card>
     <MigrationPanel ctx={ctx}/>
     <Card style={{marginBottom:14,border:`1px solid ${C.green}`}}>
