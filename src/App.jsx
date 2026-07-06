@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
-import { jsPDF } from "jspdf";
-import { BrowserMultiFormatReader } from "@zxing/browser";
-import { DecodeHintType, BarcodeFormat } from "@zxing/library";
+import React, { useState, useEffect } from 'react';
+import { supabase } from './supabaseClient'; // Ou o caminho correto do seu cliente Supabase
+import { jsPDF } from 'jspdf';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 // Quando uma tela é aberta com setModal(<Componente ctx={ctx}/>), esse
 // elemento fica "congelado" no estado — se os dados mudarem depois (por
