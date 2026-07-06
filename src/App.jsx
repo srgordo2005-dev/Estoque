@@ -382,7 +382,7 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
   const vRef=useRef(),canvasRef=useRef(),readerRef=useRef(),streamRef=useRef(),trackRef=useRef(),rafRef=useRef();
-  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState("");
+  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[debugErr,setDebugErr]=useState("");
   const[zoom,setZoom]=useState(1.8); // zoom digital inicial — a maioria das etiquetas fica melhor já um pouco ampliada
   const zoomRef=useRef(zoom);
   useEffect(()=>{zoomRef.current=zoom},[zoom]);
@@ -417,6 +417,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
           if(stopped)return;
           const video=vRef.current;
           if(video.videoWidth&&!busy){
+            busy=true;
             const vw=video.videoWidth,vh=video.videoHeight;
             const z=zoomRef.current;
             const cropW=vw/z,cropH=vh/z;
@@ -424,12 +425,13 @@ function BarcodeScanner({onScan,onClose,continuous}){
             canvas.width=vw;canvas.height=vh;
             ctx.drawImage(video,sx,sy,cropW,cropH,0,0,vw,vh);
             try{
-              const result=reader.decodeFromCanvas(canvas);
+              const dataUrl=canvas.toDataURL("image/jpeg",0.85);
+              const result=await reader.decodeFromImageUrl(dataUrl);
               if(result){
                 const text=result.getText();
                 if(continuous){
-                  busy=true;onScan(text);setFound(text);
-                  setTimeout(()=>{setFound("");busy=false},900);
+                  onScan(text);setFound(text);
+                  setTimeout(()=>{setFound("")},900);
                 }else{
                   stopped=true;
                   setFound(text);
@@ -437,7 +439,14 @@ function BarcodeScanner({onScan,onClose,continuous}){
                   return;
                 }
               }
-            }catch{/* não achou código nesse frame — normal, tenta de novo */}
+            }catch(e){
+              // "NotFoundException" acontece em TODO frame sem código — é
+              // normal e não deve travar nada. Qualquer outro erro é
+              // registrado no console (F12), pra dar pra investigar se o
+              // scanner realmente não estiver funcionando de jeito nenhum.
+              if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){console.error("Erro no scanner:",e);setDebugErr(String(e?.name||"")+": "+String(e?.message||e))}
+            }
+            busy=false;
           }
           rafRef.current=requestAnimationFrame(loop);
         };
@@ -459,6 +468,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
       <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.35)":"rgba(0,0,0,.4)"}}/>
       <div style={{position:"relative",zIndex:1,width:290,height:150,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.35)":"0 0 0 9999px rgba(0,0,0,.4)",border:found?"3px solid #16a34a":"none"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2}}/>}</div>
       <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",whiteSpace:"pre-line"}}>{found?`✓ ${found}`:(ok?"🔍 Aponte para o código":"⏳ Iniciando...")}</div>
+      {debugErr&&<div style={{position:"relative",zIndex:1,color:"#ff9b9b",marginTop:8,fontSize:11,padding:"0 20px",textAlign:"center"}}>⚠️ {debugErr}</div>}
       {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12}}>Modo lote — continua escaneando. Toque no ✕ quando terminar.</div>}
     </div>
     {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.7)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
