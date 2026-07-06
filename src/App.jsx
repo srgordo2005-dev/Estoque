@@ -222,13 +222,19 @@ function syncSheet(url,action,payload){
     }
   },1200);
 }
+// A planilha guarda o SN como texto solto — pode vir com espaço sobrando ou
+// minúsculo. Todo SN criado direto pelo app é sempre maiúsculo/sem espaço, e
+// se o importado da planilha não seguir a mesma regra, ele nunca "casa" com
+// o resto do app (fila de teste, histórico, comparação BOA etc trata como
+// máquina/HASH diferente mesmo sendo o mesmo SN).
+const normSNField=s=>(s||"").toString().trim().toUpperCase();
 async function importMachinesFromSheet(url,onProgress){
   if(onProgress)onProgress(0,0);
   const r=await fetch(`${url}?action=getMachines`);
   const text=await r.text();
   let d;try{d=JSON.parse(text)}catch{throw new Error("A planilha demorou demais ou travou (recebi uma página em vez de dados). Tente de novo em alguns segundos.")}
   if(d.error)throw new Error(d.error);
-  const machines=d.machines||[];
+  const machines=(d.machines||[]).map(m=>({...m,sn:normSNField(m.sn)}));
   if(onProgress)onProgress(machines.length,machines.length);
   return machines;
 }
@@ -237,9 +243,9 @@ async function importHashesFromSheet(url){
   const text=await r.text();
   let d;try{d=JSON.parse(text)}catch{throw new Error("A planilha demorou demais ou travou (recebi uma página em vez de dados). Tente de novo em alguns segundos.")}
   if(d.error)throw new Error(d.error);
-  return d.hashes||[];
+  return(d.hashes||[]).map(h=>({...h,sn:normSNField(h.sn),machineSN:normSNField(h.machineSN)}));
 }
-async function importFromSheet(url){const r=await fetch(url+"?action=getMachines");const d=await r.json();return d.machines||[];}
+async function importFromSheet(url){const r=await fetch(url+"?action=getMachines");const d=await r.json();return(d.machines||[]).map(m=>({...m,sn:normSNField(m.sn)}))}
 const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{const img=new Image();img.onload=()=>{const M=720,r=Math.min(M/img.width,M/img.height,1),c=document.createElement("canvas");c.width=img.width*r;c.height=img.height*r;c.getContext("2d").drawImage(img,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.65))};img.src=e.target.result};rd.readAsDataURL(f)});
 
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
@@ -382,122 +388,119 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
-  const vRef=useRef(),canvasRef=useRef(),liveCanvasRef=useRef(),readerRef=useRef(),streamRef=useRef(),trackRef=useRef(),intervalRef=useRef();
-  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[debugErr,setDebugErr]=useState("");
-  const[zoom,setZoom]=useState(1.8);
-  const zoomRef=useRef(zoom);
-  useEffect(()=>{zoomRef.current=zoom},[zoom]);
+  const vRef=useRef(),streamRef=useRef(),readerRef=useRef(),controlsRef=useRef(),trackRef=useRef();
+  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[zoom,setZoom]=useState(1);
+  const stoppedRef=useRef(false);
   useEffect(()=>{
-    let stopped=false,busy=false;
-    const timeout=setTimeout(()=>{
-      if(!stopped&&!streamRef.current)setErr("A câmera demorou demais pra iniciar.\n\nConfira nas Configurações do navegador se o site tem permissão de câmera liberada, e tenta de novo.");
-    },8000);
+    stoppedRef.current=false;
+    const hints=new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS,[
+      BarcodeFormat.CODE_128,BarcodeFormat.CODE_39,BarcodeFormat.CODE_93,
+      BarcodeFormat.CODABAR,BarcodeFormat.ITF,BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E,
+      BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX,
+    ]);
+    // TRY_HARDER aumenta bastante o acerto em código de barras 1D denso (tipo
+    // etiqueta de placa/hashboard) — sem isso, o ZXing exige uma imagem quase
+    // perfeita e falha direto em barras finas/comprimidas.
+    hints.set(DecodeHintType.TRY_HARDER,true);
+    const reader=new BrowserMultiFormatReader(hints);
+    readerRef.current=reader;
+    const timeout=setTimeout(()=>{if(!ok)setErr("A camera demorou demais.\n\nConfira a permissao de camera nas configuracoes do navegador e tente de novo.")},8000);
     (async()=>{
       try{
+        // Pede a câmera já em resolução alta — deixando o navegador escolher
+        // sozinho (sem constraints), muitos celulares caem numa resolução
+        // baixa (tipo 640x480): nítida o bastante pra QR Code, mas borra
+        // demais um código de barras 1D denso.
         const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}});
-        if(stopped){stream.getTracks().forEach(t=>t.stop());return}
+        if(stoppedRef.current){stream.getTracks().forEach(t=>t.stop());return}
         streamRef.current=stream;
         vRef.current.srcObject=stream;
         await vRef.current.play();
-        clearTimeout(timeout);
-        setOk(true);
         const track=stream.getVideoTracks()[0];
         trackRef.current=track;
-        try{const caps=track.getCapabilities?.();if(caps&&caps.torch)setTorchSupported(true)}catch{}
-        const hints=new Map();
-        hints.set(DecodeHintType.POSSIBLE_FORMATS,[
-          BarcodeFormat.CODE_128,BarcodeFormat.CODE_39,BarcodeFormat.CODE_93,
-          BarcodeFormat.CODABAR,BarcodeFormat.ITF,BarcodeFormat.EAN_13,
-          BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E,
-          BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX,
-        ]);
-        // Sem TRY_HARDER: mais rapido e melhor para codigos de barras 1D (lineares)
-        // TRY_HARDER favorece QR e deixa lento para CODE_128/CODE_39
-        const reader=new BrowserMultiFormatReader(hints);
-        readerRef.current=reader;
-        const hiddenCanvas=canvasRef.current;
-        const hiddenCtx=hiddenCanvas.getContext("2d",{willReadFrequently:true});
-        // Decodifica sempre do FRAME COMPLETO (sem corte de zoom).
-        // O zoom so afeta a exibicao visual — assim o CODE_128/CODE_39
-        // nunca fica cortado fora da area de leitura, independente do zoom.
-        const tryDecode=async()=>{
-          if(stopped||busy)return;
-          const video=vRef.current;
-          if(!video.videoWidth)return;
-          busy=true;
-          try{
-            // Frame completo, resolucao 800px — rapido e confiavel para todos os formatos
-            const outW=800,outH=Math.round(outW*(video.videoHeight/video.videoWidth));
-            hiddenCanvas.width=outW;hiddenCanvas.height=outH;
-            hiddenCtx.drawImage(video,0,0,video.videoWidth,video.videoHeight,0,0,outW,outH);
-            const dataUrl=hiddenCanvas.toDataURL("image/jpeg",0.85);
-            const result=await reader.decodeFromImageUrl(dataUrl);
-            if(result&&!stopped){
-              const text=result.getText();
-              if(continuous){
-                onScan(text);setFound(text);
-                setTimeout(()=>setFound(""),900);
-              }else{
-                stopped=true;
-                if(intervalRef.current)clearInterval(intervalRef.current);
-                setFound(text);
-                setTimeout(()=>onScan(text),700);
-              }
-            }
-          }catch(e){
-            if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){console.error("Erro no scanner:",e);setDebugErr(String(e?.name||"")+": "+String(e?.message||e))}
+        try{
+          const caps=track.getCapabilities?.();
+          if(caps&&caps.torch)setTorchSupported(true);
+          if(caps&&caps.focusMode&&caps.focusMode.includes("continuous")){
+            await track.applyConstraints({advanced:[{focusMode:"continuous"}]});
           }
-          busy=false;
-        };
-        intervalRef.current=setInterval(tryDecode,300);
-        // Loop de exibição — desenha no canvas visível com zoom aplicado
-        const drawLive=()=>{
-          if(stopped)return;
-          const video=vRef.current;
-          const canvas=liveCanvasRef.current;
-          if(canvas&&video&&video.videoWidth){
-            const vw=video.videoWidth,vh=video.videoHeight;
-            const z=zoomRef.current;
-            const cropW=vw/z,cropH=vh/z;
-            const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
-            if(canvas.width!==canvas.offsetWidth||canvas.height!==canvas.offsetHeight){
-              canvas.width=canvas.offsetWidth||window.innerWidth;
-              canvas.height=canvas.offsetHeight||window.innerHeight;
+        }catch{}
+        const controls=await reader.decodeFromStream(stream,vRef.current,(result,error,ctl)=>{
+          if(stoppedRef.current)return;
+          if(result){
+            clearTimeout(timeout);
+            if(!ok)setOk(true);
+            const text=result.getText();
+            if(continuous){
+              onScan(text);setFound(text);
+              setTimeout(()=>setFound(""),900);
+            }else{
+              stoppedRef.current=true;
+              ctl.stop();
+              setFound(text);
+              setTimeout(()=>onScan(text),700);
             }
-            canvas.getContext("2d").drawImage(video,sx,sy,cropW,cropH,0,0,canvas.width,canvas.height);
+          }else{
+            if(!ok){setOk(true);clearTimeout(timeout)}
+            if(error&&error.name!=="NotFoundException"&&!/no multiformat/i.test(error.message||"")){
+              console.error("Scanner:",error);
+            }
           }
-          requestAnimationFrame(drawLive);
-        };
-        requestAnimationFrame(drawLive);
-      }catch(e){clearTimeout(timeout);setErr("Câmera:\n"+(e.message||"não consegui acessar")+"\n\nConfira se deu permissão de câmera pro site nas configurações do navegador.")}
+        });
+        controlsRef.current=controls;
+      }catch(e){
+        clearTimeout(timeout);
+        setErr("Camera:\n"+(e.message||"sem acesso")+"\n\nConfira se deu permissao de camera pro site.");
+      }
     })();
-    return()=>{stopped=true;clearTimeout(timeout);if(intervalRef.current)clearInterval(intervalRef.current);if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop())};
+    return()=>{
+      stoppedRef.current=true;
+      clearTimeout(timeout);
+      try{controlsRef.current?.stop?.()}catch{}
+      try{streamRef.current?.getTracks().forEach(t=>t.stop())}catch{}
+      try{readerRef.current?.reset?.()}catch{}
+    };
   },[]);
   const toggleTorch=async()=>{
-    if(!trackRef.current)return;
-    try{await trackRef.current.applyConstraints({advanced:[{torch:!torchOn}]});setTorchOn(t=>!t)}catch{}
+    try{
+      if(trackRef.current){await trackRef.current.applyConstraints({advanced:[{torch:!torchOn}]});setTorchOn(t=>!t)}
+    }catch{}
   };
-  const zoomIn=()=>setZoom(z=>Math.min(z+0.5,5));
+  const zoomIn=()=>setZoom(z=>Math.min(z+0.5,4));
   const zoomOut=()=>setZoom(z=>Math.max(z-0.5,1));
-  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>{err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}><div style={{fontSize:52}}>{"\uD83D\uDCF5"}</div><div style={{whiteSpace:"pre-line"}}>{err}</div><Btn onClick={onClose}>Fechar</Btn></div>:<>
-    <video ref={vRef} style={{display:"none"}} playsInline muted/>
-    <canvas ref={canvasRef} style={{display:"none"}}/>
-    <canvas ref={liveCanvasRef} style={{position:"absolute",inset:0,width:"100%",height:"100%"}}/>
-    <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
-      <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.25)":"rgba(0,0,0,.35)"}}/>
-      <div style={{position:"relative",zIndex:1,width:300,height:160,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.25)":"0 0 0 9999px rgba(0,0,0,.35)",border:found?"3px solid #16a34a":"2px solid rgba(255,255,255,0.6)"}}>{!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2,boxShadow:"0 0 8px #f97316"}}/>}</div>
-      <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",whiteSpace:"pre-line",textShadow:"0 1px 4px #000"}}>{found?("OK: "+found):(ok?"Aponte para o codigo":"Iniciando...")}</div>
-      {debugErr&&<div style={{position:"relative",zIndex:1,color:"#ff9b9b",marginTop:8,fontSize:11,padding:"0 20px",textAlign:"center"}}>{debugErr}</div>}
-      {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12,textShadow:"0 1px 4px #000"}}>Modo lote - continua escaneando. Toque no X quando terminar.</div>}
-    </div>
-    {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.8)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
-      <button onClick={zoomOut} disabled={zoom<=1} style={{background:"none",border:"none",color:zoom<=1?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>{"−"}</button>
-      <span style={{color:"#fff",fontSize:14,fontWeight:700,minWidth:44,textAlign:"center"}}>{zoom.toFixed(1)}x</span>
-      <button onClick={zoomIn} disabled={zoom>=5} style={{background:"none",border:"none",color:zoom>=5?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>+</button>
-    </div>}
-    {torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"Lanterna ON":"Lanterna"}</button>}
-    <button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>X</button>
-  </>}</div>;
+  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>
+    {err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}>
+      <div style={{fontSize:52}}>{"📵"}</div>
+      <div style={{whiteSpace:"pre-line"}}>{err}</div>
+      <Btn onClick={onClose}>Fechar</Btn>
+    </div>:<>
+      {/* Video com zoom via CSS transform — decodificacao roda no stream original */}
+      <div style={{position:"absolute",inset:0,overflow:"hidden"}}>
+        <video ref={vRef} style={{position:"absolute",top:"50%",left:"50%",transform:`translate(-50%,-50%) scale(${zoom})`,transformOrigin:"center center",width:"100%",height:"100%",objectFit:"cover"}} playsInline muted autoPlay/>
+      </div>
+      {/* Overlay */}
+      <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+        <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.25)":"rgba(0,0,0,.35)"}}/>
+        <div style={{position:"relative",zIndex:1,width:300,height:160,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.25)":"0 0 0 9999px rgba(0,0,0,.35)",border:found?"3px solid #16a34a":"2px solid rgba(255,255,255,0.6)"}}>
+          {!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2,boxShadow:"0 0 8px #f97316"}}/>}
+        </div>
+        <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",textShadow:"0 1px 4px #000"}}>
+          {found?("OK: "+found):(ok?"Aponte para o codigo":"Iniciando...")}
+        </div>
+        {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12,textShadow:"0 1px 4px #000"}}>Modo lote - continua escaneando. Toque no X quando terminar.</div>}
+      </div>
+      {/* Controles de zoom */}
+      {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.8)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
+        <button onClick={zoomOut} disabled={zoom<=1} style={{background:"none",border:"none",color:zoom<=1?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>{"-"}</button>
+        <span style={{color:"#fff",fontSize:14,fontWeight:700,minWidth:44,textAlign:"center"}}>{zoom.toFixed(1)}x</span>
+        <button onClick={zoomIn} disabled={zoom>=4} style={{background:"none",border:"none",color:zoom>=4?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>{"+"}</button>
+      </div>}
+      {torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"Lanterna ON":"Lanterna"}</button>}
+      <button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>X</button>
+    </>}
+  </div>;
 }
 
 function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
@@ -1947,17 +1950,29 @@ function HashDetail({ctx,hash}){
 function HashSearchBox({ctx}){
   const{data,setModal}=ctx;
   const[q,setQ]=useState("");
-  const found=q.trim()?data.hashes.find(h=>h.sn===q.toUpperCase().trim()):null;
+  const qsn=q.toUpperCase().trim();
+  const found=qsn?data.hashes.find(h=>h.sn===qsn):null;
+  // Se não achou HASH, tenta como SN de MÁQUINA — evita o "não existe" quando
+  // o usuário bipa o SN da máquina (em vez do SN da HASH) achando que dava
+  // pra ver o histórico dela por aqui também.
+  const foundMachine=qsn&&!found?data.machines.find(m=>m.sn===qsn):null;
   return<div style={{background:C.bg,borderRadius:10,padding:12,marginBottom:14}}>
-    <SL>🔍 BUSCAR HASH (histórico completo)</SL>
-    <SNInput value={q} onChange={setQ} placeholder="Bipe ou digite o SN da HASH..."/>
-    {q.trim()&&!found&&<div style={{color:C.muted,fontSize:12}}>Nenhuma HASH encontrada com esse SN</div>}
+    <SL>🔍 BUSCAR HASH OU MÁQUINA (histórico completo)</SL>
+    <SNInput value={q} onChange={setQ} placeholder="Bipe ou digite o SN da HASH ou da máquina..."/>
+    {qsn&&!found&&!foundMachine&&<div style={{color:C.muted,fontSize:12}}>Nenhuma HASH ou máquina encontrada com esse SN</div>}
     {found&&<div style={{background:C.card2,borderRadius:8,padding:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><span style={{fontWeight:800,color:C.blue}}>⚡ {found.sn}</span> <span style={{color:C.muted,fontSize:12}}>{found.model}</span></div>
         <HP s={found.status}/>
       </div>
       <Btn v="b" onClick={()=>setModal(<Modal title={`⚡ ${found.sn}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={found}/></Modal>)} style={{width:"100%",marginTop:8}}>📋 Ver Histórico Completo</Btn>
+    </div>}
+    {foundMachine&&<div style={{background:C.card2,borderRadius:8,padding:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><span style={{fontWeight:800,color:C.accent}}>🖥️ {foundMachine.sn}</span> <span style={{color:C.muted,fontSize:12}}>{foundMachine.model}</span></div>
+        <SP s={foundMachine.situacao}/>
+      </div>
+      <Btn v="b" onClick={()=>setModal(<Modal title={`🖥️ ${foundMachine.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={foundMachine}/></Modal>)} style={{width:"100%",marginTop:8}}>📋 Ver Histórico Completo</Btn>
     </div>}
   </div>;
 }
@@ -3084,6 +3099,31 @@ function CfgPage({ctx}){
     setFixRes(`✓ ${fixTargets.length} máquina(s) corrigida(s) de "${fixFrom}" pra "${fixTo}".`);
     setFixing(false);
   };
+  // SN importado direto da planilha antiga podia vir com espaço sobrando ou
+  // minúsculo — como todo SN criado pelo app é maiúsculo/sem espaço, essas
+  // máquinas/HASHs "não casavam" com o resto (fila de teste não achava
+  // modelo, histórico não achava a máquina, aviso de "já está BOA" não
+  // disparava). Corrige de uma vez só, sem mexer em mais nada.
+  const badSNMachines=data.machines.filter(m=>m.sn&&m.sn!==normSNField(m.sn));
+  const badSNHashes=data.hashes.filter(h=>(h.sn&&h.sn!==normSNField(h.sn))||(h.machineSN&&h.machineSN!==normSNField(h.machineSN)));
+  const[fixingSN,setFixingSN]=useState(false),[fixSNRes,setFixSNRes]=useState("");
+  const normalizeAllSNs=async()=>{
+    if(!confirm(`Confirma? Vai corrigir ${badSNMachines.length} máquina(s) e ${badSNHashes.length} HASH(s) com SN em minúsculo/com espaço, deixando tudo maiúsculo e sem espaço (sem mudar mais nada neles).`))return;
+    setFixingSN(true);
+    for(let i=0;i<badSNMachines.length;i+=200){
+      const batch=badSNMachines.slice(i,i+200);
+      await fbBatch(batch.map(m=>({c:"machines",id:m._id,d:{...m,sn:normSNField(m.sn)}})));
+    }
+    for(let i=0;i<badSNHashes.length;i+=200){
+      const batch=badSNHashes.slice(i,i+200);
+      await fbBatch(batch.map(h=>({c:"hashes",id:h._id,d:{...h,sn:normSNField(h.sn),machineSN:normSNField(h.machineSN)}})));
+    }
+    mutate("machines",arr=>arr.map(m=>badSNMachines.some(b=>b._id===m._id)?{...m,sn:normSNField(m.sn)}:m));
+    mutate("hashes",arr=>arr.map(h=>badSNHashes.some(b=>b._id===h._id)?{...h,sn:normSNField(h.sn),machineSN:normSNField(h.machineSN)}:h));
+    await markChanged("machines");await markChanged("hashes");
+    setFixSNRes(`✓ ${badSNMachines.length} máquina(s) e ${badSNHashes.length} HASH(s) corrigidas.`);
+    setFixingSN(false);
+  };
   const exportBackup=()=>{
     const backup={exportedAt:stamp(),employees:data.employees,machines:data.machines,hashes:data.hashes,repairs:data.repairs,tests:data.tests,feedbacks:data.feedbacks,approvals:data.approvals,customModels:data.customModels,pallets:data.pallets,clients:data.clients};
     const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
@@ -3152,6 +3192,12 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       {fixRes&&<Alrt type="ok">{fixRes}</Alrt>}
       <Btn v="y" onClick={bulkFixModel} disabled={fixing||!fixFrom||!fixTo||fixFrom===fixTo} style={{width:"100%"}}>{fixing?"Corrigindo...":"🔧 Corrigir "+(fixTargets.length||0)+" máquina(s)"}</Btn>
     </Card>
+    {(badSNMachines.length>0||badSNHashes.length>0)&&<Card style={{marginBottom:14,border:`1px solid ${C.amber}`}}>
+      <SL>🔠 CORRIGIR SN EM MINÚSCULO/COM ESPAÇO</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>{badSNMachines.length} máquina(s) e {badSNHashes.length} HASH(s) têm SN diferente do padrão (maiúsculo, sem espaço) — geralmente vindo de importação antiga da planilha. Enquanto isso, elas não "casam" direito com o SN digitado no Teste (não acha modelo, não acha histórico, não avisa que já está BOA). Corrige só a formatação do SN, sem mudar mais nada.</div>
+      {fixSNRes&&<Alrt type="ok">{fixSNRes}</Alrt>}
+      <Btn v="y" onClick={normalizeAllSNs} disabled={fixingSN} style={{width:"100%"}}>{fixingSN?"Corrigindo...":"🔠 Corrigir "+(badSNMachines.length+badSNHashes.length)+" SN(s)"}</Btn>
+    </Card>}
     <Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
       <SL>💣 RESETAR E REIMPORTAR TODAS AS MÁQUINAS</SL>
       <div style={{color:C.red,fontSize:12,marginBottom:10}}>⚠️ Isso APAGA as {data.machines.length} máquina(s) que tem no app AGORA e recria TODAS do zero, direto da planilha — cada uma já com o número da linha certinho. Não mexe em HASHs, paletes ou clientes. Não dá pra desfazer.</div>
@@ -4101,4 +4147,4 @@ function EmpEdit({ctx,emp,onClose}){
     <div style={{marginTop:12}}><Btn v="y" onClick={resetPwd} style={{width:"100%",marginBottom:8}}>🔑 Redefinir Senha</Btn></div>
     <div style={{display:"flex",gap:8}}><Btn v="d" onClick={del} style={{flex:1}}>🗑 Remover</Btn><Btn v="g" onClick={save} style={{flex:2}}>💾 Salvar</Btn></div>
   </div>;
-}
+}
