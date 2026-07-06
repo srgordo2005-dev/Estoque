@@ -234,7 +234,7 @@ async function importMachinesFromSheet(url,onProgress){
   const text=await r.text();
   let d;try{d=JSON.parse(text)}catch{throw new Error("A planilha demorou demais ou travou (recebi uma página em vez de dados). Tente de novo em alguns segundos.")}
   if(d.error)throw new Error(d.error);
-  const machines=(d.machines||[]).map(m=>({...m,sn:normSNField(m.sn)}));
+  const machines=(d.machines||[]).map(m=>({...m,sn:normSNField(m.sn),hashSN0:normSNField(m.hashSN0),hashSN1:normSNField(m.hashSN1),hashSN2:normSNField(m.hashSN2)}));
   if(onProgress)onProgress(machines.length,machines.length);
   return machines;
 }
@@ -388,11 +388,25 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
-  const vRef=useRef(),streamRef=useRef(),readerRef=useRef(),controlsRef=useRef(),trackRef=useRef();
-  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[zoom,setZoom]=useState(1);
-  const stoppedRef=useRef(false);
+  const vRef=useRef(),streamRef=useRef(),trackRef=useRef();
+  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[zoom,setZoom]=useState(1),[hwZoom,setHwZoom]=useState(false);
+  const zoomRef=useRef(1),hwZoomRef=useRef(false),zoomCapsRef=useRef(null);
+  useEffect(()=>{zoomRef.current=zoom},[zoom]);
+  useEffect(()=>{hwZoomRef.current=hwZoom},[hwZoom]);
+  // Quando o celular suporta zoom de verdade na câmera (a maioria dos
+  // Android recentes suporta; iPhone/Safari geralmente não), aplica o zoom
+  // óptico/digital do próprio sensor — isso de fato aumenta o detalhe
+  // captado no código de barras, ao contrário de um zoom só visual (CSS),
+  // que não ajuda em nada a leitura.
   useEffect(()=>{
-    stoppedRef.current=false;
+    if(!hwZoom||!trackRef.current||!zoomCapsRef.current)return;
+    const{min,max}=zoomCapsRef.current;
+    const uiMax=4;
+    const value=Math.min(max,Math.max(min,min+((zoom-1)/(uiMax-1))*(max-min)));
+    trackRef.current.applyConstraints({advanced:[{zoom:value}]}).catch(()=>{});
+  },[zoom,hwZoom]);
+  useEffect(()=>{
+    let stopped=false,busy=false,intervalId=null;
     const hints=new Map();
     hints.set(DecodeHintType.POSSIBLE_FORMATS,[
       BarcodeFormat.CODE_128,BarcodeFormat.CODE_39,BarcodeFormat.CODE_93,
@@ -401,12 +415,57 @@ function BarcodeScanner({onScan,onClose,continuous}){
       BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX,
     ]);
     // TRY_HARDER aumenta bastante o acerto em código de barras 1D denso (tipo
-    // etiqueta de placa/hashboard) — sem isso, o ZXing exige uma imagem quase
-    // perfeita e falha direto em barras finas/comprimidas.
+    // etiqueta de placa/hashboard). Como agora só decodificamos a área
+    // recortada da caixa guia (bem menor que o frame inteiro — ver
+    // tryDecode abaixo), isso fica rápido o bastante sem travar a tela.
     hints.set(DecodeHintType.TRY_HARDER,true);
     const reader=new BrowserMultiFormatReader(hints);
-    readerRef.current=reader;
-    const timeout=setTimeout(()=>{if(!ok)setErr("A camera demorou demais.\n\nConfira a permissao de camera nas configuracoes do navegador e tente de novo.")},8000);
+    const timeout=setTimeout(()=>{if(!streamRef.current)setErr("A camera demorou demais.\n\nConfira a permissao de camera nas configuracoes do navegador e tente de novo.")},8000);
+    const hiddenCanvas=document.createElement("canvas");
+    const handleFound=text=>{
+      if(continuous){
+        onScan(text);setFound(text);
+        setTimeout(()=>setFound(""),900);
+      }else{
+        stopped=true;
+        if(intervalId)clearInterval(intervalId);
+        setFound(text);
+        setTimeout(()=>onScan(text),700);
+      }
+    };
+    // Decodifica só o que está DENTRO da caixa guia (com uma margem de 20%
+    // pra não perder o código se a mira não ficar perfeita) — sem isso, o
+    // ZXing tenta ler o frame inteiro, com fiação da placa, texto e outros
+    // gráficos ao redor, o que confunde e atrasa demais a leitura de um
+    // código de barras 1D denso. Sem recompressão JPEG (sem perda), direto
+    // do canvas.
+    const tryDecode=()=>{
+      if(stopped||busy)return;
+      const video=vRef.current;
+      if(!video||!video.videoWidth)return;
+      busy=true;
+      try{
+        const vw=video.videoWidth,vh=video.videoHeight;
+        const sw=window.innerWidth||vw,sh=window.innerHeight||vh;
+        const boxW=300,boxH=160;
+        const z=hwZoomRef.current?1:zoomRef.current;
+        const cropW=Math.min(vw,(vw*Math.min(boxW/sw,1)/z)*1.2);
+        const cropH=Math.min(vh,(vh*Math.min(boxH/sh,1)/z)*1.2);
+        const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
+        const outW=Math.min(1000,Math.max(500,Math.round(cropW)));
+        const outH=Math.max(1,Math.round(outW*(cropH/cropW)));
+        hiddenCanvas.width=outW;hiddenCanvas.height=outH;
+        hiddenCanvas.getContext("2d",{willReadFrequently:true}).drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
+        const result=reader.decodeFromCanvas(hiddenCanvas);
+        if(stopped)return;
+        handleFound(result.getText());
+      }catch(e){
+        if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){
+          console.error("Scanner:",e);
+        }
+      }
+      busy=false;
+    };
     (async()=>{
       try{
         // Pede a câmera já em resolução alta — deixando o navegador escolher
@@ -414,53 +473,33 @@ function BarcodeScanner({onScan,onClose,continuous}){
         // baixa (tipo 640x480): nítida o bastante pra QR Code, mas borra
         // demais um código de barras 1D denso.
         const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}});
-        if(stoppedRef.current){stream.getTracks().forEach(t=>t.stop());return}
+        if(stopped){stream.getTracks().forEach(t=>t.stop());return}
         streamRef.current=stream;
         vRef.current.srcObject=stream;
         await vRef.current.play();
+        clearTimeout(timeout);
+        setOk(true);
         const track=stream.getVideoTracks()[0];
         trackRef.current=track;
         try{
           const caps=track.getCapabilities?.();
           if(caps&&caps.torch)setTorchSupported(true);
+          if(caps&&caps.zoom&&caps.zoom.max>caps.zoom.min){zoomCapsRef.current=caps.zoom;setHwZoom(true)}
           if(caps&&caps.focusMode&&caps.focusMode.includes("continuous")){
             await track.applyConstraints({advanced:[{focusMode:"continuous"}]});
           }
         }catch{}
-        const controls=await reader.decodeFromStream(stream,vRef.current,(result,error,ctl)=>{
-          if(stoppedRef.current)return;
-          if(result){
-            clearTimeout(timeout);
-            if(!ok)setOk(true);
-            const text=result.getText();
-            if(continuous){
-              onScan(text);setFound(text);
-              setTimeout(()=>setFound(""),900);
-            }else{
-              stoppedRef.current=true;
-              ctl.stop();
-              setFound(text);
-              setTimeout(()=>onScan(text),700);
-            }
-          }else{
-            if(!ok){setOk(true);clearTimeout(timeout)}
-            if(error&&error.name!=="NotFoundException"&&!/no multiformat/i.test(error.message||"")){
-              console.error("Scanner:",error);
-            }
-          }
-        });
-        controlsRef.current=controls;
+        intervalId=setInterval(tryDecode,250);
       }catch(e){
         clearTimeout(timeout);
         setErr("Camera:\n"+(e.message||"sem acesso")+"\n\nConfira se deu permissao de camera pro site.");
       }
     })();
     return()=>{
-      stoppedRef.current=true;
+      stopped=true;
       clearTimeout(timeout);
-      try{controlsRef.current?.stop?.()}catch{}
+      if(intervalId)clearInterval(intervalId);
       try{streamRef.current?.getTracks().forEach(t=>t.stop())}catch{}
-      try{readerRef.current?.reset?.()}catch{}
     };
   },[]);
   const toggleTorch=async()=>{
@@ -476,9 +515,11 @@ function BarcodeScanner({onScan,onClose,continuous}){
       <div style={{whiteSpace:"pre-line"}}>{err}</div>
       <Btn onClick={onClose}>Fechar</Btn>
     </div>:<>
-      {/* Video com zoom via CSS transform — decodificacao roda no stream original */}
+      {/* Com zoom de hardware o próprio vídeo já vem ampliado (sem CSS, pra
+          não dobrar o zoom); sem suporte, o zoom aqui é só visual — mas o
+          recorte que vai pro ZXing sempre acompanha o que está na caixa guia. */}
       <div style={{position:"absolute",inset:0,overflow:"hidden"}}>
-        <video ref={vRef} style={{position:"absolute",top:"50%",left:"50%",transform:`translate(-50%,-50%) scale(${zoom})`,transformOrigin:"center center",width:"100%",height:"100%",objectFit:"cover"}} playsInline muted autoPlay/>
+        <video ref={vRef} style={{position:"absolute",top:"50%",left:"50%",transform:`translate(-50%,-50%) scale(${hwZoom?1:zoom})`,transformOrigin:"center center",width:"100%",height:"100%",objectFit:"cover"}} playsInline muted autoPlay/>
       </div>
       {/* Overlay */}
       <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
@@ -487,7 +528,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
           {!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2,boxShadow:"0 0 8px #f97316"}}/>}
         </div>
         <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",textShadow:"0 1px 4px #000"}}>
-          {found?("OK: "+found):(ok?"Aponte para o codigo":"Iniciando...")}
+          {found?("OK: "+found):(ok?"Alinhe o código dentro da caixa":"Iniciando...")}
         </div>
         {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12,textShadow:"0 1px 4px #000"}}>Modo lote - continua escaneando. Toque no X quando terminar.</div>}
       </div>
@@ -1396,20 +1437,20 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
   const[localSN,setLocalSN]=useState(m[slotField]||"");
   useEffect(()=>{setLocalSN(m[slotField]||"")},[m[slotField]]);
   const slotSN=m[slotField]||"";
-  const slotHash=slotSN?data.hashes.find(h=>h.sn===slotSN):null;
+  const slotHash=slotSN?data.hashes.find(h=>normSNField(h.sn)===normSNField(slotSN)):null;
   const commit=async()=>{
     const upper=localSN.toUpperCase().trim();
     setLocalSN(upper);
-    if(upper===slotSN)return;
+    if(upper===normSNField(slotSN))return;
     await upd(slotField,upper);
     // Se já tinha outra HASH nesse slot, desvincula ela (volta pra fila de teste)
-    const oldHash=slotSN?data.hashes.find(h=>h.sn===slotSN):null;
-    if(oldHash&&oldHash.machineSN===m.sn){
+    const oldHash=slotSN?data.hashes.find(h=>normSNField(h.sn)===normSNField(slotSN)):null;
+    if(oldHash&&normSNField(oldHash.machineSN)===normSNField(m.sn)){
       const ou={...oldHash,machineSN:"",slot:-1,status:oldHash.status==="NA MAQUINA"?"TESTAR":oldHash.status,...audit(user)};
       mutate("hashes",arr=>arr.map(x=>x._id===oldHash._id?ou:x));await fbSet("hashes",oldHash._id,ou);
     }
     // A HASH nova colocada aqui passa a estar NA MAQUINA — reflete isso nela
-    const found=upper?data.hashes.find(h=>h.sn===upper):null;
+    const found=upper?data.hashes.find(h=>normSNField(h.sn)===upper):null;
     if(found){
       // Nunca deixa a carcaça com um modelo e a HASH com outro — corrige sozinho
       if(found.model&&found.model!==m.model)await upd("model",found.model);
@@ -1419,7 +1460,7 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
     }
     await markChanged("hashes");
   };
-  const notFound=localSN.trim()&&!data.hashes.find(h=>h.sn===localSN.toUpperCase().trim());
+  const notFound=localSN.trim()&&!data.hashes.find(h=>normSNField(h.sn)===localSN.toUpperCase().trim());
   return<div style={{marginBottom:8}}>
     <div style={{display:"flex",gap:8,alignItems:"center"}}>
       <span style={{color:C.subtle,fontSize:10,width:50,flexShrink:0,fontWeight:800}}>SLOT {i+1}</span>
@@ -1951,11 +1992,11 @@ function HashSearchBox({ctx}){
   const{data,setModal}=ctx;
   const[q,setQ]=useState("");
   const qsn=q.toUpperCase().trim();
-  const found=qsn?data.hashes.find(h=>h.sn===qsn):null;
+  const found=qsn?data.hashes.find(h=>normSNField(h.sn)===qsn):null;
   // Se não achou HASH, tenta como SN de MÁQUINA — evita o "não existe" quando
   // o usuário bipa o SN da máquina (em vez do SN da HASH) achando que dava
   // pra ver o histórico dela por aqui também.
-  const foundMachine=qsn&&!found?data.machines.find(m=>m.sn===qsn):null;
+  const foundMachine=qsn&&!found?data.machines.find(m=>normSNField(m.sn)===qsn):null;
   return<div style={{background:C.bg,borderRadius:10,padding:12,marginBottom:14}}>
     <SL>🔍 BUSCAR HASH OU MÁQUINA (histórico completo)</SL>
     <SNInput value={q} onChange={setQ} placeholder="Bipe ou digite o SN da HASH ou da máquina..."/>
@@ -2128,18 +2169,33 @@ function TestePage({ctx}){
     }
     const existing=sessions.find(s=>s.machineSN===sn);
     if(existing){setActiveId(existing._id);setMacInput(sn);return}
-    const ex=data.machines.find(m=>m.sn===sn);
+    const ex=data.machines.find(m=>normSNField(m.sn)===sn);
     if(ex&&ex.situacao==="BOA"){
-      const ok=window.confirm(`Essa máquina já está marcada como BOA na planilha/estoque.\nQuer mesmo testar de novo?`);
-      if(!ok)return;
+      setModal(<Modal title="✅ Máquina já está BOA" onClose={()=>setModal(null)}>
+        <div style={{color:C.text,fontSize:13,marginBottom:16}}>A máquina <b>{sn}</b> já está marcada como BOA no estoque. O que deseja fazer?</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <Btn v="y" onClick={()=>{setModal(null);startSession(sn,ex,true)}} style={{justifyContent:"center",padding:"12px 0"}}>📦 Preparar pra Envio</Btn>
+          <Btn v="b" onClick={()=>{setModal(null);startSession(sn,ex)}} style={{justifyContent:"center",padding:"12px 0"}}>🧪 Testar de Novo</Btn>
+          <Btn v="s" onClick={()=>setModal(null)} style={{justifyContent:"center",padding:"12px 0"}}>Cancelar</Btn>
+        </div>
+      </Modal>);
+      return;
     }
+    await startSession(sn,ex);
+  };
+
+  // "Preparar pra Envio" abre uma sessão igualzinha a um teste normal (slots,
+  // componentes, foto obrigatória) — só marca prepShipment pra, quando o
+  // Admin aprovar lá na Revisão, o status virar PREPARANDO em vez de BOA.
+  // Continua indo pra fila de espera, exatamente como um teste comum.
+  const startSession=async(sn,ex,prepShipment)=>{
     const id=uid();
     const s={_id:id,employeeId:user._id,machineSN:sn,model:ex?.model||models[0]?.m||"M30S",th:ex?.th||0,
       slots:[
         {hashSN:ex?.hashSN0||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN1||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN2||"",status:"",photoKey:null}
-      ],controladora:"",fonte:"",fans:"",photoKey:null,adminNotes:[],updatedAt:stamp()};
+      ],controladora:"",fonte:"",fans:"",photoKey:null,adminNotes:[],prepShipment:!!prepShipment,updatedAt:stamp()};
     await saveSession(s);setActiveId(id);
   };
 
@@ -2176,7 +2232,7 @@ function TestePage({ctx}){
       const usedElsewhere=sessions.some(s2=>s2._id!==session._id&&s2.slots.some(s=>s.hashSN&&s.hashSN.toUpperCase()===upperSn));
       if(usedHere||usedElsewhere){setErr(`⚠️ SN ${upperSn} já está sendo usado em outra máquina em teste agora — não pode repetir.`);return}
     }
-    const existing=upperSn?data.hashes.find(x=>x.sn===upperSn):null;
+    const existing=upperSn?data.hashes.find(x=>normSNField(x.sn)===upperSn):null;
     if(existing && existing.status === "TESTAR" && existing.repairedBy && existing.repairedBy !== user._id) {
       const repEmp = data.employees.find(e=>e._id===existing.repairedBy);
       if (!window.confirm(`⚠️ Esta HASH está na fila de teste de: ${repEmp?.name||"Outro usuário"}.\nDeseja testá-la mesmo assim?`)) {
@@ -2224,12 +2280,18 @@ function TestePage({ctx}){
       slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
       slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
       controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
+      prepShipment:!!sess.prepShipment,
       newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
     await fbSet("tests",id,rec);mutate("tests",t=>[...t,{...rec,_id:id}]);
-    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
+    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
     await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
-    const exMac=data.machines.find(m=>m.sn===sess.machineSN);
-    if(exMac){const u={...exMac,situacao:"AGUARD. REVISÃO",lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
+    const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
+    // Enquanto está esperando o Admin revisar, "Preparar pra Envio" mostra
+    // PREPARANDO em vez de AGUARD. REVISÃO — assim dá pra ver, olhando o
+    // estoque, que essa máquina já está BOA e só terminando de ser
+    // conferida antes do envio (não é uma máquina com problema).
+    const pendingSituacao=sess.prepShipment?"PREPARANDO":"AGUARD. REVISÃO";
+    if(exMac){const u={...exMac,situacao:pendingSituacao,lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
     await markChanged("tests");await markChanged("approvals");await markChanged("machines");
     syncSheet(webhookUrl,"test",{...rec,employeeCode:user.code,employeeName:user.name});
     await closeSession(sess._id);setSubmitting(false);setDone(true);setTimeout(()=>setDone(false),3000);
@@ -2256,13 +2318,14 @@ function TestePage({ctx}){
       <SL>🖥️ MÁQUINAS EM TESTE ({sessions.length})</SL>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         {sessions.map(s=><button key={s._id} onClick={()=>{setActiveId(s._id);setMacInput(s.machineSN)}} style={{background:s._id===activeId?C.accent:(s.rejected?"#3a0a0a":C.card),color:"#fff",border:`1px solid ${s._id===activeId?C.accent:(s.rejected?C.red:C.border)}`,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          {s.rejected?"❌":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
+          {s.rejected?"❌":s.prepShipment?"📦":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
           <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900}}>✕</span>
         </button>)}
       </div>
     </div>}
 
     {session?.rejected&&<Alrt type="err">{(session.adminNotes||[]).join(" · ")||"❌ Essa máquina foi reprovada na revisão. Corrija e envie de novo."}</Alrt>}
+    {session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — quando o Admin aprovar, o status vira PREPARANDO (não BOA).</Alrt>}
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
@@ -2329,7 +2392,7 @@ function TestePage({ctx}){
       </div>}
 
       <Btn v="g" onClick={markAllGood} disabled={submitting||!session.photoKey||needsChars} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
-        {submitting?"Enviando...":"✅ TUDO BOA — Enviar para Revisão"}
+        {submitting?"Enviando...":session.prepShipment?"📦 Enviar Preparação para Revisão":"✅ TUDO BOA — Enviar para Revisão"}
       </Btn>
       <div style={{display:"flex",gap:8}}>
         <Btn v="s" onClick={()=>{setActiveId(null);setMacInput("")}} style={{flex:1,fontSize:12}}>👋 Deixar na fila e trocar de máquina</Btn>
@@ -2634,12 +2697,16 @@ function ApprovalsPage({ctx}){
     setProcessing(appr._id);const test=data.tests.find(t=>t._id===appr.testId);if(!test){setProcessing(null);return}
     const tUpd={...test,status:"approved",overallResult:"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
+    // "Preparar pra Envio" fica como PREPARANDO só enquanto espera a revisão
+    // (ver doSubmit) — assim que o Admin aprova, volta a ficar BOA igual um
+    // teste comum (a diferença é só durante a espera).
+    const targetSituacao="BOA";
     if(exMac){
       // Quando o teste dá "TUDO BOA", TODOS os parâmetros ficam ON — mesmo os
       // slots sem SN preenchido (a máquina toda foi aprovada como funcionando).
-      const mUpd={...exMac,situacao:"BOA",model:test.model||exMac.model,th:test.th||exMac.th,hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON",hashSN0:test.slot0HashSN||exMac.hashSN0||"",hashSN1:test.slot1HashSN||exMac.hashSN1||"",hashSN2:test.slot2HashSN||exMac.hashSN2||"",...audit(user)};
+      const mUpd={...exMac,situacao:targetSituacao,model:test.model||exMac.model,th:test.th||exMac.th,hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON",hashSN0:test.slot0HashSN||exMac.hashSN0||"",hashSN1:test.slot1HashSN||exMac.hashSN1||"",hashSN2:test.slot2HashSN||exMac.hashSN2||"",...audit(user)};
       await fbSet("machines",exMac._id,mUpd);mutate("machines",m=>m.map(x=>x._id===exMac._id?mUpd:x));
-      syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
+      syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"situacao",to:targetSituacao,employeeName:user.name,employeeCode:user.code});
       if(test.model&&test.model!==exMac.model)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"model",to:test.model,employeeName:user.name,employeeCode:user.code});
       if(test.th&&test.th!==exMac.th)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"th",to:test.th,employeeName:user.name,employeeCode:user.code});
       ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}));
@@ -2736,6 +2803,7 @@ function ApprovalsPage({ctx}){
         ],controladora:test.controladora||"",fonte:test.fonte||"",fans:test.fans||"",photoKey:test.testPhoto||null,
         newHashChars:test.newHashModel?{model:test.newHashModel,material:test.newHashMaterial||"",chips:test.newHashChips||""}:null,
         adminNotes:[`❌ REPROVADA pelo Admin ${user.name}: ${n||"sem observação"}`],
+        prepShipment:!!test.prepShipment,
         rejected:true,updatedAt:stamp()};
       await fbSet("sessions",sid,s);
     }
@@ -2773,8 +2841,8 @@ function ApprovalsPage({ctx}){
       <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${pending.length} pendentes?`))return;for(const a of pending)await reject(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
     </div>}
     {pending.length===0&&pendingHashBad.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>✅</div><div>Nenhuma revisão pendente</div></div>
-      :pending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={C.blue}>
-        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>🖥️ {appr.machineSN||"SEM SN"}</div>
+      :pending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={appr.prepShipment?C.amber:C.blue}>
+        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>{appr.prepShipment?"📦":"🖥️"} {appr.machineSN||"SEM SN"} {appr.prepShipment&&<Tag color={C.amber} small>Preparação p/ Envio</Tag>}</div>
         <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{appr.model} · {appr.th}TH · 👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
         {test&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>{[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].map((sn,i)=>sn&&<span key={i} style={{background:"#0c1a2e",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",fontSize:10,color:C.blue}}>S{i}: {sn}</span>)}</div>}
         {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginBottom:10,maxHeight:150}}/>}
@@ -2784,7 +2852,7 @@ function ApprovalsPage({ctx}){
           <Btn v="b" onClick={()=>setModal(<Modal title={`📋 ${appr.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={appr}/></Modal>)} style={{flex:1}}>📋 Ver mais</Btn>
         </div>
         <div style={{display:"flex",gap:8,marginTop:8}}>
-          <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":"✓ Aprovar → BOA"}</Btn></div>
+          <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":appr.prepShipment?"✓ Aprovar → PREPARANDO":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
     {data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>{user.code==="019"&&<button onClick={async()=>{if(!confirm("Apagar essa revisão do histórico? Não dá pra desfazer."))return;await fbDel("pendingApprovals",a._id);mutate("approvals",arr=>arr.filter(x=>x._id!==a._id));await markChanged("approvals")}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></div>)}</>}
   </div>;
@@ -3104,7 +3172,8 @@ function CfgPage({ctx}){
   // máquinas/HASHs "não casavam" com o resto (fila de teste não achava
   // modelo, histórico não achava a máquina, aviso de "já está BOA" não
   // disparava). Corrige de uma vez só, sem mexer em mais nada.
-  const badSNMachines=data.machines.filter(m=>m.sn&&m.sn!==normSNField(m.sn));
+  const machineSNBad=m=>(m.sn&&m.sn!==normSNField(m.sn))||(m.hashSN0&&m.hashSN0!==normSNField(m.hashSN0))||(m.hashSN1&&m.hashSN1!==normSNField(m.hashSN1))||(m.hashSN2&&m.hashSN2!==normSNField(m.hashSN2));
+  const badSNMachines=data.machines.filter(machineSNBad);
   const badSNHashes=data.hashes.filter(h=>(h.sn&&h.sn!==normSNField(h.sn))||(h.machineSN&&h.machineSN!==normSNField(h.machineSN)));
   const[fixingSN,setFixingSN]=useState(false),[fixSNRes,setFixSNRes]=useState("");
   const normalizeAllSNs=async()=>{
@@ -3112,13 +3181,13 @@ function CfgPage({ctx}){
     setFixingSN(true);
     for(let i=0;i<badSNMachines.length;i+=200){
       const batch=badSNMachines.slice(i,i+200);
-      await fbBatch(batch.map(m=>({c:"machines",id:m._id,d:{...m,sn:normSNField(m.sn)}})));
+      await fbBatch(batch.map(m=>({c:"machines",id:m._id,d:{...m,sn:normSNField(m.sn),hashSN0:normSNField(m.hashSN0),hashSN1:normSNField(m.hashSN1),hashSN2:normSNField(m.hashSN2)}})));
     }
     for(let i=0;i<badSNHashes.length;i+=200){
       const batch=badSNHashes.slice(i,i+200);
       await fbBatch(batch.map(h=>({c:"hashes",id:h._id,d:{...h,sn:normSNField(h.sn),machineSN:normSNField(h.machineSN)}})));
     }
-    mutate("machines",arr=>arr.map(m=>badSNMachines.some(b=>b._id===m._id)?{...m,sn:normSNField(m.sn)}:m));
+    mutate("machines",arr=>arr.map(m=>badSNMachines.some(b=>b._id===m._id)?{...m,sn:normSNField(m.sn),hashSN0:normSNField(m.hashSN0),hashSN1:normSNField(m.hashSN1),hashSN2:normSNField(m.hashSN2)}:m));
     mutate("hashes",arr=>arr.map(h=>badSNHashes.some(b=>b._id===h._id)?{...h,sn:normSNField(h.sn),machineSN:normSNField(h.machineSN)}:h));
     await markChanged("machines");await markChanged("hashes");
     setFixSNRes(`✓ ${badSNMachines.length} máquina(s) e ${badSNHashes.length} HASH(s) corrigidas.`);
