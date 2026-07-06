@@ -390,7 +390,7 @@ const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},er
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
   const vRef=useRef(),streamRef=useRef(),trackRef=useRef();
-  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[zoom,setZoom]=useState(1),[hwZoom,setHwZoom]=useState(false),[debugErr,setDebugErr]=useState("");
+  const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[zoom,setZoom]=useState(1),[hwZoom,setHwZoom]=useState(false),[debugErr,setDebugErr]=useState(""),[confirming,setConfirming]=useState(false);
   const zoomRef=useRef(1),hwZoomRef=useRef(false),zoomCapsRef=useRef(null);
   useEffect(()=>{zoomRef.current=zoom},[zoom]);
   useEffect(()=>{hwZoomRef.current=hwZoom},[hwZoom]);
@@ -407,7 +407,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
     trackRef.current.applyConstraints({advanced:[{zoom:value}]}).catch(()=>{});
   },[zoom,hwZoom]);
   useEffect(()=>{
-    let stopped=false,busy=false,intervalId=null;
+    let stopped=false,busy=false,intervalId=null,lastText=null,lastCount=0;
     const hints=new Map();
     hints.set(DecodeHintType.POSSIBLE_FORMATS,[
       BarcodeFormat.CODE_128,BarcodeFormat.CODE_39,BarcodeFormat.CODE_93,
@@ -466,8 +466,18 @@ function BarcodeScanner({onScan,onClose,continuous}){
         hiddenCanvas.getContext("2d",{willReadFrequently:true}).drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
         const result=reader.decodeFromCanvas(hiddenCanvas);
         if(stopped)return;
-        handleFound(result.getText());
+        // Blindagem contra leitura errada: só aceita o código depois de ler
+        // a MESMA coisa 2 vezes seguidas. Uma leitura isolada divergente
+        // (reflexo, sujeira, ângulo ruim) nunca é aceita sozinha — se o
+        // código mudar de uma vez pra outra, a contagem reinicia do zero.
+        const text=result.getText();
+        if(text===lastText){lastCount++}else{lastText=text;lastCount=1;setConfirming(true)}
+        if(lastCount>=2){
+          lastText=null;lastCount=0;setConfirming(false);
+          handleFound(text);
+        }
       }catch(e){
+        lastText=null;lastCount=0;setConfirming(false);
         if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){
           console.error("Scanner:",e);
           setDebugErr(String(e?.name||"")+": "+String(e?.message||e));
@@ -537,7 +547,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
           {!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2,boxShadow:"0 0 8px #f97316"}}/>}
         </div>
         <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",textShadow:"0 1px 4px #000"}}>
-          {found?("OK: "+found):(ok?"Alinhe o código dentro da caixa":"Iniciando...")}
+          {found?("OK: "+found):confirming?"Confirmando leitura...":(ok?"Alinhe o código dentro da caixa":"Iniciando...")}
         </div>
         {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12,textShadow:"0 1px 4px #000"}}>Modo lote - continua escaneando. Toque no X quando terminar.</div>}
         {debugErr&&<div style={{position:"relative",zIndex:1,color:"#ff9b9b",marginTop:8,fontSize:11,padding:"0 20px",textAlign:"center"}}>{debugErr}</div>}
@@ -655,27 +665,42 @@ function SmartScanInput({onDetect,placeholder,autoFocus,disabled,count}){
 }
 
 /* ═══ PHOTO ═════════════════════════════════════════════════════ */
+// Contador global (fora do React) de uploads de foto em andamento nesse
+// instante — não importa em qual tela. Existe pra blindar contra o caso de
+// alguém trocar de aba (ou fechar o app) ENQUANTO uma foto ainda está
+// subindo pro Drive: se isso acontecer, o componente que ia guardar o link
+// da foto (photoKey) é desmontado antes da resposta chegar, e a atualização
+// de estado é descartada em silêncio — a foto fica salva no Drive, mas sem
+// nenhum registro vinculado a ela em lugar nenhum do app. Ver checagem em
+// hasActivePhotoUpload(), usada antes de trocar de aba.
+let activePhotoUploads=0;
+function hasActivePhotoUpload(){return activePhotoUploads>0}
 function PhotoCapture({label,photoKey,onChange,folder="photos",required,snHint,onUploadFail}){
   const[src,setSrc]=useState(null),[up,setUp]=useState(false);const ref=useRef();
   useEffect(()=>{if(!photoKey){setSrc(null);return}if(photoKey.startsWith("http")||photoKey.startsWith("data:"))setSrc(photoKey);else setSrc(localStorage.getItem("ph:"+photoKey))},[photoKey]);
   const[failed,setFailed]=useState(false);
   const pick=async f=>{
     setUp(true);setFailed(false);onUploadFail?.(false);
-    const b64=await compress(f);
-    setSrc(b64); // mostra a prévia na hora, mas não salva isso no banco
-    const cleanSN=(snHint||"").replace(/[^a-zA-Z0-9]/g,"");
-    const filename=cleanSN?`${folder}/${cleanSN}_${uid()}.jpg`:`${folder}/${uid()}.jpg`;
-    const url=await uploadPhoto(b64,filename);
-    if(url){onChange(url)}
-    else{
-      // Nunca salva a foto em base64 direto no banco — isso lotaria o Supabase.
-      // Se o Drive falhar, avisa e deixa sem foto (o aviso 🛡️ já mostra o erro).
-      // E avisa o formulário todo pra não deixar salvar sem a foto, mesmo
-      // em telas onde a foto normalmente é opcional — enquanto o Drive
-      // estiver com problema, ninguém quer salvar "sem querer" sem foto.
-      setFailed(true);setSrc(null);onChange(null);onUploadFail?.(true);
+    activePhotoUploads++;
+    try{
+      const b64=await compress(f);
+      setSrc(b64); // mostra a prévia na hora, mas não salva isso no banco
+      const cleanSN=(snHint||"").replace(/[^a-zA-Z0-9]/g,"");
+      const filename=cleanSN?`${folder}/${cleanSN}_${uid()}.jpg`:`${folder}/${uid()}.jpg`;
+      const url=await uploadPhoto(b64,filename);
+      if(url){onChange(url)}
+      else{
+        // Nunca salva a foto em base64 direto no banco — isso lotaria o Supabase.
+        // Se o Drive falhar, avisa e deixa sem foto (o aviso 🛡️ já mostra o erro).
+        // E avisa o formulário todo pra não deixar salvar sem a foto, mesmo
+        // em telas onde a foto normalmente é opcional — enquanto o Drive
+        // estiver com problema, ninguém quer salvar "sem querer" sem foto.
+        setFailed(true);setSrc(null);onChange(null);onUploadFail?.(true);
+      }
+      setUp(false);
+    }finally{
+      activePhotoUploads--;
     }
-    setUp(false);
   };
   return<div style={{marginBottom:14}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>{label}{required&&<span style={{color:C.red}}> *</span>}</div>}{up&&<div style={{color:C.amber,fontSize:12,marginBottom:6}}>⏳ Enviando pro Drive...</div>}{failed&&<div style={{color:C.red,fontSize:12,marginBottom:6}}>✗ Não consegui enviar a foto pro Drive. Confere a conexão e tenta de novo (não salva no banco pra não lotar).</div>}{src?<div style={{position:"relative"}}><img src={src} alt="" style={{width:"100%",borderRadius:10,maxHeight:220,objectFit:"cover"}}/><button onClick={()=>{deleteDrivePhoto(src);setSrc(null);onChange(null)}} style={{position:"absolute",top:6,right:6,background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:700}}>✕</button></div>:<div style={{display:"flex",gap:8}}><button onClick={()=>ref.current.click()} style={{flex:1,background:C.bg,border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>📷 {required?"(Obrigatória)":"Foto"}</button><button onClick={async()=>{try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(t=>t.startsWith("image/"));if(type){const blob=await item.getType(type);const file=new File([blob],"paste.jpg",{type});await pick(file);return}}alert("Nenhuma imagem no clipboard")}catch{alert("Copie uma imagem (print screen) e toque Colar")}}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.blue,borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:12,fontWeight:700,whiteSpace:"nowrap"}} title="Colar print">📋 Colar</button></div>}<input ref={ref} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>e.target.files[0]&&pick(e.target.files[0])}/></div>;
 }
@@ -896,6 +921,14 @@ export default function App(){
   },[]);
   useEffect(()=>{bootLoad()},[bootLoad]);
   useEffect(()=>{onSyncSheetError=(msg)=>setDataWarnings(w=>[{msg:"⚠️ "+msg,at:stamp()},...w].slice(0,20))},[]);
+  // Avisa (com o prompt nativo do navegador) se tentar fechar/recarregar a
+  // aba enquanto uma foto ainda está subindo pro Drive — mesmo motivo da
+  // blindagem no changeTab: sem isso, a foto fica órfã no Drive.
+  useEffect(()=>{
+    const onBeforeUnload=e=>{if(hasActivePhotoUpload()){e.preventDefault();e.returnValue=""}};
+    window.addEventListener("beforeunload",onBeforeUnload);
+    return()=>window.removeEventListener("beforeunload",onBeforeUnload);
+  },[]);
   // Supabase Realtime: qualquer mudança em qualquer tabela avisa todo mundo
   // na hora (substitui o polling de 15 em 15 minutos do Firebase). Como o
   // Supabase não cobra por leitura, não tem problema reler a coleção inteira
@@ -944,7 +977,15 @@ export default function App(){
     })();
   },[user,data.machines.length,data.hashes.length,webhookUrl]);
 
-  const ctx={user,data,setCol,mutate,setModal,setTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount};
+  // Troca de aba "blindada": se tiver alguma foto ainda subindo pro Drive
+  // (Conserto, Teste, cadastro de máquina/HASH etc.), avisa antes de deixar
+  // trocar — senão a tela some no meio do upload, o link da foto nunca
+  // chega a ser salvo em lugar nenhum, e a foto fica "órfã" só no Drive.
+  const changeTab=t=>{
+    if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
+    setTab(t);
+  };
+  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount};
   if(loading)return<Splash/>;
   if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
   if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
@@ -976,7 +1017,7 @@ export default function App(){
         {isSuperAdmin&&dataWarnings.length>0&&<Tag color={C.red} title="Avisos de integridade de dados">🛡️{dataWarnings.length}</Tag>}
       </div>
       <button onClick={toggleTheme} title="Trocar tema" style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:14,marginRight:6}}>{theme==="dark"?"☀️":"🌙"}</button>
-      <button onClick={()=>{setUser(null);setTab("home")}} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Sair</button>
+      <button onClick={()=>{if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;setUser(null);setTab("home")}} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Sair</button>
     </div>
     {isSuperAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
     {isSuperAdmin&&dailyDiff&&<div onClick={()=>{setDailyDiff(null);setModal(<Modal title="🔄 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}} style={{background:"#2a1a0c",borderBottom:`1px solid ${C.amber}`,padding:"8px 16px",fontSize:11,color:C.amber,cursor:"pointer"}}>🔄 Checagem diária: {dailyDiff.total} diferença(s) entre o app e a planilha — toque pra ver e resolver</div>}
@@ -992,7 +1033,7 @@ export default function App(){
       {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
     </div>
     <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:960,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
-      {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,background:"none",border:"none",padding:"8px 2px 12px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:tab===t.id?C.accent:C.muted}}><span style={{fontSize:17}}>{t.icon}</span><span style={{fontSize:8,fontWeight:800}}>{t.label}</span></button>)}
+      {TABS.map(t=><button key={t.id} onClick={()=>changeTab(t.id)} style={{flex:1,background:"none",border:"none",padding:"8px 2px 12px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:tab===t.id?C.accent:C.muted}}><span style={{fontSize:17}}>{t.icon}</span><span style={{fontSize:8,fontWeight:800}}>{t.label}</span></button>)}
     </nav>
     <button onClick={()=>setCamOpen(true)} style={{position:"fixed",right:16,bottom:72,width:52,height:52,borderRadius:"50%",background:C.accent,border:"none",cursor:"pointer",fontSize:22,zIndex:99,boxShadow:"0 4px 16px rgba(249,115,22,.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>
     {camOpen&&<CamModal ctx={ctx} onClose={()=>setCamOpen(false)}/>}
@@ -1145,14 +1186,12 @@ function AdminTestQueuePeek({data}){
 function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab}=ctx;const today=TODAY();
   const toTest=data.hashes.filter(h=>h.status==="TESTAR" && (isAdmin || h.repairedBy === user._id));
-  const myRejectedHashes=(data.approvals||[]).filter(a=>a.type==="hashBad"&&a.status==="rejected"&&(a.employeeId===user._id||a._by===user._id));
   return<div>
     <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:18}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
     {isAdmin&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
     {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
     {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
-    {!isAdmin&&myRejectedHashes.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>❌ HASHs Recusadas ({myRejectedHashes.length})</div>{myRejectedHashes.map(a=><Card key={a._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {a.sn}{a.machineSN?` (na máquina ${a.machineSN})`:""}</div>{a.notes&&<div style={{fontSize:12,marginTop:4}}>📝 {a.notes}</div>}</Card>)}</div>}
     {user.permissions?.testing&&!isAdmin&&<div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontWeight:800,fontSize:14}}>⏳ Para Testar</div><Tag color={toTest.length>0?C.amber:C.card2}>{toTest.length}</Tag></div>{toTest.slice(0,3).map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · 👷 ${repName}`:""}</div></div><HP s={h.status}/></div>})}<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn></div>}
     {isAdmin&&<AdminTestQueuePeek data={data}/>}
     {isAdmin&&<AdminSummary data={data}/>}
