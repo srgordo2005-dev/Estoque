@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { jsPDF } from "jspdf";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { DecodeHintType, BarcodeFormat } from "@zxing/library";
 
 // Quando uma tela é aberta com setModal(<Componente ctx={ctx}/>), esse
 // elemento fica "congelado" no estado — se os dados mudarem depois (por
@@ -409,7 +410,20 @@ function BarcodeScanner({onScan,onClose,continuous}){
         const track=stream.getVideoTracks()[0];
         trackRef.current=track;
         try{const caps=track.getCapabilities?.();if(caps&&caps.torch)setTorchSupported(true)}catch{}
-        const reader=new BrowserMultiFormatReader();
+        // Sem isso, o leitor tende a favorecer QR Code e demora mais (ou
+        // nem consegue) achar código de barras "normal" (linear) como o das
+        // etiquetas de placa. Diz explicitamente quais formatos procurar e
+        // liga TRY_HARDER (força total), que melhora muito a leitura de
+        // código de barras linear, ao custo de ser um pouco mais lento.
+        const hints=new Map();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS,[
+          BarcodeFormat.CODE_128,BarcodeFormat.CODE_39,BarcodeFormat.CODE_93,
+          BarcodeFormat.CODABAR,BarcodeFormat.ITF,BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E,
+          BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX,
+        ]);
+        hints.set(DecodeHintType.TRY_HARDER,true);
+        const reader=new BrowserMultiFormatReader(hints);
         readerRef.current=reader;
         const canvas=canvasRef.current;
         const ctx=canvas.getContext("2d",{willReadFrequently:true});

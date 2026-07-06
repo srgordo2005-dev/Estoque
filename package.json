@@ -13,7 +13,8 @@
     "react-dom": "^18.2.0",
     "@supabase/supabase-js": "^2.45.0",
     "jspdf": "^2.5.1",
-    "@zxing/browser": "^0.1.5"
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.20.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
