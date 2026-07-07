@@ -1014,15 +1014,6 @@ export default function App(){
     setTab(t);
   };
   const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount};
-  if(loading)return<Splash/>;
-  if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
-
-  if(!user&&publicPalletId){
-    const pl=data.pallets.find(p=>p._id===publicPalletId);
-    return <PublicPalletView pallet={pl} data={data} onLogin={()=>setPublicPalletId(null)}/>;
-  }
-
-  if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
 
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
@@ -1037,7 +1028,18 @@ export default function App(){
       // Limpa o parametro da URL pra nao abrir de novo em cada render
       window.history.replaceState({},"",window.location.pathname);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[user,data.pallets.length]);
+
+  if(loading)return<Splash/>;
+  if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
+
+  if(!user&&publicPalletId){
+    const pl=data.pallets.find(p=>p._id===publicPalletId);
+    return <PublicPalletView pallet={pl} data={data} onLogin={()=>setPublicPalletId(null)}/>;
+  }
+
+  if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
 
   const p=user.permissions||{};const isAdmin=p.admin;const isSuperAdmin=user.code==="019";
   const canApprove=isAdmin||p.approvals;
