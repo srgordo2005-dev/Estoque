@@ -584,7 +584,7 @@ function BarcodeScanner({onScan,onClose,continuous}){
 
 function SNInput({label,value,onChange,placeholder,list,onEnter,autoFocus,err}){
   const[sc,setSc]=useState(false);
-  return<div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<div style={{display:"flex",gap:8}}><input list={list} value={value} onChange={e=>onChange(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&onEnter?.()} placeholder={placeholder||"SN"} autoFocus={autoFocus} style={{...inp,flex:1,borderColor:err?C.red:C.border}}/><button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"10px 14px",cursor:"pointer",fontSize:20,flexShrink:0}} title="Escanear">📷</button></div>{err&&<div style={{color:C.red,fontSize:11,marginTop:3}}>⚠️ {err}</div>}{sc&&<BarcodeScanner onScan={v=>{onChange(v.toUpperCase());setSc(false);onEnter?.()}} onClose={()=>setSc(false)}/>}</div>;
+  return<div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<div style={{display:"flex",gap:8}}><input list={list} value={value} onChange={e=>onChange(e.target.value.toUpperCase())} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();onEnter?.()}}} placeholder={placeholder||"SN"} autoFocus={autoFocus} style={{...inp,flex:1,borderColor:err?C.red:C.border}}/><button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"10px 14px",cursor:"pointer",fontSize:20,flexShrink:0}} title="Escanear">📷</button></div>{err&&<div style={{color:C.red,fontSize:11,marginTop:3}}>⚠️ {err}</div>}{sc&&<BarcodeScanner onScan={v=>{onChange(v.toUpperCase());setSc(false);onEnter?.()}} onClose={()=>setSc(false)}/>}</div>;
 }
 
 // Campo de editar o SN de uma máquina/HASH JÁ EXISTENTE. Usa estado LOCAL —
@@ -767,9 +767,19 @@ class SafeTab extends React.Component{
 }
 
 export default function App(){
-  const[user,setUser]=useState(null);
+  const[user,setUser]=usePersistedField("session-user",null);
   const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[],orders:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
+  useEffect(()=>{
+    if(user&&data.employees.length){
+      const fresh=data.employees.find(e=>e._id===user._id||e.code===user.code);
+      if(fresh){
+        if(JSON.stringify(fresh)!==JSON.stringify(user))setUser(fresh);
+      }else{
+        setUser(null);
+      }
+    }
+  },[data.employees,user,setUser]);
   const[theme,setTheme]=useState(()=>localStorage.getItem("hs_theme")||"dark");
   Object.assign(C,theme==="dark"?DARK_THEME:LIGHT_THEME); // muda os valores no MESMO objeto C
   const toggleTheme=()=>{const next=theme==="dark"?"light":"dark";localStorage.setItem("hs_theme",next);setTheme(next)};
@@ -784,10 +794,15 @@ export default function App(){
     const defs=DEF_MODELS.filter(m=>!hiddenNames.has(m.m)&&!customNames.has(m.m));
     return [...defs,...customs].sort((a,b)=>a.m.localeCompare(b.m));
   },[data.customModels]);
-  const gTH=useCallback(m=>{const f=[...DEF_MODELS,...data.customModels].find(x=>x.m===m);return f?.th||0},[data.customModels]);
+  const gTH=useCallback(m=>{
+    const nm=(m||"").toUpperCase().replace(/[\s\-_]/g,"");
+    const f=[...DEF_MODELS,...data.customModels].find(x=>(x.m||"").toUpperCase().replace(/[\s\-_]/g,"")===nm);
+    return f?.th||0;
+  },[data.customModels]);
   const gChips=useCallback((m,material)=>{
-    if(material){const exact=data.customModels.find(x=>x.m===m&&x.material===material&&x.chips);if(exact)return exact.chips}
-    const f=data.customModels.find(x=>x.m===m&&x.chips);return f?.chips||null;
+    const nm=(m||"").toUpperCase().replace(/[\s\-_]/g,"");
+    if(material){const exact=data.customModels.find(x=>(x.m||"").toUpperCase().replace(/[\s\-_]/g,"")===nm&&x.material===material&&x.chips);if(exact)return exact.chips}
+    const f=data.customModels.find(x=>(x.m||"").toUpperCase().replace(/[\s\-_]/g,"")===nm&&x.chips);return f?.chips||null;
   },[data.customModels]);
   const[dataWarnings,setDataWarnings]=useState([]);
 
@@ -1274,7 +1289,7 @@ function QHashEdit({item,ctx,onUpdate,photoKey}){
 // Fila de placas que saíram do conserto e estão esperando teste — pro Admin
 // que não tem a permissão de Teste marcada, mas quer dar uma olhada de vez
 // em quando. Fica ESCONDIDA por padrão, só aparece se ele clicar no olho.
-function AdminTestQueuePeek({data}){
+function TestQueuePeek({data,setTab,showStartBtn}){
   const[open,setOpen]=useState(false);
   const toTest=data.hashes.filter(h=>h.status==="TESTAR");
   return<div style={{marginBottom:16}}>
@@ -1282,31 +1297,32 @@ function AdminTestQueuePeek({data}){
       <div style={{fontWeight:800,fontSize:14}}>⏳ Fila de Teste (placas do conserto)</div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}><Tag color={toTest.length>0?C.amber:C.card2}>{toTest.length}</Tag><span style={{fontSize:16}}>{open?"🙈":"👁️"}</span></div>
     </div>
-    {open&&<div style={{marginTop:10}}>
+    {open&&<div style={{marginTop:10,maxHeight:300,overflowY:"auto"}}>
       {toTest.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Fila vazia</div>:toTest.map(h=>{
         const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;
-        return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-          <div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div>
-          <div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · consertada por 👷 ${repName}`:""}</div>
+        return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div>
+            <div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · consertada por 👷 ${repName}`:""}</div>
+          </div>
+          <HP s={h.status}/>
         </div>;
       })}
     </div>}
+    {showStartBtn&&<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn>}
   </div>;
 }
 
 function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab}=ctx;const today=TODAY();
-  // Fila de teste é compartilhada — todo mundo que tem acesso ao Teste vê
-  // TODAS as HASHs prontas, não só as que ele mesmo consertou.
-  const toTest=data.hashes.filter(h=>h.status==="TESTAR");
   return<div>
     <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:18}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
     {canApprove&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
     {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
     {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
-    {user.permissions?.testing&&!isAdmin&&<div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontWeight:800,fontSize:14}}>⏳ Para Testar</div><Tag color={toTest.length>0?C.amber:C.card2}>{toTest.length}</Tag></div>{toTest.slice(0,3).map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · 👷 ${repName}`:""}</div></div><HP s={h.status}/></div>})}<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn></div>}
-    {isAdmin&&<AdminTestQueuePeek data={data}/>}
+    {user.permissions?.testing&&!isAdmin&&<TestQueuePeek data={data} setTab={setTab} showStartBtn/>}
+    {isAdmin&&<TestQueuePeek data={data}/>}
     {isAdmin&&<AdminSummary data={data}/>}
     <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
   </div>;
@@ -2306,7 +2322,7 @@ function HashSearchBox({ctx}){
 }
 
 function ConsertaPage({ctx}){
-  const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
+  const{data,mutate,user,allModels,webhookUrl,gChips,setModal}=ctx;const models=allModels();
   // Guardado no localStorage — se o usuário trocar de aba sem querer (ou o
   // app recarregar) no meio de um conserto, o que já foi digitado/fotografado
   // continua lá quando ele voltar pra essa tela.
@@ -2373,7 +2389,32 @@ function ConsertaPage({ctx}){
     setSaved(type);setTimeout(()=>setSaved(null),2500);
   };
 
+  const failedTests=(data.feedbacks||[]).filter(f=>!f.resolved);
   return<div>
+    {failedTests.length>0&&<>
+      <style>{`@keyframes repairGlow{0%,100%{box-shadow:0 0 6px 1px ${C.red}77}50%{box-shadow:0 0 14px 5px ${C.red}cc}}`}</style>
+      <button onClick={()=>setModal(<Modal title="⚠️ Placas Ruins no Teste" onClose={()=>setModal(null)}>
+          <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Estas placas falharam no teste e precisam de reparo. Clique em uma para preencher o SN de conserto.</div>
+          <div style={{maxHeight:400,overflowY:"auto"}}>
+            {failedTests.map(f=>{
+              const orig=data.employees.find(e=>e._id===f.originalRepairerId);
+              const tester=data.employees.find(e=>e._id===f.testedBy);
+              return<Card key={f._id} onClick={()=>{set("hashSN",f.hashSN);setModal(null)}} style={{marginBottom:10,cursor:"pointer",border:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontWeight:800,fontSize:14,color:C.red}}>⚡ {f.hashSN}</span>
+                  <span style={{fontSize:11,color:C.muted}}>{fmtDate(f.date)}</span>
+                </div>
+                {f.notes&&<div style={{fontSize:12,marginTop:4,color:C.text}}>{f.notes}</div>}
+                <div style={{fontSize:11,color:C.muted,marginTop:4}}>
+                  👷 Técnico anterior: {orig?.name||"Desconhecido"} <br/>
+                  🧪 Testado por: {tester?.name||"Desconhecido"}
+                </div>
+                {f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:140}}/>}
+              </Card>;
+            })}
+          </div>
+        </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.red,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,width:"100%",justifyContent:"center",animation:"repairGlow 1.8s ease-in-out infinite"}}>⚠️ {failedTests.length} placa(s) ruim(ns) no teste</button>
+    </>}
     <HashSearchBox ctx={ctx}/>
     {saved==="repair"&&<Alrt type="ok">✓ Conserto registrado! HASH vai para fila de teste.</Alrt>}
     {saved==="already_good"&&<Alrt type="ok">✅ Registrada como já estava boa! Vai para fila de teste.</Alrt>}
@@ -2799,7 +2840,7 @@ function TestePage({ctx}){
     {availItems.length>0&&<>
       <style>{`@keyframes pedidoGlow{0%,100%{box-shadow:0 0 6px 1px ${C.accent}77}50%{box-shadow:0 0 14px 5px ${C.accent}cc}}`}</style>
       <button onClick={()=>setModal(<Modal title="📦 Pedidos em Aberto" onClose={()=>setModal(null)}>
-          {[...new Set(availItems.map(a=>a.order._id))].map(oid=>availItems.find(a=>a.order._id===oid).order).map(o=><OrderCard key={o._id} ctx={ctx} order={o}/>)}
+          {[...new Set(availItems.map(a=>a.order._id))].map(oid=>availItems.find(a=>a.order._id===oid).order).map(o=><OrderCard key={o._id} ctx={ctx} order={o} hideClient/>)}
         </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.accent,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,animation:"pedidoGlow 1.8s ease-in-out infinite"}}>📋 {availItems.length} item(ns) de pedido em aberto</button>
     </>}
     {availableHashQueue.length>0&&<>
@@ -2844,15 +2885,16 @@ function TestePage({ctx}){
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
       <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>SN DA MÁQUINA {session?"(sessão ativa)":"(nova)"}</div>
+
       <div style={{display:"flex",gap:8}}>
-        <input value={macInput} onChange={e=>setMacInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&loadMachine(macInput)} placeholder="Bipe ou escaneie o SN e Enter..." list="mac-list" style={{...inp,flex:1}}/>
+        <input value={macInput} onChange={e=>setMacInput(e.target.value.toUpperCase())} onKeyDown={e=>{if(e.key==="Enter")e.preventDefault();}} placeholder="Bipe ou digite o SN..." list="mac-list" style={{...inp,flex:1}}/>
         <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
         <Btn v="b" onClick={()=>ctx.setModal(<Modal title="Gerar SN" onClose={()=>ctx.setModal(null)}><GenerateSNModal ctx={ctx} onClose={(newSN)=>{ctx.setModal(null);if(typeof newSN==='string'&&newSN){setMacInput(newSN);loadMachine(newSN)}}}/></Modal>)} style={{height:43,marginBottom:0,padding:"0 10px"}}>+ SN</Btn>
       </div>
-      {/* Fixo — funciona com qualquer máquina, nova ou já cadastrada, em
-          qualquer status. Muda o status pra PREPARANDO na hora (não precisa
-          já estar BOA). */}
-      {!session&&<Btn v="y" onClick={prepareForShipment} style={{width:"100%",marginTop:8,justifyContent:"center"}}>📦 Preparar pra Envio</Btn>}
+      {!session&&<div style={{display:"flex",gap:8,marginTop:8}}>
+        <Btn onClick={()=>loadMachine(macInput)} style={{flex:1,justifyContent:"center"}}>🔍 Carregar Máquina</Btn>
+        <Btn v="y" onClick={prepareForShipment} style={{flex:1,justifyContent:"center"}}>📦 Preparar pra Envio</Btn>
+      </div>}
       <datalist id="mac-list">{data.machines.map(m=><option key={m._id} value={m.sn||""}>{m.model}</option>)}</datalist>
       {session&&<div style={{marginTop:8}}>
         <div style={{fontWeight:800,color:C.accent,marginBottom:6}}>{session.machineSN}</div>
@@ -4674,7 +4716,7 @@ function OrdersPage({ctx}){
   </div>;
 }
 
-function OrderCard({ctx,order:o}){
+function OrderCard({ctx,order:o,hideClient}){
   const{data,mutate,setModal,user}=ctx;
   const complete=(o.items||[]).every(it=>(it.fulfilled||0)>=it.qty);
   // O botão de Cancelar/Apagar só pode aparecer pra quem tem acesso à aba
@@ -4718,7 +4760,7 @@ function OrderCard({ctx,order:o}){
     <div style={{display:"flex",gap:8,marginTop:10}}>
       <Btn v="s" onClick={copyOrderReport} style={{flex:1,fontSize:12}}>📋 Relatório</Btn>
       <Btn v="b" onClick={()=>setModal(<Modal title={`🕓 Histórico — Pedido #${o.number}`} onClose={()=>setModal(null)}><OrderHistory ctx={ctx} order={o}/></Modal>)} style={{flex:1,fontSize:12}}>🕓 Histórico</Btn>
-      {client&&<Btn v="p" onClick={()=>setModal(<Modal title={"👤 "+client.name} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={client}/></Modal>)} style={{flex:1,fontSize:12}}>👤 Cliente</Btn>}
+      {client&&!hideClient&&<Btn v="p" onClick={()=>setModal(<Modal title={"👤 "+client.name} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={client}/></Modal>)} style={{flex:1,fontSize:12}}>👤 Cliente</Btn>}
     </div>
     {canManage&&<Btn v="d" onClick={cancelOrder} style={{width:"100%",marginTop:8,fontSize:12}}>🗑 Cancelar Pedido</Btn>}
   </Card>;
