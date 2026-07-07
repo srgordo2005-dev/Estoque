@@ -73,6 +73,7 @@ const FIELD_MAP={
   existingId:"existing_id",logPhoto:"log_photo",
   prepShipment:"prep_shipment",prevSituacao:"prev_situacao",
   boardChips:"board_chips",
+  orderRef:"order_ref",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
@@ -270,6 +271,11 @@ const TODAY=()=>{
   const d=new Date();
   return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 };
+// Mesma lógica local-time do TODAY() (nunca toISOString/UTC), só que pro dia seguinte.
+const TOMORROW=()=>{
+  const d=new Date();d.setDate(d.getDate()+1);
+  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
 const fmtDate=d=>d?new Date(d+"T12:00:00").toLocaleDateString("pt-BR"):"—";
 const fmtTS=s=>s?new Date(s).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
 const fmtTime=s=>s?new Date(s).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"";
@@ -367,7 +373,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,onProgress)
   }
   doc.save(`relatorio-${client.name.replace(/[^a-z0-9]/gi,"_")}.pdf`);
 }
-const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Teste de Máquinas"},{key:"machines",label:"Estoque de Máquinas"},{key:"hashes",label:"Estoque de HASHs"},{key:"admin",label:"Admin (acesso total)"}];
+const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Teste de Máquinas"},{key:"machines",label:"Estoque de Máquinas"},{key:"hashes",label:"Estoque de HASHs"},{key:"orders",label:"Pedidos"},{key:"admin",label:"Admin (acesso total)"}];
 
 /* ═══ UI PRIMITIVES ═════════════════════════════════════════════ */
 const DARK_THEME={bg:"#080e17",card:"#0f1923",card2:"#1a2d42",border:"#1a2d42",accent:"#f97316",blue:"#0ea5e9",green:"#16a34a",red:"#dc2626",purple:"#7c3aed",amber:"#d97706",text:"#e2e8f0",muted:"#64748b",subtle:"#94a3b8"};
@@ -761,7 +767,7 @@ class SafeTab extends React.Component{
 
 export default function App(){
   const[user,setUser]=useState(null);
-  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[]});
+  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[],orders:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
   const[theme,setTheme]=useState(()=>localStorage.getItem("hs_theme")||"dark");
   Object.assign(C,theme==="dark"?DARK_THEME:LIGHT_THEME); // muda os valores no MESMO objeto C
@@ -810,9 +816,9 @@ export default function App(){
   const resetMaxCount=(col,newCount)=>{localStorage.setItem("hs_maxcount_"+col,String(newCount))};
 
   // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore
-  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos"};
+  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders"};
   const fetchAllCollections=async(onlyKeys)=>{
-    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments","loadPhotos"];
+    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments","loadPhotos","orders"];
     const cols=onlyKeys?onlyKeys.map(k=>META_TO_COL[k]).filter(Boolean):allCols;
     // Espaça o INÍCIO de cada leitura em 120ms — evita disparar tudo junto
     // de uma vez (rajada), o que ajuda a não estourar limites por minuto
@@ -951,7 +957,7 @@ export default function App(){
   // Supabase não cobra por leitura, não tem problema reler a coleção inteira
   // sempre que algo mudar.
   useEffect(()=>{
-    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",load_photos:"loadPhotos"};
+    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",load_photos:"loadPhotos",orders:"orders"};
     const debounceTimers={};
     const channel=supabase.channel("hashstock-realtime");
     Object.keys(TABLE_TO_META).forEach(table=>{
@@ -1019,6 +1025,7 @@ export default function App(){
     ...(p.hashes||isAdmin?[{id:"hsh",icon:"⚡",label:"HASHs"}]:[]),
     ...(p.repairs?[{id:"conserto",icon:"🔧",label:"Conserto"}]:[]),
     ...(p.testing?[{id:"teste",icon:"🧪",label:"Teste"}]:[]),
+    ...(p.orders||isAdmin?[{id:"pedidos",icon:"📝",label:"Pedidos"}]:[]),
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
     ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
@@ -1044,6 +1051,7 @@ export default function App(){
       {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
       {tab==="conserto"&&p.repairs&&<ConsertaPage ctx={ctx}/>}
       {tab==="teste"&&p.testing&&<TestePage ctx={ctx}/>}
+      {tab==="pedidos"&&(p.orders||isAdmin)&&<SafeTab><OrdersPage ctx={ctx}/></SafeTab>}
       {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
       {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&isAdmin&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&isAdmin&&<ApprovalsPage ctx={ctx}/>}
       {tab==="team"&&isAdmin&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
@@ -2289,11 +2297,22 @@ function TestePage({ctx}){
     await startSession(sn,ex);
   };
 
+  // Itens de pedidos em aberto que ainda têm vaga (fulfilled < qty) —
+  // oferecidos como opção ao clicar "Preparar pra Envio".
+  const availableOrderItems=()=>{
+    const list=[];
+    (data.orders||[]).filter(o=>o.status==="open").forEach(o=>{
+      (o.items||[]).forEach((it,idx)=>{if((it.fulfilled||0)<it.qty)list.push({order:o,item:it,idx})});
+    });
+    return list;
+  };
+
   // Botão fixo — funciona com QUALQUER máquina (nova ou já cadastrada, em
   // qualquer status), diferente do teste normal. Muda o status pra
   // PREPARANDO NA HORA (app e planilha), guardando o status anterior: se o
   // testador cancelar a sessão sem mandar pra revisão, volta pro status de
-  // antes — nunca fica "preso" em PREPARANDO à toa.
+  // antes — nunca fica "preso" em PREPARANDO à toa. Se tiver algum pedido em
+  // aberto com vaga, pergunta antes se é pra vincular a máquina a ele.
   const prepareForShipment=async()=>{
     const sn=macInput.toUpperCase().trim();
     if(!sn){setErr("Digite ou bipe o SN da máquina primeiro.");return}
@@ -2301,6 +2320,30 @@ function TestePage({ctx}){
     if(!await checkSessionConflicts(sn))return;
     const ex=data.machines.find(m=>normSNField(m.sn)===sn);
     const prevSituacao=ex?ex.situacao:"";
+    const avail=availableOrderItems();
+    if(avail.length===0){await applyPrepareShipment(sn,ex,prevSituacao,null);return}
+    setModal(<Modal title="📦 Vincular a um Pedido?" onClose={()=>setModal(null)}>
+      <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essa máquina vai ajudar a completar algum pedido em aberto?</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
+        {avail.map((a,i)=>{
+          // Se essa máquina já está cadastrada com outro modelo, avisa — mas
+          // não bloqueia (o testador decide se quer mesmo assim ou escolhe
+          // outro item/máquina).
+          const mismatch=ex&&ex.model&&ex.model!==a.item.model;
+          return<div key={i}>
+            <Btn v="b" onClick={async()=>{setModal(null);await applyPrepareShipment(sn,ex,prevSituacao,a)}} style={{justifyContent:"space-between",width:"100%"}}>
+              <span>📋 #{a.order.number} — {a.order.clientName}</span>
+              <span>{a.item.model}{a.item.th?` ${a.item.th}TH`:""} ({a.item.fulfilled||0}/{a.item.qty})</span>
+            </Btn>
+            {mismatch&&<div style={{color:C.amber,fontSize:11,marginTop:4}}>⚠️ Essa máquina já está cadastrada como <b>{ex.model}</b> (o pedido pede {a.item.model})</div>}
+          </div>;
+        })}
+      </div>
+      <Btn v="s" onClick={async()=>{setModal(null);await applyPrepareShipment(sn,ex,prevSituacao,null)}} style={{width:"100%"}}>Nenhum pedido (fluxo padrão)</Btn>
+    </Modal>);
+  };
+
+  const applyPrepareShipment=async(sn,ex,prevSituacao,orderChoice)=>{
     if(ex){
       const u={...ex,situacao:"PREPARANDO",...audit(user)};
       mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));
@@ -2308,21 +2351,36 @@ function TestePage({ctx}){
       await markChanged("machines");
       syncSheet(webhookUrl,"updateMachine",{sn:ex.sn,field:"situacao",to:"PREPARANDO",employeeName:user.name,employeeCode:user.code});
     }
-    await startSession(sn,ex,true,prevSituacao);
+    let orderRef=null;
+    if(orderChoice){
+      const{order,item,idx}=orderChoice;
+      // Reserva a vaga na hora — se cancelar a sessão (ou o Admin reprovar),
+      // isso volta a subir.
+      const newItems=order.items.map((it,i)=>i===idx?{...it,fulfilled:(it.fulfilled||0)+1}:it);
+      const u={...order,items:newItems};
+      mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
+      await fbSet("orders",order._id,u);await markChanged("orders");
+      orderRef={orderId:order._id,orderNumber:order.number,itemIndex:idx,clientId:order.clientId,clientName:order.clientName,model:item.model,th:item.th};
+    }
+    await startSession(sn,ex,true,prevSituacao,orderRef);
   };
 
   // "Preparar pra Envio" abre uma sessão igualzinha a um teste normal (slots,
   // componentes, foto obrigatória) — só marca prepShipment pra, quando o
   // Admin aprovar lá na Revisão, o status PERMANECER PREPARANDO (em vez de
   // virar BOA). Continua indo pra fila de espera, exatamente como um teste comum.
-  const startSession=async(sn,ex,prepShipment,prevSituacao)=>{
+  // Se a máquina já existe (ex), o modelo/TH dela sempre vencem — nunca
+  // sobrescreve silenciosamente com o do pedido (só avisa, no modal de
+  // escolha, quando são diferentes). O modelo do pedido só serve de padrão
+  // pra máquina NOVA ainda não cadastrada.
+  const startSession=async(sn,ex,prepShipment,prevSituacao,orderRef)=>{
     const id=uid();
-    const s={_id:id,employeeId:user._id,machineSN:sn,model:ex?.model||models[0]?.m||"M30S",th:ex?.th||0,
+    const s={_id:id,employeeId:user._id,machineSN:sn,model:ex?.model||orderRef?.model||models[0]?.m||"M30S",th:ex?.th||orderRef?.th||0,
       slots:[
         {hashSN:ex?.hashSN0||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN1||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN2||"",status:"",photoKey:null}
-      ],controladora:"",fonte:"",fans:"",photoKey:null,adminNotes:[],prepShipment:!!prepShipment,prevSituacao:prevSituacao||"",updatedAt:stamp()};
+      ],controladora:"",fonte:"",fans:"",photoKey:null,adminNotes:[],prepShipment:!!prepShipment,prevSituacao:prevSituacao||"",orderRef:orderRef||null,updatedAt:stamp()};
     await saveSession(s);setActiveId(id);
   };
 
@@ -2344,6 +2402,17 @@ function TestePage({ctx}){
         await fbSet("machines",ex._id,u);
         await markChanged("machines");
         syncSheet(webhookUrl,"updateMachine",{sn:ex.sn,field:"situacao",to:sess.prevSituacao,employeeName:user.name,employeeCode:user.code});
+      }
+    }
+    // Se estava vinculada a um pedido, devolve a vaga (fulfilled--) — essa
+    // máquina não vai mais contar pra esse item, já que a sessão foi cancelada.
+    if(sess?.orderRef){
+      const order=data.orders.find(o=>o._id===sess.orderRef.orderId);
+      if(order){
+        const newItems=order.items.map((it,i)=>i===sess.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
+        const u={...order,items:newItems};
+        mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
+        await fbSet("orders",order._id,u);await markChanged("orders");
       }
     }
     await removeSessionLocal(id);
@@ -2428,10 +2497,10 @@ function TestePage({ctx}){
       slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
       slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
       controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
-      prepShipment:!!sess.prepShipment,
+      prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,
       newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
     await fbSet("tests",id,rec);mutate("tests",t=>[...t,{...rec,_id:id}]);
-    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
+    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
     await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
     const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
     // Preparar pra Envio já deixou a máquina em PREPARANDO (e já sincronizou
@@ -2455,7 +2524,14 @@ function TestePage({ctx}){
   const templateHash=existingHashesInSession.length===1?existingHashesInSession[0]:null;
   const needsChars=unknownSlots.length>0&&!session?.newHashChars;
 
+  const availItems=availableOrderItems();
   return<div>
+    {availItems.length>0&&<>
+      <style>{`@keyframes pedidoGlow{0%,100%{box-shadow:0 0 6px 1px ${C.accent}77}50%{box-shadow:0 0 14px 5px ${C.accent}cc}}`}</style>
+      <button onClick={()=>setModal(<Modal title="📦 Pedidos em Aberto" onClose={()=>setModal(null)}>
+          {[...new Set(availItems.map(a=>a.order._id))].map(oid=>availItems.find(a=>a.order._id===oid).order).map(o=><OrderCard key={o._id} ctx={ctx} order={o}/>)}
+        </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.accent,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,animation:"pedidoGlow 1.8s ease-in-out infinite"}}>📋 {availItems.length} item(ns) de pedido em aberto</button>
+    </>}
     <HashSearchBox ctx={ctx}/>
     {scanning&&<BarcodeScanner onScan={v=>{setMacInput(v.toUpperCase());setScanning(false);loadMachine(v)}} onClose={()=>setScanning(false)}/>}
     {done&&<Alrt type="ok">✓ Enviado para revisão do admin!</Alrt>}
@@ -2466,14 +2542,19 @@ function TestePage({ctx}){
       <SL>🖥️ MÁQUINAS EM TESTE ({sessions.length})</SL>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         {sessions.map(s=><button key={s._id} onClick={()=>{setActiveId(s._id);setMacInput(s.machineSN)}} style={{background:s._id===activeId?C.accent:(s.rejected?"#3a0a0a":C.card),color:"#fff",border:`1px solid ${s._id===activeId?C.accent:(s.rejected?C.red:C.border)}`,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          {s.rejected?"❌":s.prepShipment?"📦":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
+          {s.rejected?"❌":s.orderRef?"📋":s.prepShipment?"📦":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
           <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900}}>✕</span>
         </button>)}
       </div>
     </div>}
 
     {session?.rejected&&<Alrt type="err">{(session.adminNotes||[]).join(" · ")||"❌ Essa máquina foi reprovada na revisão. Corrija e envie de novo."}</Alrt>}
-    {session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — status já está PREPARANDO (planilha atualizada). Quando o Admin aprovar, permanece PREPARANDO. Se cancelar essa sessão, volta pro status de antes.</Alrt>}
+    {/* Um ou outro — nunca os dois juntos: vinculada a pedido tem seu próprio
+        aviso (com o que acontece ao aprovar), fluxo padrão de Preparar pra
+        Envio mostra o genérico. */}
+    {session?.orderRef&&!session.rejected?
+      <Alrt type="ok">📋 Vinculada ao Pedido #{session.orderRef.orderNumber} — {session.orderRef.clientName}. Status já está PREPARANDO. Quando o Admin aprovar, a máquina vai direto pra esse cliente (SAIDA). Se cancelar essa sessão, volta pro status de antes e devolve a vaga do pedido.</Alrt>
+      :session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — status já está PREPARANDO (planilha atualizada). Quando o Admin aprovar, permanece PREPARANDO. Se cancelar essa sessão, volta pro status de antes.</Alrt>}
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
@@ -2851,8 +2932,9 @@ function ApprovalsPage({ctx}){
     const tUpd={...test,status:"approved",overallResult:"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
     // "Preparar pra Envio" PERMANECE PREPARANDO quando aprovado — só um
-    // teste comum volta a virar BOA.
-    const targetSituacao=appr.prepShipment?"PREPARANDO":"BOA";
+    // teste comum volta a virar BOA. Vinculada a um Pedido, já vai de vez
+    // pro cliente (SAIDA) — igual o envio manual "Enviar pro Cliente".
+    const targetSituacao=appr.orderRef?"SAIDA":(appr.prepShipment?"PREPARANDO":"BOA");
     if(exMac){
       // Quando o teste dá "TUDO BOA", TODOS os parâmetros ficam ON — mesmo os
       // slots sem SN preenchido (a máquina toda foi aprovada como funcionando).
@@ -2862,7 +2944,8 @@ function ApprovalsPage({ctx}){
       // "adicionada" (não é tocada aqui mesmo), nem sincroniza data nenhuma
       // pra planilha; o dia desse teste já fica no histórico da máquina.
       const photoPatch=appr.prepShipment&&test.testPhoto?{photoKey:test.testPhoto}:{};
-      const mUpd={...exMac,situacao:targetSituacao,model:test.model||exMac.model,th:test.th||exMac.th,hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON",hashSN0:test.slot0HashSN||exMac.hashSN0||"",hashSN1:test.slot1HashSN||exMac.hashSN1||"",hashSN2:test.slot2HashSN||exMac.hashSN2||"",...photoPatch,...audit(user)};
+      const destinoPatch=appr.orderRef?{destino:appr.orderRef.clientName}:{};
+      const mUpd={...exMac,situacao:targetSituacao,model:test.model||exMac.model,th:test.th||exMac.th,hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON",hashSN0:test.slot0HashSN||exMac.hashSN0||"",hashSN1:test.slot1HashSN||exMac.hashSN1||"",hashSN2:test.slot2HashSN||exMac.hashSN2||"",...photoPatch,...destinoPatch,...audit(user)};
       await fbSet("machines",exMac._id,mUpd);mutate("machines",m=>m.map(x=>x._id===exMac._id?mUpd:x));
       syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"situacao",to:targetSituacao,employeeName:user.name,employeeCode:user.code});
       if(test.model&&test.model!==exMac.model)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"model",to:test.model,employeeName:user.name,employeeCode:user.code});
@@ -2881,7 +2964,7 @@ function ApprovalsPage({ctx}){
       const mNew={sn:appr.machineSN,ref:appr.employeeCode||"",model:test.model,th:test.th||0,type:"complete",situacao:targetSituacao,
         hash0:"ON",hash1:"ON",hash2:"ON",
         hashSN0:test.slot0HashSN||"",hashSN1:test.slot1HashSN||"",hashSN2:test.slot2HashSN||"",
-        controladora:"ON",fonte:"ON",fans:"ON",location:"",destino:"",...audit(user),addedAt:TODAY()};
+        controladora:"ON",fonte:"ON",fans:"ON",location:"",destino:appr.orderRef?appr.orderRef.clientName:"",...audit(user),addedAt:TODAY()};
       const saveResult=await fbSet("machines",mid,mNew);
       if(!saveResult.ok){
         alert(`⚠️ ERRO: não consegui criar a máquina ${mNew.sn} no banco de dados!\n\nErro: ${saveResult.error}\n\nA HASH e a planilha podem ter sido atualizadas mesmo assim — confira manualmente.`);
@@ -2936,6 +3019,37 @@ function ApprovalsPage({ctx}){
         }
       }
     }
+    // Vinculada a um Pedido: a máquina já sai de vez pro cliente do pedido —
+    // mesma lógica do envio manual "Enviar pro Cliente" (BulkMachineAction,
+    // ação "client"): HASHs dela viram SAIDA e o SN entra na lista do
+    // cliente. Roda depois do "NA MAQUINA" de cima, como um passo a mais.
+    if(appr.orderRef){
+      const clientName=appr.orderRef.clientName;
+      for(const sn of slotSNs.filter(Boolean)){
+        const h=newH.find(x=>x.sn===sn);
+        if(h){
+          const uh={...h,status:"SAIDA",location:"Pedido #"+appr.orderRef.orderNumber+": "+clientName,...audit(user)};
+          newH=newH.map(x=>x._id===h._id?uh:x);await fbSet("hashes",h._id,uh);
+          syncSheet(webhookUrl,"hashSaida",{sn:uh.sn,machineSN:appr.machineSN,employeeName:user.name,employeeCode:user.code});
+        }
+      }
+      syncSheet(webhookUrl,"machineToClient",{sn:appr.machineSN,destino:clientName,employeeName:user.name,employeeCode:user.code});
+      const cl=data.clients.find(c=>c._id===appr.orderRef.clientId);
+      if(cl){
+        const ns=[...new Set([...(cl.machinesSN||[]),appr.machineSN])];
+        const updc={...cl,machinesSN:ns,...audit(user)};
+        mutate("clients",arr=>arr.map(x=>x._id===cl._id?updc:x));await fbSet("clients",cl._id,updc);
+        await markChanged("clients");
+      }
+      // Guarda qual máquina cumpriu qual item — pra aparecer no histórico do
+      // pedido (com foto), já que o "fulfilled" sozinho só conta números.
+      const order=data.orders.find(o=>o._id===appr.orderRef.orderId);
+      if(order){
+        const fulfillment={itemIndex:appr.orderRef.itemIndex,machineSN:appr.machineSN,model:test.model,th:test.th,testPhoto:test.testPhoto||"",approvedAt:stamp(),approvedByName:user.name};
+        const uOrd={...order,fulfillments:[...(order.fulfillments||[]),fulfillment]};
+        mutate("orders",arr=>arr.map(x=>x._id===order._id?uOrd:x));await fbSet("orders",order._id,uOrd);await markChanged("orders");
+      }
+    }
     mutate("hashes",()=>newH);
     await fbSet("pendingApprovals",appr._id,{...appr,status:"approved",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"approved"}:x));
     syncSheet(webhookUrl,"test",{...test,overallResult:"good",employeeCode:appr.employeeCode,employeeName:appr.employeeName});
@@ -2946,6 +3060,19 @@ function ApprovalsPage({ctx}){
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
     if(exMac){const u={...exMac,situacao:"REVISAR",adminNote:n||"Admin solicitou revisão",_reviewedByName:user.name,_reviewedAt:stamp(),...audit(user)};await fbSet("machines",exMac._id,u);mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x))}
     await fbSet("pendingApprovals",appr._id,{...appr,status:"rejected",adminNote:n,...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"rejected"}:x));
+    // Se estava vinculada a um Pedido, devolve a vaga (fulfilled--) — a
+    // sessão que volta pro testador NÃO carrega mais o vínculo (ele escolhe
+    // de novo manualmente se quiser reenviar pro mesmo pedido), pra nunca
+    // descontar duas vezes o mesmo item por engano.
+    if(appr.orderRef){
+      const order=data.orders.find(o=>o._id===appr.orderRef.orderId);
+      if(order){
+        const newItems=order.items.map((it,i)=>i===appr.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
+        const u={...order,items:newItems};
+        mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
+        await fbSet("orders",order._id,u);await markChanged("orders");
+      }
+    }
     // Devolve pro tester original como sessão REPROVADA — ele corrige e reenvia.
     // A planilha só é atualizada quando a revisão finalmente aprovar de verdade.
     const test=data.tests.find(t=>t._id===appr.testId);
@@ -2961,7 +3088,7 @@ function ApprovalsPage({ctx}){
         ],controladora:test.controladora||"",fonte:test.fonte||"",fans:test.fans||"",photoKey:test.testPhoto||null,
         newHashChars:test.newHashModel?{model:test.newHashModel,material:test.newHashMaterial||"",chips:test.newHashChips||""}:null,
         adminNotes:[`❌ REPROVADA pelo Admin ${user.name}: ${n||"sem observação"}`],
-        prepShipment:!!test.prepShipment,
+        prepShipment:!!test.prepShipment,orderRef:null,
         rejected:true,updatedAt:stamp()};
       await fbSet("sessions",sid,s);
     }
@@ -2999,8 +3126,8 @@ function ApprovalsPage({ctx}){
       <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${pending.length} pendentes?`))return;for(const a of pending)await reject(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
     </div>}
     {pending.length===0&&pendingHashBad.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>✅</div><div>Nenhuma revisão pendente</div></div>
-      :pending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={appr.prepShipment?C.amber:C.blue}>
-        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>{appr.prepShipment?"📦":"🖥️"} {appr.machineSN||"SEM SN"} {appr.prepShipment&&<Tag color={C.amber} small>Preparação p/ Envio</Tag>}</div>
+      :pending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={appr.orderRef?C.purple:appr.prepShipment?C.amber:C.blue}>
+        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>{appr.orderRef?"📋":appr.prepShipment?"📦":"🖥️"} {appr.machineSN||"SEM SN"} {appr.orderRef?<Tag color={C.purple} small>Pedido #{appr.orderRef.orderNumber} — {appr.orderRef.clientName}</Tag>:appr.prepShipment&&<Tag color={C.amber} small>Preparação p/ Envio</Tag>}</div>
         <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{appr.model} · {appr.th}TH · 👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
         {test&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>{[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].map((sn,i)=>sn&&<span key={i} style={{background:"#0c1a2e",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",fontSize:10,color:C.blue}}>S{i}: {sn}</span>)}</div>}
         {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginBottom:10,maxHeight:150}}/>}
@@ -3010,7 +3137,7 @@ function ApprovalsPage({ctx}){
           <Btn v="b" onClick={()=>setModal(<Modal title={`📋 ${appr.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={appr}/></Modal>)} style={{flex:1}}>📋 Ver mais</Btn>
         </div>
         <div style={{display:"flex",gap:8,marginTop:8}}>
-          <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":appr.prepShipment?"✓ Aprovar → PREPARANDO":"✓ Aprovar → BOA"}</Btn></div>
+          <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":appr.orderRef?"✓ Aprovar → Enviar pro Cliente":appr.prepShipment?"✓ Aprovar → PREPARANDO":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
     {data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>{user.code==="019"&&<button onClick={async()=>{if(!confirm("Apagar essa revisão do histórico? Não dá pra desfazer."))return;await fbDel("pendingApprovals",a._id);mutate("approvals",arr=>arr.filter(x=>x._id!==a._id));await markChanged("approvals")}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></div>)}</>}
   </div>;
@@ -4123,6 +4250,161 @@ function AddClientForm({ctx,onClose}){
   const[name,setName]=useState(""),[phone,setPhone]=useState(""),[notes,setNotes]=useState("");
   const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),phone,notes,machinesSN:[],...audit(user),createdAt:TODAY()};await fbSet("clients",id,d);mutate("clients",c=>[...c,{...d,_id:id}]);await markChanged("clients");onClose()};
   return<div><Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: João Silva" autoFocus/><Inp label="Telefone" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(47) 99999-9999"/><Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Endereço, empresa..."/><div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div></div>;
+}
+
+/* ═══ PEDIDOS ═══════════════════════════════════════════════════
+   Um pedido junta vários itens (modelo+TH+quantidade) pro mesmo cliente.
+   Vincular uma máquina de teste a um item (via "Preparar pra Envio" na aba
+   Teste) reserva uma unidade dele (fulfilled++); cancelar a sessão ou o Admin
+   reprovar devolve a vaga (fulfilled--). Aprovar manda a máquina pro cliente
+   do pedido de vez (igual o fluxo manual de "Enviar pro Cliente").
+*/
+function OrdersPage({ctx}){
+  const{data,setModal}=ctx;
+  const orders=(data.orders||[]).filter(o=>o.status!=="cancelled").slice().sort((a,b)=>(b.number||0)-(a.number||0));
+  const openAdd=()=>setModal(<Modal title="📝 Novo Pedido" onClose={()=>setModal(null)}><AddOrderForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+  return<div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div><div style={{fontWeight:900,fontSize:18}}>Pedidos</div><div style={{color:C.muted,fontSize:12}}>{orders.length} pedido(s)</div></div>
+      <Btn onClick={openAdd}>+ Novo Pedido</Btn>
+    </div>
+    {orders.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>📝</div><div>Nenhum pedido ainda</div></div>
+      :orders.map(o=><OrderCard key={o._id} ctx={ctx} order={o}/>)}
+  </div>;
+}
+
+function OrderCard({ctx,order:o}){
+  const{data,mutate,setModal,user}=ctx;
+  const complete=(o.items||[]).every(it=>(it.fulfilled||0)>=it.qty);
+  // O botão de Cancelar/Apagar só pode aparecer pra quem tem acesso à aba
+  // Pedidos (ou Admin) — esse card também é reaproveitado no popup rápido da
+  // aba Teste, que qualquer testador vê, e lá ele NÃO pode cancelar pedido.
+  // Depois que o pedido fica COMPLETO (todas as máquinas já aprovadas), só o
+  // admin 019 pode cancelar/apagar — ninguém mais mexe num pedido pronto.
+  const canManage=complete?user.code==="019":!!(user.permissions?.admin||user.permissions?.orders);
+  const client=data.clients.find(c=>c._id===o.clientId);
+  const cancelOrder=async()=>{
+    if(!confirm(`Cancelar o Pedido #${o.number}? Não dá pra desfazer.`))return;
+    const u={...o,status:"cancelled",...audit(user)};
+    mutate("orders",arr=>arr.map(x=>x._id===o._id?u:x));await fbSet("orders",o._id,u);await markChanged("orders");
+  };
+  const copyOrderReport=()=>{
+    const lines=[`📋 Pedido #${o.number} — ${o.clientName}`,`📅 Data: ${fmtDate(o.date)}`,`👷 Feito por: ${o.employeeName}`,``,`Itens:`];
+    (o.items||[]).forEach(it=>lines.push(`• ${it.model}${it.th?" "+it.th+"TH":""} — ${it.fulfilled||0}/${it.qty}${(it.fulfilled||0)>=it.qty?" ✅":""}`));
+    const txt=lines.join("\n");
+    navigator.clipboard.writeText(txt).then(()=>alert("✓ Relatório copiado! Cole no WhatsApp.")).catch(()=>alert(txt));
+  };
+  return<Card accent={complete?C.green:C.accent} style={{marginBottom:10}}>
+    <div style={{fontWeight:800,fontSize:15}}>📋 Pedido #{o.number} {complete&&<Tag color={C.green} small>COMPLETO</Tag>}</div>
+    <div style={{color:C.muted,fontSize:12,marginTop:2}}>👤 {o.clientName} · 📅 {fmtDate(o.date)}</div>
+    <By by={o._byName} at={o._at}/>
+    <div style={{marginTop:8}}>
+      {(o.items||[]).map((it,i)=>{
+        const done=(it.fulfilled||0)>=it.qty;
+        const machinesForItem=(o.fulfillments||[]).filter(f=>f.itemIndex===i);
+        return<div key={i} style={{padding:"4px 0",borderBottom:"1px solid "+C.border,fontSize:13}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>{it.model}{it.th?` ${it.th}TH`:""}</span>
+            <Tag color={done?C.green:C.amber} small>{it.fulfilled||0}/{it.qty}{done?" ✅":""}</Tag>
+          </div>
+          {machinesForItem.length>0&&<div style={{color:C.muted,fontSize:10,marginTop:2}}>🖥️ {machinesForItem.map(f=>f.machineSN).join(", ")}</div>}
+        </div>;
+      })}
+    </div>
+    <div style={{display:"flex",gap:8,marginTop:10}}>
+      <Btn v="s" onClick={copyOrderReport} style={{flex:1,fontSize:12}}>📋 Relatório</Btn>
+      <Btn v="b" onClick={()=>setModal(<Modal title={`🕓 Histórico — Pedido #${o.number}`} onClose={()=>setModal(null)}><OrderHistory ctx={ctx} order={o}/></Modal>)} style={{flex:1,fontSize:12}}>🕓 Histórico</Btn>
+      {client&&<Btn v="p" onClick={()=>setModal(<Modal title={"👤 "+client.name} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={client}/></Modal>)} style={{flex:1,fontSize:12}}>👤 Cliente</Btn>}
+    </div>
+    {canManage&&<Btn v="d" onClick={cancelOrder} style={{width:"100%",marginTop:8,fontSize:12}}>🗑 Cancelar Pedido</Btn>}
+  </Card>;
+}
+
+// Lista as máquinas já aprovadas pra esse pedido (uma por vez, conforme o
+// Admin foi aprovando na Revisão), com foto do teste e quem aprovou.
+function OrderHistory({ctx,order:o}){
+  const{data,setModal}=ctx;
+  const fulfillments=(o.fulfillments||[]).slice().sort((a,b)=>(b.approvedAt||"").localeCompare(a.approvedAt||""));
+  if(fulfillments.length===0)return<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:16}}>Nenhuma máquina aprovada ainda pra esse pedido.</div>;
+  return<div>
+    {fulfillments.map((f,i)=>{
+      const item=(o.items||[])[f.itemIndex];
+      const m=data.machines.find(x=>x.sn===f.machineSN);
+      return<Card key={i} style={{marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div style={{fontWeight:800,fontSize:13,color:C.accent}}>🖥️ {f.machineSN} · {f.model}{f.th?` ${f.th}TH`:""}</div>
+          {m&&<button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>}
+        </div>
+        {item&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>Item pedido: {item.model}{item.th?` ${item.th}TH`:""}</div>}
+        <div style={{fontSize:11,color:C.muted,marginTop:2}}>✅ Aprovado por {f.approvedByName} · {fmtTS(f.approvedAt)}</div>
+        {m&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>
+          {[m.hashSN0,m.hashSN1,m.hashSN2].filter(Boolean).map((sn,j)=>{const h=data.hashes.find(x=>x.sn===sn);return<span key={j} style={{background:C.card2,borderRadius:6,padding:"2px 8px",fontSize:10}}>⚡ {sn} {h&&<HP s={h.status}/>}</span>})}
+        </div>}
+        {(f.testPhoto||m?.photoKey)&&<PhotoView photoKey={f.testPhoto||m?.photoKey} style={{marginTop:8,maxHeight:140}}/>}
+      </Card>;
+    })}
+  </div>;
+}
+
+function AddOrderForm({ctx,onClose}){
+  const{data,mutate,user,allModels,gTH,setModal}=ctx;const models=allModels();
+  const[clientId,setClientId]=useState("");
+  const[date,setDate]=useState(TODAY());
+  const[items,setItems]=useState([{model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),qty:1}]);
+  // Se o usuário criar um cliente novo pelo botão "+ Novo" (modal aninhado),
+  // seleciona ele sozinho assim que a lista de clientes crescer.
+  const prevClientsCountRef=useRef(data.clients.length);
+  useEffect(()=>{
+    if(data.clients.length>prevClientsCountRef.current){
+      const newest=data.clients[data.clients.length-1];
+      setClientId(newest._id);
+    }
+    prevClientsCountRef.current=data.clients.length;
+  },[data.clients.length]);
+  const setItem=(i,k,v)=>setItems(arr=>arr.map((it,idx)=>idx===i?{...it,[k]:v}:it));
+  const addItem=()=>setItems(arr=>[...arr,{model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),qty:1}]);
+  const removeItem=i=>setItems(arr=>arr.filter((_,idx)=>idx!==i));
+  const openNewClient=()=>setModal(<Modal title="Novo Cliente" onClose={()=>setModal(null)}><AddClientForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+  const client=data.clients.find(c=>c._id===clientId);
+  const valid=clientId&&items.length>0&&items.every(it=>it.model&&Number(it.qty)>0);
+  const save=async()=>{
+    if(!valid)return;
+    const id=uid();
+    const number=Math.max(0,...(data.orders||[]).map(o=>o.number||0))+1;
+    const d={number,clientId,clientName:client.name,date,employeeId:user._id,employeeName:user.name,employeeCode:user.code,
+      items:items.map(it=>({model:it.model,th:Number(it.th)||0,qty:Number(it.qty),fulfilled:0})),
+      status:"open",...audit(user),createdAt:TODAY()};
+    await fbSet("orders",id,d);mutate("orders",arr=>[...arr,{...d,_id:id}]);await markChanged("orders");
+    onClose();
+  };
+  return<div>
+    <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+      <div style={{flex:1}}>
+        <Sel label="CLIENTE" value={clientId} onChange={e=>setClientId(e.target.value)}>
+          <option value="">Selecionar...</option>
+          {data.clients.map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
+        </Sel>
+      </div>
+      <Btn v="b" onClick={openNewClient} style={{marginBottom:12}}>+ Novo</Btn>
+    </div>
+    <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>DATA</div>
+    <div style={{display:"flex",gap:8,marginBottom:8}}>
+      <Btn v={date===TODAY()?"g":"s"} onClick={()=>setDate(TODAY())} style={{flex:1,fontSize:12}}>Hoje</Btn>
+      <Btn v={date===TOMORROW()?"g":"s"} onClick={()=>setDate(TOMORROW())} style={{flex:1,fontSize:12}}>Amanhã</Btn>
+    </div>
+    <DateInp value={date} onChange={e=>setDate(e.target.value)}/>
+    <SL mt={8}>ITENS DO PEDIDO</SL>
+    {items.map((it,i)=><div key={i} style={{background:C.card2,borderRadius:10,padding:10,marginBottom:8}}>
+      <div style={{display:"flex",gap:8}}>
+        <div style={{flex:2}}><Sel label="MODELO" value={it.model} onChange={e=>{setItem(i,"model",e.target.value);setItem(i,"th",gTH(e.target.value))}} style={{marginBottom:8}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div>
+        <Inp label="T/H" type="number" value={it.th} onChange={e=>setItem(i,"th",e.target.value)} style={{width:70}}/>
+        <Inp label="QTD" type="number" value={it.qty} onChange={e=>setItem(i,"qty",e.target.value)} style={{width:60}}/>
+      </div>
+      {items.length>1&&<button onClick={()=>removeItem(i)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>✕ Remover item</button>}
+    </div>)}
+    <Btn v="s" onClick={addItem} style={{width:"100%",marginBottom:14}}>+ Adicionar Item</Btn>
+    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!valid} style={{flex:1}}>Criar Pedido</Btn></div>
+  </div>;
 }
 // Fotos da carga do envio — pode adicionar VÁRIAS, cada uma soma na lista
 // (não substitui a anterior), sempre com a data de hoje. Serve pra registrar
