@@ -74,6 +74,7 @@ const FIELD_MAP={
   prepShipment:"prep_shipment",prevSituacao:"prev_situacao",
   boardChips:"board_chips",
   orderRef:"order_ref",
+  machineBad:"machine_bad",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
@@ -253,13 +254,13 @@ const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{cons
 
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
 const DEF_MODELS=[{m:"E9 Pro",th:3680},{m:"E9 Pro+",th:3880},{m:"KS5",th:21},{m:"KS5L",th:14},{m:"KS3",th:8},{m:"S19JPRO+",th:120},{m:"S19KPRO",th:77},{m:"S21XP",th:270},{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
-const SIT_OPTS=["STOCK","BOA","AGUARD. REVISÃO","REVISAR","ENTRADA OFICINA","LIGADA","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","CASTANHAO"];
+const SIT_OPTS=["STOCK","BOA","AGUARD. REVISÃO","REVISAR","RUIM","ENTRADA OFICINA","LIGADA","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","CASTANHAO"];
 const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","SAIDA","IRREPARAVEL","NA MAQUINA"];
 // Controladora/Fonte/Fans/Hash-slots da máquina: a planilha só aceita esses 3
 // valores (validação travada na coluna). Usar mais opções que isso faz a
 // escrita na planilha ser rejeitada silenciosamente.
 const CTR_OPTS=["ON","OFF","TESTAR"];
-const SIT_C={"STOCK":"#d97706","BOA":"#16a34a","AGUARD. REVISÃO":"#2563eb","REVISAR":"#dc2626","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#dc2626","CASTANHAO":"#92400e"};
+const SIT_C={"STOCK":"#d97706","BOA":"#16a34a","AGUARD. REVISÃO":"#2563eb","REVISAR":"#dc2626","RUIM":"#7f1d1d","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#dc2626","CASTANHAO":"#92400e"};
 const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",SAIDA:"#ea580c",IRREPARAVEL:"#374151","NA MAQUINA":"#0ea5e9"};
 // NUNCA usar toISOString() aqui — ela devolve a data em UTC, não no horário
 // local. Como o Brasil é UTC-3, entre 21h e 23h59 (horário local) o UTC já
@@ -373,7 +374,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,onProgress)
   }
   doc.save(`relatorio-${client.name.replace(/[^a-z0-9]/gi,"_")}.pdf`);
 }
-const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Teste de Máquinas"},{key:"machines",label:"Estoque de Máquinas"},{key:"hashes",label:"Estoque de HASHs"},{key:"orders",label:"Pedidos"},{key:"admin",label:"Admin (acesso total)"}];
+const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Teste de Máquinas"},{key:"machines",label:"Estoque de Máquinas"},{key:"hashes",label:"Estoque de HASHs"},{key:"orders",label:"Pedidos"},{key:"approvals",label:"Revisão"},{key:"team",label:"Equipe"},{key:"clients",label:"Clientes"},{key:"admin",label:"Admin (acesso total)"}];
 
 /* ═══ UI PRIMITIVES ═════════════════════════════════════════════ */
 const DARK_THEME={bg:"#080e17",card:"#0f1923",card2:"#1a2d42",border:"#1a2d42",accent:"#f97316",blue:"#0ea5e9",green:"#16a34a",red:"#dc2626",purple:"#7c3aed",amber:"#d97706",text:"#e2e8f0",muted:"#64748b",subtle:"#94a3b8"};
@@ -1014,6 +1015,9 @@ export default function App(){
   if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
 
   const p=user.permissions||{};const isAdmin=p.admin;const isSuperAdmin=user.code==="019";
+  const canApprove=isAdmin||p.approvals;
+  const canSeeTeam=isAdmin||p.team;
+  const canSeeClients=isAdmin||p.clients;
   const canSeeEmp=id=>isAdmin||(user.allowedEmployees||[]).includes(id);
   const pendingApprs=data.approvals.filter(a=>a.status==="pending");
   const myFdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===user._id);
@@ -1027,7 +1031,7 @@ export default function App(){
     ...(p.testing?[{id:"teste",icon:"🧪",label:"Teste"}]:[]),
     ...(p.orders||isAdmin?[{id:"pedidos",icon:"📝",label:"Pedidos"}]:[]),
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
-    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(isAdmin?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(isAdmin?[{id:"approvals",icon:"✅",label:"Revisão"},{id:"team",icon:"👷",label:"Equipe"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
+    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:960,margin:"0 auto"}}>
@@ -1037,7 +1041,7 @@ export default function App(){
       <div style={{display:"flex",gap:6}}>
         {myFdbs.length>0&&<Tag color={C.red}>⚠️{myFdbs.length}</Tag>}
         {myRevisit.length>0&&<Tag color={C.red}>🔁{myRevisit.length}</Tag>}
-        {isAdmin&&pendingApprs.length>0&&<Tag color={C.blue}>✅{pendingApprs.length}</Tag>}
+        {canApprove&&pendingApprs.length>0&&<Tag color={C.blue}>✅{pendingApprs.length}</Tag>}
         {isSuperAdmin&&dataWarnings.length>0&&<Tag color={C.red} title="Avisos de integridade de dados">🛡️{dataWarnings.length}</Tag>}
       </div>
       <button onClick={toggleTheme} title="Trocar tema" style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:14,marginRight:6}}>{theme==="dark"?"☀️":"🌙"}</button>
@@ -1046,15 +1050,15 @@ export default function App(){
     {isSuperAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
     {isSuperAdmin&&dailyDiff&&<div onClick={()=>{setDailyDiff(null);setModal(<Modal title="🔄 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}} style={{background:"#2a1a0c",borderBottom:`1px solid ${C.amber}`,padding:"8px 16px",fontSize:11,color:C.amber,cursor:"pointer"}}>🔄 Checagem diária: {dailyDiff.total} diferença(s) entre o app e a planilha — toque pra ver e resolver</div>}
     <div style={{padding:"14px 12px 100px"}}>
-      {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
+      {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} canApprove={canApprove} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
       {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
       {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
       {tab==="conserto"&&p.repairs&&<ConsertaPage ctx={ctx}/>}
       {tab==="teste"&&p.testing&&<TestePage ctx={ctx}/>}
       {tab==="pedidos"&&(p.orders||isAdmin)&&<SafeTab><OrdersPage ctx={ctx}/></SafeTab>}
       {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
-      {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&isAdmin&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&isAdmin&&<ApprovalsPage ctx={ctx}/>}
-      {tab==="team"&&isAdmin&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+      {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&canSeeClients&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&canApprove&&<ApprovalsPage ctx={ctx}/>}
+      {tab==="team"&&canSeeTeam&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
       {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
     </div>
     <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:960,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
@@ -1208,13 +1212,15 @@ function AdminTestQueuePeek({data}){
   </div>;
 }
 
-function HomePage({ctx,isAdmin,myFdbs,myRevisit,pendingApprs}){
+function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab}=ctx;const today=TODAY();
-  const toTest=data.hashes.filter(h=>h.status==="TESTAR" && (isAdmin || h.repairedBy === user._id));
+  // Fila de teste é compartilhada — todo mundo que tem acesso ao Teste vê
+  // TODAS as HASHs prontas, não só as que ele mesmo consertou.
+  const toTest=data.hashes.filter(h=>h.status==="TESTAR");
   return<div>
     <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:18}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
-    {isAdmin&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
+    {canApprove&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
     {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
     {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
     {user.permissions?.testing&&!isAdmin&&<div style={{marginBottom:16}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><div style={{fontWeight:800,fontSize:14}}>⏳ Para Testar</div><Tag color={toTest.length>0?C.amber:C.card2}>{toTest.length}</Tag></div>{toTest.slice(0,3).map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{background:C.card,borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontWeight:700,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{fontSize:11,color:C.muted}}>{h.model}{repName?` · 👷 ${repName}`:""}</div></div><HP s={h.status}/></div>})}<Btn v="g" onClick={()=>setTab("teste")} style={{width:"100%",justifyContent:"center",marginTop:8}}>🧪 Iniciar Teste</Btn></div>}
@@ -2253,10 +2259,14 @@ function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH,gChips,setModal}=ctx;const models=allModels();
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
   // Cada sessão é um documento próprio (não fica mais 1 sessão por usuário).
-  const[sessions,setSessions]=useState([]),[activeId,setActiveId]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false),[unlinkPrompt,setUnlinkPrompt]=useState(null);
+  const[sessions,setSessions]=useState([]),[allSessions,setAllSessions]=useState([]),[activeId,setActiveId]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false),[unlinkPrompt,setUnlinkPrompt]=useState(null);
   const slotRefs=useRef([]);
   const recentlyCreated=useRef(new Set());
-  const reloadSessions=useCallback(()=>{fbList("sessions").then(all=>setSessions(all.filter(s=>s.employeeId===user._id)))},[user._id]);
+  // allSessions guarda TODAS as sessões (de todo mundo, não só as minhas) —
+  // usado pra saber quais HASHs da fila de teste já estão sendo testadas
+  // por outro usuário agora (some da fila compartilhada pra todo mundo
+  // assim que alguém vincula, igual reserva de item de Pedido).
+  const reloadSessions=useCallback(()=>{fbList("sessions").then(all=>{setAllSessions(all);setSessions(all.filter(s=>s.employeeId===user._id))})},[user._id]);
   useEffect(()=>{reloadSessions()},[reloadSessions]);
   // Tempo real: se o Admin reprovar um teste (ou qualquer outra sessão mudar),
   // o testador vê na hora, sem precisar recarregar a página.
@@ -2294,7 +2304,10 @@ function TestePage({ctx}){
     if(!await checkSessionConflicts(sn))return;
     const ex=data.machines.find(m=>normSNField(m.sn)===sn);
     if(ex&&ex.situacao==="BOA"&&!window.confirm(`Essa máquina já está marcada como BOA na planilha/estoque.\nQuer mesmo testar de novo?`))return;
-    await startSession(sn,ex);
+    // Guarda a situação de origem (mesmo fora do fluxo Preparar pra Envio) só
+    // pra poder mostrar um aviso fixo durante todo o teste — não é usado
+    // pra reverter nada aqui (isso só acontece com prepShipment).
+    await startSession(sn,ex,false,ex?.situacao||"",null);
   };
 
   // Itens de pedidos em aberto que ainda têm vaga (fulfilled < qty) —
@@ -2450,10 +2463,16 @@ function TestePage({ctx}){
       if(usedHere||usedElsewhere){setErr(`⚠️ SN ${upperSn} já está sendo usado em outra máquina em teste agora — não pode repetir.`);return}
     }
     const existing=upperSn?data.hashes.find(x=>normSNField(x.sn)===upperSn):null;
-    if(existing && existing.status === "TESTAR" && existing.repairedBy && existing.repairedBy !== user._id) {
-      const repEmp = data.employees.find(e=>e._id===existing.repairedBy);
-      if (!window.confirm(`⚠️ Esta HASH está na fila de teste de: ${repEmp?.name||"Outro usuário"}.\nDeseja testá-la mesmo assim?`)) {
-        return;
+    // Só avisa se essa HASH estiver REALMENTE sendo testada agora por outro
+    // usuário (dentro da sessão ativa dele) — antes isso avisava baseado em
+    // quem CONSERTOU a HASH, o que não tem nada a ver com quem está
+    // testando, e disparava sempre que o testador era diferente do técnico.
+    if(existing&&upperSn){
+      const allS=await fbList("sessions");
+      const conflict=allS.find(s=>s.employeeId!==user._id&&s.slots.some(sl=>sl.hashSN&&sl.hashSN.toUpperCase()===upperSn));
+      if(conflict){
+        const emp=data.employees.find(e=>e._id===conflict.employeeId);
+        if(!window.confirm(`⚠️ Essa HASH já está sendo testada agora por: ${emp?.name||"Outro usuário"}.\nDeseja continuar mesmo assim?`))return;
       }
     }
     // A HASH já está instalada em OUTRA máquina, ou já foi vendida pro
@@ -2483,8 +2502,30 @@ function TestePage({ctx}){
     if(!session)return;
     if(!session.photoKey){setErr("Adicione a foto da tela primeiro!");return}
     if(unknownSlots.length>0&&!session.newHashChars){setErr("Defina as características das HASHs novas primeiro!");return}
+    // Slot marcado RUIM mas sem HASH nenhuma nele (a antiga foi removida e
+    // ninguém colocou uma nova pra substituir) — não bloqueia, só avisa e
+    // deixa o testador confirmar que sabe que vai mandar assim mesmo.
+    const emptySlotNums=session.slots.map((s,i)=>s.status==="bad"&&!s.hashSN?i+1:null).filter(Boolean);
+    if(emptySlotNums.length>0&&!window.confirm(`⚠️ Vai mandar pra aprovação sem o SN do Slot ${emptySlotNums.join(", ")} (marcado RUIM e ainda sem substituta).\nContinuar mesmo assim?`))return;
     const newSlots=session.slots.map(s=>({...s,status:s.status==="bad"?"bad":"good"}));
     const s={...session,slots:newSlots,controladora:"ON",fonte:"ON",fans:"ON",updatedAt:stamp()};
+    await saveSession(s);
+    await doSubmit(s);
+  };
+
+  // Máquina que não funciona como deveria (mesmo com HASHs boas, ou nem
+  // ligou) — diferente de marcar só uma HASH RUIM (isso já existe por
+  // slot). Aqui é a máquina inteira. NÃO força nada pra ON: vai pra revisão
+  // exatamente com o que o testador marcou em cada slot/componente (o que
+  // não foi marcado bom fica OFF na aprovação) — e, ao aprovar, o status
+  // final é RUIM em vez de BOA/PREPARANDO.
+  const markMachineBad=async()=>{
+    if(!session)return;
+    if(!session.photoKey){setErr("Adicione a foto da tela primeiro!");return}
+    if(unknownSlots.length>0&&!session.newHashChars){setErr("Defina as características das HASHs novas primeiro!");return}
+    const reason=window.prompt("Por que essa máquina está RUIM? (obrigatório)","");
+    if(!reason||!reason.trim())return;
+    const s={...session,machineBad:true,adminNotes:[...(session.adminNotes||[]),"Máquina marcada RUIM: "+reason.trim()],updatedAt:stamp()};
     await saveSession(s);
     await doSubmit(s);
   };
@@ -2497,18 +2538,34 @@ function TestePage({ctx}){
       slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
       slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
       controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
-      prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,
+      prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,machineBad:!!sess.machineBad,
       newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
     await fbSet("tests",id,rec);mutate("tests",t=>[...t,{...rec,_id:id}]);
-    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
+    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,machineBad:!!sess.machineBad,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
     await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
     const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
     // Preparar pra Envio já deixou a máquina em PREPARANDO (e já sincronizou
     // a planilha) desde que a sessão começou — aqui só garante isso e marca
     // quem testou. Teste comum vai pra AGUARD. REVISÃO (só some quando o
-    // Admin aprovar/reprovar de verdade).
-    const pendingSituacao=sess.prepShipment?"PREPARANDO":"AGUARD. REVISÃO";
+    // Admin aprovar/reprovar de verdade). Se foi marcada RUIM, também fica
+    // AGUARD. REVISÃO até o Admin decidir (nunca continua "PREPARANDO" pra
+    // um pedido/envio com máquina possivelmente quebrada).
+    const pendingSituacao=(sess.prepShipment&&!sess.machineBad)?"PREPARANDO":"AGUARD. REVISÃO";
     if(exMac){const u={...exMac,situacao:pendingSituacao,lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
+    // Máquina Ruim vinculada a um Pedido: a vaga volta na hora, já no envio
+    // pra revisão — não precisa esperar o Admin decidir, já que essa máquina
+    // não vai cumprir o pedido de jeito nenhum. O orderRef continua salvo no
+    // teste/aprovação só pra aparecer no histórico ("era pro pedido tal"),
+    // mas o "fulfilled" do pedido já libera pra outra máquina ser vinculada.
+    if(sess.machineBad&&sess.orderRef){
+      const order=data.orders.find(o=>o._id===sess.orderRef.orderId);
+      if(order){
+        const newItems=order.items.map((it,i)=>i===sess.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
+        const u={...order,items:newItems};
+        mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
+        await fbSet("orders",order._id,u);await markChanged("orders");
+      }
+    }
     await markChanged("tests");await markChanged("approvals");await markChanged("machines");
     syncSheet(webhookUrl,"test",{...rec,employeeCode:user.code,employeeName:user.name});
     await removeSessionLocal(sess._id);setSubmitting(false);setDone(true);setTimeout(()=>setDone(false),3000);
@@ -2523,14 +2580,32 @@ function TestePage({ctx}){
   const existingHashesInSession=session?session.slots.map(s=>s.hashSN?data.hashes.find(h=>h.sn===s.hashSN.toUpperCase()):null).filter(Boolean):[];
   const templateHash=existingHashesInSession.length===1?existingHashesInSession[0]:null;
   const needsChars=unknownSlots.length>0&&!session?.newHashChars;
+  // Slot marcado RUIM sem HASH substituta nele — não pode liberar "TUDO
+  // BOA" assim (o botão já fica desabilitado, não é só um erro depois de clicar).
+  const hasEmptyBadSlot=session?session.slots.some(s=>s.status==="bad"&&!s.hashSN):false;
 
   const availItems=availableOrderItems();
+  // Fila de HASHs prontas pra testar, visível pra TODO mundo que tem acesso
+  // ao Teste — não só quem consertou. Some da lista assim que alguém já
+  // colocou ela numa sessão ativa (dele ou de outro testador), igual a
+  // reserva de item de Pedido — pra dois testadores não pegarem a mesma.
+  const availableHashQueue=data.hashes.filter(h=>h.status==="TESTAR"&&!allSessions.some(s=>s.slots.some(sl=>sl.hashSN&&sl.hashSN.toUpperCase()===(h.sn||"").toUpperCase())));
   return<div>
     {availItems.length>0&&<>
       <style>{`@keyframes pedidoGlow{0%,100%{box-shadow:0 0 6px 1px ${C.accent}77}50%{box-shadow:0 0 14px 5px ${C.accent}cc}}`}</style>
       <button onClick={()=>setModal(<Modal title="📦 Pedidos em Aberto" onClose={()=>setModal(null)}>
           {[...new Set(availItems.map(a=>a.order._id))].map(oid=>availItems.find(a=>a.order._id===oid).order).map(o=><OrderCard key={o._id} ctx={ctx} order={o}/>)}
         </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.accent,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,animation:"pedidoGlow 1.8s ease-in-out infinite"}}>📋 {availItems.length} item(ns) de pedido em aberto</button>
+    </>}
+    {availableHashQueue.length>0&&<>
+      <style>{`@keyframes hashQueueGlow{0%,100%{box-shadow:0 0 6px 1px ${C.blue}77}50%{box-shadow:0 0 14px 5px ${C.blue}cc}}`}</style>
+      <button onClick={()=>setModal(<Modal title="🔧 Fila de HASHs pra Testar" onClose={()=>setModal(null)}>
+          <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essas HASHs já foram consertadas e estão liberadas pra qualquer um testar. Assim que alguém colocar uma delas numa sessão de teste, ela some daqui pros outros.</div>
+          {availableHashQueue.map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<Card key={h._id} style={{marginBottom:8}}>
+            <div style={{fontWeight:800,fontSize:13,color:C.blue}}>⚡ {h.sn||"SEM SN"}</div>
+            <div style={{fontSize:11,color:C.muted,marginTop:2}}>{h.model}{h.material?` · ${h.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{repName?` · consertada por 👷 ${repName}`:""}</div>
+          </Card>;})}
+        </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.blue,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,animation:"hashQueueGlow 1.8s ease-in-out infinite"}}>🔧 {availableHashQueue.length} HASH(s) prontas pra teste</button>
     </>}
     <HashSearchBox ctx={ctx}/>
     {scanning&&<BarcodeScanner onScan={v=>{setMacInput(v.toUpperCase());setScanning(false);loadMachine(v)}} onClose={()=>setScanning(false)}/>}
@@ -2542,13 +2617,18 @@ function TestePage({ctx}){
       <SL>🖥️ MÁQUINAS EM TESTE ({sessions.length})</SL>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         {sessions.map(s=><button key={s._id} onClick={()=>{setActiveId(s._id);setMacInput(s.machineSN)}} style={{background:s._id===activeId?C.accent:(s.rejected?"#3a0a0a":C.card),color:"#fff",border:`1px solid ${s._id===activeId?C.accent:(s.rejected?C.red:C.border)}`,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          {s.rejected?"❌":s.orderRef?"📋":s.prepShipment?"📦":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
+          {s.rejected?"❌":s.machineBad?"💀":s.orderRef?"📋":s.prepShipment?"📦":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
           <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900}}>✕</span>
         </button>)}
       </div>
     </div>}
 
     {session?.rejected&&<Alrt type="err">{(session.adminNotes||[]).join(" · ")||"❌ Essa máquina foi reprovada na revisão. Corrija e envie de novo."}</Alrt>}
+    {/* Aviso fixo (não some sozinho) pra deixar claro, o teste inteiro, que
+        essa máquina já estava BOA antes desse reteste — se algum HASH sair
+        RUIM agora, ela some desse status. Só no fluxo padrão (sem prep/pedido,
+        que já tem avisos próprios abaixo). */}
+    {session&&!session.rejected&&!session.prepShipment&&!session.orderRef&&session.prevSituacao==="BOA"&&<Alrt type="err">⚠️ Essa máquina já estava marcada como BOA. Se algum HASH der RUIM nesse reteste, ela sai desse status ao aprovar.</Alrt>}
     {/* Um ou outro — nunca os dois juntos: vinculada a pedido tem seu próprio
         aviso (com o que acontece ao aprovar), fluxo padrão de Preparar pra
         Envio mostra o genérico. */}
@@ -2571,7 +2651,7 @@ function TestePage({ctx}){
       {session&&<div style={{marginTop:8}}>
         <div style={{fontWeight:800,color:C.accent,marginBottom:6}}>{session.machineSN}</div>
         <div style={{display:"flex",gap:8}}>
-          <Sel value={session.model} onChange={e=>{const newModel=e.target.value;saveSession({...session,model:newModel,th:gTH(newModel),updatedAt:stamp()})}} style={{flex:2,marginBottom:0}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+          <Sel value={session.model} onChange={e=>{const newModel=e.target.value;saveSession({...session,model:newModel,th:gTH(newModel),updatedAt:stamp()})}} style={{flex:2,marginBottom:0}}>{models.map(m=><option key={m.m}>{m.m}</option>)}{session.model&&!models.some(m=>m.m===session.model)&&<option key={session.model}>{session.model}</option>}</Sel>
           <Inp type="number" value={session.th} onChange={e=>saveSession({...session,th:Number(e.target.value),updatedAt:stamp()})} placeholder="TH" style={{width:70,marginBottom:0}}/>
         </div>
       </div>}
@@ -2627,12 +2707,14 @@ function TestePage({ctx}){
       <Btn v="g" onClick={markAllGood} disabled={submitting||!session.photoKey||needsChars} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
         {submitting?"Enviando...":session.prepShipment?"📦 Enviar Preparação para Revisão":"✅ TUDO BOA — Enviar para Revisão"}
       </Btn>
+      <Btn v="d" onClick={markMachineBad} disabled={submitting||!session.photoKey||needsChars} style={{width:"100%",padding:"12px",fontSize:13,marginBottom:8}}>💀 Máquina Ruim — Enviar para Revisão</Btn>
       <div style={{display:"flex",gap:8}}>
         <Btn v="s" onClick={()=>{setActiveId(null);setMacInput("")}} style={{flex:1,fontSize:12}}>👋 Deixar na fila e trocar de máquina</Btn>
         <Btn v="d" onClick={()=>closeSession(session._id)} style={{flex:1,fontSize:12}}>🗑 Cancelar esta</Btn>
       </div>
       {!session.photoKey&&<div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Adicione a foto para enviar</div>}
       {needsChars&&<div style={{color:C.red,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Defina as características das HASHs novas pra enviar</div>}
+      {hasEmptyBadSlot&&<div style={{color:C.amber,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Tem slot RUIM sem HASH substituta — pode mandar assim, mas vai pedir confirmação</div>}
     </>}
 
     {/* Pergunta de desvincular HASH que já está em outra máquina */}
@@ -2888,14 +2970,24 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
 function ApprovalsPage({ctx}){
   const{data,mutate,user,webhookUrl,setModal,gTH}=ctx;
   const[notes,setNotes]=useState({}),[processing,setProcessing]=useState(null);
+  const[snFilter,setSnFilter]=useState(""),[scanning,setScanning]=useState(false);
   const pendingAll=data.approvals.filter(a=>a.status==="pending");
   const pending=pendingAll.filter(a=>!a.type||a.type==="machine");
   const pendingHashBad=pendingAll.filter(a=>a.type==="hashBad");
+  // Busca/scanner por SN — filtra as pendências abaixo pra achar rápido uma
+  // máquina ou HASH específica e ver na hora se tem algo aguardando
+  // aprovação pra ela (ou se já foi decidida/não tem nada pendente).
+  const snQ=snFilter.trim().toUpperCase();
+  const filteredPending=snQ?pending.filter(a=>(a.machineSN||"").toUpperCase().includes(snQ)):pending;
+  const filteredHashBad=snQ?pendingHashBad.filter(a=>(a.sn||"").toUpperCase().includes(snQ)||(a.machineSN||"").toUpperCase().includes(snQ)):pendingHashBad;
   const approveHashBad=async(appr)=>{
     setProcessing(appr._id);
     const existing=appr.existingId?data.hashes.find(h=>h._id===appr.existingId):data.hashes.find(h=>h.sn===appr.sn);
     if(existing){
-      const u={...existing,status:"REPARO",location:appr.location||existing.location||"",...audit(user)};
+      // Desvincula de vez da máquina que estava — ela foi fisicamente
+      // removida de lá (senão a HASH fica "presa" apontando pra uma máquina
+      // que não tem ela mais, mesmo já estando REPARO).
+      const u={...existing,status:"REPARO",location:appr.location||existing.location||"",machineSN:"",slot:-1,...audit(user)};
       mutate("hashes",arr=>arr.map(x=>x._id===existing._id?u:x));await fbSet("hashes",existing._id,u);
       syncSheet(webhookUrl,"hashBad",{sn:u.sn,model:u.model,logPhoto:appr.logPhoto||"",obs:appr.notes,employeeName:appr.employeeName,employeeCode:appr.employeeCode});
     }else{
@@ -2929,12 +3021,21 @@ function ApprovalsPage({ctx}){
   };
   const approve=async(appr)=>{
     setProcessing(appr._id);const test=data.tests.find(t=>t._id===appr.testId);if(!test){setProcessing(null);return}
-    const tUpd={...test,status:"approved",overallResult:"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
+    const tUpd={...test,status:"approved",overallResult:appr.machineBad?"bad":"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
     // "Preparar pra Envio" PERMANECE PREPARANDO quando aprovado — só um
     // teste comum volta a virar BOA. Vinculada a um Pedido, já vai de vez
     // pro cliente (SAIDA) — igual o envio manual "Enviar pro Cliente".
-    const targetSituacao=appr.orderRef?"SAIDA":(appr.prepShipment?"PREPARANDO":"BOA");
+    // Máquina Ruim tem prioridade sobre tudo isso: nunca vai pro cliente
+    // nem fica PREPARANDO — sempre RUIM, mesmo se estava vinculada a pedido.
+    const targetSituacao=appr.machineBad?"RUIM":(appr.orderRef?"SAIDA":(appr.prepShipment?"PREPARANDO":"BOA"));
+    // Máquina Ruim: NÃO força nada pra ON — usa exatamente o que foi
+    // marcado em cada slot/componente durante o teste (o que não foi
+    // confirmado bom fica OFF). Tudo Boa continua forçando tudo ON, como
+    // sempre foi.
+    const compPatch=appr.machineBad
+      ?{hash0:test.slot0Result==="good"?"ON":"OFF",hash1:test.slot1Result==="good"?"ON":"OFF",hash2:test.slot2Result==="good"?"ON":"OFF",controladora:test.controladora||"OFF",fonte:test.fonte||"OFF",fans:test.fans||"OFF"}
+      :{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"};
     if(exMac){
       // Quando o teste dá "TUDO BOA", TODOS os parâmetros ficam ON — mesmo os
       // slots sem SN preenchido (a máquina toda foi aprovada como funcionando).
@@ -2943,14 +3044,19 @@ function ApprovalsPage({ctx}){
       // TODOS os testes já feitos). Não mexe em nenhuma data — nem a de
       // "adicionada" (não é tocada aqui mesmo), nem sincroniza data nenhuma
       // pra planilha; o dia desse teste já fica no histórico da máquina.
-      const photoPatch=appr.prepShipment&&test.testPhoto?{photoKey:test.testPhoto}:{};
-      const destinoPatch=appr.orderRef?{destino:appr.orderRef.clientName}:{};
-      const mUpd={...exMac,situacao:targetSituacao,model:test.model||exMac.model,th:test.th||exMac.th,hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON",hashSN0:test.slot0HashSN||exMac.hashSN0||"",hashSN1:test.slot1HashSN||exMac.hashSN1||"",hashSN2:test.slot2HashSN||exMac.hashSN2||"",...photoPatch,...destinoPatch,...audit(user)};
+      const photoPatch=(appr.prepShipment||appr.machineBad)&&test.testPhoto?{photoKey:test.testPhoto}:{};
+      const destinoPatch=(appr.orderRef&&!appr.machineBad)?{destino:appr.orderRef.clientName}:{};
+      // NUNCA cai pro hashSN antigo da máquina quando o slot vier vazio do
+      // teste — um slot só fica vazio aqui se foi marcado RUIM e removido
+      // (a sessão sempre começa com o hashSN que já tava na máquina). Cair
+      // pro antigo reviveria o vínculo com uma HASH que já foi desvinculada
+      // e mandada pro conserto.
+      const mUpd={...exMac,situacao:targetSituacao,model:test.model||exMac.model,th:test.th||exMac.th,...compPatch,hashSN0:test.slot0HashSN||"",hashSN1:test.slot1HashSN||"",hashSN2:test.slot2HashSN||"",...photoPatch,...destinoPatch,...audit(user)};
       await fbSet("machines",exMac._id,mUpd);mutate("machines",m=>m.map(x=>x._id===exMac._id?mUpd:x));
       syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"situacao",to:targetSituacao,employeeName:user.name,employeeCode:user.code});
       if(test.model&&test.model!==exMac.model)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"model",to:test.model,employeeName:user.name,employeeCode:user.code});
       if(test.th&&test.th!==exMac.th)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"th",to:test.th,employeeName:user.name,employeeCode:user.code});
-      ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}));
+      ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:k,to:compPatch[k],employeeName:user.name,employeeCode:user.code}));
       // Se o testador colocou um T/H diferente do padrão do modelo, guarda
       // isso como modelo customizado — próximas máquinas desse modelo já
       // vêm com o T/H certo.
@@ -2962,9 +3068,9 @@ function ApprovalsPage({ctx}){
       // Máquina testada que ainda não existia no estoque — cria agora
       const mid=uid();
       const mNew={sn:appr.machineSN,ref:appr.employeeCode||"",model:test.model,th:test.th||0,type:"complete",situacao:targetSituacao,
-        hash0:"ON",hash1:"ON",hash2:"ON",
+        ...compPatch,
         hashSN0:test.slot0HashSN||"",hashSN1:test.slot1HashSN||"",hashSN2:test.slot2HashSN||"",
-        controladora:"ON",fonte:"ON",fans:"ON",location:"",destino:appr.orderRef?appr.orderRef.clientName:"",...audit(user),addedAt:TODAY()};
+        location:"",destino:(appr.orderRef&&!appr.machineBad)?appr.orderRef.clientName:"",...audit(user),addedAt:TODAY()};
       const saveResult=await fbSet("machines",mid,mNew);
       if(!saveResult.ok){
         alert(`⚠️ ERRO: não consegui criar a máquina ${mNew.sn} no banco de dados!\n\nErro: ${saveResult.error}\n\nA HASH e a planilha podem ter sido atualizadas mesmo assim — confira manualmente.`);
@@ -3023,7 +3129,10 @@ function ApprovalsPage({ctx}){
     // mesma lógica do envio manual "Enviar pro Cliente" (BulkMachineAction,
     // ação "client"): HASHs dela viram SAIDA e o SN entra na lista do
     // cliente. Roda depois do "NA MAQUINA" de cima, como um passo a mais.
-    if(appr.orderRef){
+    // Se a máquina foi aprovada como RUIM, ela NUNCA vai pro cliente — mas a
+    // vaga do pedido já voltou lá no envio pra revisão (doSubmit), não
+    // precisa mexer de novo aqui.
+    if(appr.orderRef&&!appr.machineBad){
       const clientName=appr.orderRef.clientName;
       for(const sn of slotSNs.filter(Boolean)){
         const h=newH.find(x=>x.sn===sn);
@@ -3052,7 +3161,7 @@ function ApprovalsPage({ctx}){
     }
     mutate("hashes",()=>newH);
     await fbSet("pendingApprovals",appr._id,{...appr,status:"approved",...audit(user)});mutate("approvals",a=>a.map(x=>x._id===appr._id?{...x,status:"approved"}:x));
-    syncSheet(webhookUrl,"test",{...test,overallResult:"good",employeeCode:appr.employeeCode,employeeName:appr.employeeName});
+    syncSheet(webhookUrl,"test",{...test,overallResult:appr.machineBad?"bad":"good",employeeCode:appr.employeeCode,employeeName:appr.employeeName});
     await markChanged("approvals");await markChanged("machines");await markChanged("hashes");await markChanged("tests");setProcessing(null);
   };
   const reject=async(appr)=>{
@@ -3063,8 +3172,9 @@ function ApprovalsPage({ctx}){
     // Se estava vinculada a um Pedido, devolve a vaga (fulfilled--) — a
     // sessão que volta pro testador NÃO carrega mais o vínculo (ele escolhe
     // de novo manualmente se quiser reenviar pro mesmo pedido), pra nunca
-    // descontar duas vezes o mesmo item por engano.
-    if(appr.orderRef){
+    // descontar duas vezes o mesmo item por engano. Se já era Máquina Ruim,
+    // a vaga já voltou lá no envio pra revisão — não desconta de novo aqui.
+    if(appr.orderRef&&!appr.machineBad){
       const order=data.orders.find(o=>o._id===appr.orderRef.orderId);
       if(order){
         const newItems=order.items.map((it,i)=>i===appr.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
@@ -3098,13 +3208,23 @@ function ApprovalsPage({ctx}){
     <div style={{fontWeight:900,fontSize:18,marginBottom:4}}>Revisão de Testes</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:16}}>🖥️ {pending.length} máquina(s) · ⚡ {pendingHashBad.length} HASH(s) ruim(s) aguardando</div>
 
-    {pendingHashBad.length>0&&<>
-      <div style={{fontWeight:800,fontSize:14,color:C.red,marginBottom:8}}>⚡ HASHs Ruins ({pendingHashBad.length})</div>
-      {pendingHashBad.length>1&&<div style={{display:"flex",gap:8,marginBottom:10}}>
-        <Btn v="g" onClick={async()=>{if(!confirm(`Aprovar TODAS as ${pendingHashBad.length} HASHs ruins?`))return;for(const a of pendingHashBad)await approveHashBad(a)}} disabled={!!processing} style={{flex:1}}>✓ Aprovar todas ({pendingHashBad.length})</Btn>
-        <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${pendingHashBad.length} HASHs ruins?`))return;for(const a of pendingHashBad)await rejectHashBad(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
+    <div style={{background:C.card,borderRadius:14,padding:12,marginBottom:16}}>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>BUSCAR POR SN (MÁQUINA OU HASH)</div>
+      <div style={{display:"flex",gap:8}}>
+        <input value={snFilter} onChange={e=>setSnFilter(e.target.value.toUpperCase())} placeholder="Digite ou escaneie o SN..." style={{...inp,flex:1}}/>
+        <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
+        {snFilter&&<button onClick={()=>setSnFilter("")} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:10,padding:"0 14px",cursor:"pointer",fontSize:12}}>✕</button>}
+      </div>
+      {scanning&&<BarcodeScanner onScan={v=>{setSnFilter(v.toUpperCase());setScanning(false)}} onClose={()=>setScanning(false)}/>}
+    </div>
+
+    {filteredHashBad.length>0&&<>
+      <div style={{fontWeight:800,fontSize:14,color:C.red,marginBottom:8}}>⚡ HASHs Ruins ({filteredHashBad.length})</div>
+      {filteredHashBad.length>1&&<div style={{display:"flex",gap:8,marginBottom:10}}>
+        <Btn v="g" onClick={async()=>{if(!confirm(`Aprovar TODAS as ${filteredHashBad.length} HASHs ruins?`))return;for(const a of filteredHashBad)await approveHashBad(a)}} disabled={!!processing} style={{flex:1}}>✓ Aprovar todas ({filteredHashBad.length})</Btn>
+        <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${filteredHashBad.length} HASHs ruins?`))return;for(const a of filteredHashBad)await rejectHashBad(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
       </div>}
-      {pendingHashBad.map(appr=><Card key={appr._id} accent={C.red}>
+      {filteredHashBad.map(appr=><Card key={appr._id} accent={C.red}>
         <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>⚡ {appr.sn}</div>
         <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{appr.model}{appr.material?` · ${appr.material==="FIBRA"?"Fibra":"Alumínio"}`:""} · 👷 {appr.employeeName} · {fmtDate(appr.date)}{appr.machineSN?` · Máq. ${appr.machineSN}`:""}</div>
         {appr.notes&&<div style={{fontSize:12,marginBottom:8}}>📝 {appr.notes}</div>}
@@ -3120,14 +3240,14 @@ function ApprovalsPage({ctx}){
       </Card>)}
     </>}
 
-    <div style={{fontWeight:800,fontSize:14,color:C.blue,marginBottom:8,marginTop:pendingHashBad.length>0?18:0}}>🖥️ Máquinas ({pending.length})</div>
-    {pending.length>1&&<div style={{display:"flex",gap:8,marginBottom:14}}>
-      <Btn v="g" onClick={async()=>{if(!confirm(`Aprovar TODAS as ${pending.length} pendentes?`))return;for(const a of pending)await approve(a)}} disabled={!!processing} style={{flex:1}}>✓ Aprovar todas ({pending.length})</Btn>
-      <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${pending.length} pendentes?`))return;for(const a of pending)await reject(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
+    <div style={{fontWeight:800,fontSize:14,color:C.blue,marginBottom:8,marginTop:filteredHashBad.length>0?18:0}}>🖥️ Máquinas ({filteredPending.length})</div>
+    {filteredPending.length>1&&<div style={{display:"flex",gap:8,marginBottom:14}}>
+      <Btn v="g" onClick={async()=>{if(!confirm(`Aprovar TODAS as ${filteredPending.length} pendentes?`))return;for(const a of filteredPending)await approve(a)}} disabled={!!processing} style={{flex:1}}>✓ Aprovar todas ({filteredPending.length})</Btn>
+      <Btn v="d" onClick={async()=>{if(!confirm(`Reprovar TODAS as ${filteredPending.length} pendentes?`))return;for(const a of filteredPending)await reject(a)}} disabled={!!processing} style={{flex:1}}>✗ Reprovar todas</Btn>
     </div>}
-    {pending.length===0&&pendingHashBad.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>✅</div><div>Nenhuma revisão pendente</div></div>
-      :pending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={appr.orderRef?C.purple:appr.prepShipment?C.amber:C.blue}>
-        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>{appr.orderRef?"📋":appr.prepShipment?"📦":"🖥️"} {appr.machineSN||"SEM SN"} {appr.orderRef?<Tag color={C.purple} small>Pedido #{appr.orderRef.orderNumber} — {appr.orderRef.clientName}</Tag>:appr.prepShipment&&<Tag color={C.amber} small>Preparação p/ Envio</Tag>}</div>
+    {filteredPending.length===0&&filteredHashBad.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>{snQ?"🔍":"✅"}</div><div>{snQ?"Nenhuma pendência encontrada pra esse SN":"Nenhuma revisão pendente"}</div></div>
+      :filteredPending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={appr.machineBad?C.red:appr.orderRef?C.purple:appr.prepShipment?C.amber:C.blue}>
+        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>{appr.machineBad?"💀":appr.orderRef?"📋":appr.prepShipment?"📦":"🖥️"} {appr.machineSN||"SEM SN"} {appr.machineBad?<Tag color={C.red} small>Máquina Ruim</Tag>:appr.orderRef?<Tag color={C.purple} small>Pedido #{appr.orderRef.orderNumber} — {appr.orderRef.clientName}</Tag>:appr.prepShipment&&<Tag color={C.amber} small>Preparação p/ Envio</Tag>}</div>
         <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{appr.model} · {appr.th}TH · 👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
         {test&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>{[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].map((sn,i)=>sn&&<span key={i} style={{background:"#0c1a2e",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",fontSize:10,color:C.blue}}>S{i}: {sn}</span>)}</div>}
         {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginBottom:10,maxHeight:150}}/>}
@@ -3137,7 +3257,7 @@ function ApprovalsPage({ctx}){
           <Btn v="b" onClick={()=>setModal(<Modal title={`📋 ${appr.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={appr}/></Modal>)} style={{flex:1}}>📋 Ver mais</Btn>
         </div>
         <div style={{display:"flex",gap:8,marginTop:8}}>
-          <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":appr.orderRef?"✓ Aprovar → Enviar pro Cliente":appr.prepShipment?"✓ Aprovar → PREPARANDO":"✓ Aprovar → BOA"}</Btn></div>
+          <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":appr.machineBad?"✓ Aprovar → RUIM":appr.orderRef?"✓ Aprovar → Enviar pro Cliente":appr.prepShipment?"✓ Aprovar → PREPARANDO":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
     {data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>{user.code==="019"&&<button onClick={async()=>{if(!confirm("Apagar essa revisão do histórico? Não dá pra desfazer."))return;await fbDel("pendingApprovals",a._id);mutate("approvals",arr=>arr.filter(x=>x._id!==a._id));await markChanged("approvals")}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></div>)}</>}
   </div>;
