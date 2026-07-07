@@ -851,7 +851,9 @@ export default function App(){
         customModels:out.customModels!==undefined?(out.customModels.length?out.customModels:prev.customModels):prev.customModels,
         pallets:merge("pallets",out.pallets),
         clients:merge("clients",out.clients),
+        shipments:out.shipments!==undefined?out.shipments:prev.shipments,
         loadPhotos:out.loadPhotos!==undefined?(out.loadPhotos.length?out.loadPhotos:prev.loadPhotos):prev.loadPhotos,
+        orders:out.orders!==undefined?out.orders:prev.orders,
       };
       if(next.machines.length)localStorage.setItem("hs_machines",JSON.stringify(next.machines));
       if(next.hashes.length)localStorage.setItem("hs_hashes",JSON.stringify(next.hashes));
@@ -1005,6 +1007,8 @@ export default function App(){
   // (Conserto, Teste, cadastro de máquina/HASH etc.), avisa antes de deixar
   // trocar — senão a tela some no meio do upload, o link da foto nunca
   // chega a ser salvo em lugar nenhum, e a foto fica "órfã" só no Drive.
+  const[publicPalletId,setPublicPalletId]=useState(()=>new URLSearchParams(window.location.search).get("pallet"));
+
   const changeTab=t=>{
     if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
     setTab(t);
@@ -1012,7 +1016,28 @@ export default function App(){
   const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount};
   if(loading)return<Splash/>;
   if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
+
+  if(!user&&publicPalletId){
+    const pl=data.pallets.find(p=>p._id===publicPalletId);
+    return <PublicPalletView pallet={pl} data={data} onLogin={()=>setPublicPalletId(null)}/>;
+  }
+
   if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
+
+  // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
+  useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    const palletId=params.get("pallet");
+    if(palletId&&user){
+      const pl=data.pallets.find(p=>p._id===palletId);
+      if(pl){
+        setTab("pal");
+        setModal(<Modal title={pl.name} onClose={()=>setModal(null)}><PalletDetail ctx={ctx} pallet={pl}/></Modal>);
+      }
+      // Limpa o parametro da URL pra nao abrir de novo em cada render
+      window.history.replaceState({},"",window.location.pathname);
+    }
+  },[user,data.pallets.length]);
 
   const p=user.permissions||{};const isAdmin=p.admin;const isSuperAdmin=user.code==="019";
   const canApprove=isAdmin||p.approvals;
@@ -1085,6 +1110,51 @@ function BootErrorScreen({onRetry,warnings}){
       <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>Isso normalmente é uma falha temporária de conexão com o Firebase — nenhum dado foi apagado. Verifique sua internet e tente de novo.</div>
       {warnings?.[0]&&<div style={{background:"#2a0c0c",border:`1px solid ${C.red}`,borderRadius:10,padding:12,marginBottom:16,fontSize:11,color:"#ff9b9b",textAlign:"left"}}>{warnings[0].msg}</div>}
       <Btn onClick={async()=>{setRetrying(true);await onRetry();setRetrying(false)}} disabled={retrying} style={{width:"100%",padding:"13px",fontSize:14,justifyContent:"center"}}>{retrying?"Tentando...":"🔄 Tentar de novo"}</Btn>
+    </div>
+  </div>;
+}
+
+/* === VISUALIZACAO PUBLICA DO PALETE === */
+function PublicPalletView({pallet,data,onLogin}){
+  if(!pallet) return <div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24,color:C.text,textAlign:"center"}}>
+    <div>
+      <div style={{fontSize:50,marginBottom:12}}>📦</div>
+      <div style={{fontWeight:900,fontSize:18,marginBottom:8}}>Palete não encontrado</div>
+      <div style={{color:C.muted,fontSize:13,marginBottom:24}}>Este palete pode ter sido apagado.</div>
+      <Btn onClick={onLogin} style={{width:"100%",justifyContent:"center"}}>Acessar Sistema</Btn>
+    </div>
+  </div>;
+
+  const macs=(pallet.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
+  const hashes=(pallet.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
+
+  return <div style={{background:C.bg,minHeight:"100vh",color:C.text,padding:"24px 16px"}}>
+    <div style={{maxWidth:600,margin:"0 auto"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontWeight:900,fontSize:20}}>📦 {pallet.name}</div>
+        <Btn v="s" onClick={onLogin}>Entrar</Btn>
+      </div>
+      <div style={{background:C.card2,borderRadius:10,padding:16,marginBottom:20}}>
+        {pallet.location&&<div style={{color:C.muted,fontSize:13,marginBottom:4}}>📍 {pallet.location}</div>}
+        {pallet.notes&&<div style={{color:C.subtle,fontSize:13,marginBottom:12}}>{pallet.notes}</div>}
+        <div style={{fontWeight:800,color:C.accent,fontSize:14}}>{macs.length} máquinas · {hashes.length} HASHs</div>
+      </div>
+
+      <SL>Máquinas ({macs.length})</SL>
+      {macs.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Nenhuma máquina.</div>:macs.map(m=><div key={m._id} style={{padding:"10px 0",borderBottom:"1px solid "+C.border}}>
+        <div style={{fontWeight:800,fontSize:14}}>{m.sn||"SEM SN"}</div>
+        <div style={{fontSize:11,color:C.muted,marginTop:2}}>{m.model} · <SP s={m.situacao}/></div>
+      </div>)}
+
+      <SL mt={20}>HASHs ({hashes.length})</SL>
+      {hashes.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Nenhuma HASH.</div>:hashes.map(h=><div key={h._id} style={{padding:"10px 0",borderBottom:"1px solid "+C.border}}>
+        <div style={{fontWeight:800,fontSize:14}}>{h.sn||"SEM SN"}</div>
+        <div style={{fontSize:11,color:C.muted,marginTop:2}}>{h.model} · <HP s={h.status}/></div>
+      </div>)}
+      
+      <div style={{marginTop:30,textAlign:"center",color:C.subtle,fontSize:10}}>
+        HashStock · Acesso Público de Leitura
+      </div>
     </div>
   </div>;
 }
@@ -2372,7 +2442,9 @@ function TestePage({ctx}){
       const newItems=order.items.map((it,i)=>i===idx?{...it,fulfilled:(it.fulfilled||0)+1}:it);
       const u={...order,items:newItems};
       mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
-      await fbSet("orders",order._id,u);await markChanged("orders");
+      const res=await fbSet("orders",order._id,u);
+      if(!res.ok)alert(`⚠️ ERRO: não consegui reservar a vaga do pedido no banco de dados!\n\nErro: ${res.error}\n\nO app mostra reservado mas pode sumir se atualizar a página — avisa o Admin.`);
+      await markChanged("orders");
       orderRef={orderId:order._id,orderNumber:order.number,itemIndex:idx,clientId:order.clientId,clientName:order.clientName,model:item.model,th:item.th};
     }
     await startSession(sn,ex,true,prevSituacao,orderRef);
@@ -2425,7 +2497,9 @@ function TestePage({ctx}){
         const newItems=order.items.map((it,i)=>i===sess.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
         const u={...order,items:newItems};
         mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
-        await fbSet("orders",order._id,u);await markChanged("orders");
+        const res=await fbSet("orders",order._id,u);
+        if(!res.ok)alert(`⚠️ ERRO: não consegui devolver a vaga do pedido no banco de dados!\n\nErro: ${res.error}\n\nAvisa o Admin — o pedido pode ficar com a contagem errada.`);
+        await markChanged("orders");
       }
     }
     await removeSessionLocal(id);
@@ -2563,7 +2637,9 @@ function TestePage({ctx}){
         const newItems=order.items.map((it,i)=>i===sess.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
         const u={...order,items:newItems};
         mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
-        await fbSet("orders",order._id,u);await markChanged("orders");
+        const res=await fbSet("orders",order._id,u);
+        if(!res.ok)alert(`⚠️ ERRO: não consegui devolver a vaga do pedido no banco de dados!\n\nErro: ${res.error}\n\nAvisa o Admin — o pedido pode ficar com a contagem errada.`);
+        await markChanged("orders");
       }
     }
     await markChanged("tests");await markChanged("approvals");await markChanged("machines");
@@ -3156,7 +3232,10 @@ function ApprovalsPage({ctx}){
       if(order){
         const fulfillment={itemIndex:appr.orderRef.itemIndex,machineSN:appr.machineSN,model:test.model,th:test.th,testPhoto:test.testPhoto||"",approvedAt:stamp(),approvedByName:user.name};
         const uOrd={...order,fulfillments:[...(order.fulfillments||[]),fulfillment]};
-        mutate("orders",arr=>arr.map(x=>x._id===order._id?uOrd:x));await fbSet("orders",order._id,uOrd);await markChanged("orders");
+        mutate("orders",arr=>arr.map(x=>x._id===order._id?uOrd:x));
+        const res=await fbSet("orders",order._id,uOrd);
+        if(!res.ok)alert(`⚠️ ERRO: a máquina foi aprovada, mas não consegui registrar ela no histórico do pedido!\n\nErro: ${res.error}\n\nAvisa o Admin (provavelmente falta a coluna "fulfillments" na tabela orders no banco).`);
+        await markChanged("orders");
       }
     }
     mutate("hashes",()=>newH);
@@ -3180,7 +3259,9 @@ function ApprovalsPage({ctx}){
         const newItems=order.items.map((it,i)=>i===appr.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
         const u={...order,items:newItems};
         mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
-        await fbSet("orders",order._id,u);await markChanged("orders");
+        const res=await fbSet("orders",order._id,u);
+        if(!res.ok)alert(`⚠️ ERRO: não consegui devolver a vaga do pedido no banco de dados!\n\nErro: ${res.error}\n\nAvisa o Admin — o pedido pode ficar com a contagem errada.`);
+        await markChanged("orders");
       }
     }
     // Devolve pro tester original como sessão REPROVADA — ele corrige e reenvia.
@@ -4341,15 +4422,85 @@ function PalletDetail({ctx,pallet}){
       <div style={{fontSize:11,color:l.status==="new"?C.green:l.status==="dup"?C.amber:l.status==="missing"?C.red:C.blue}}>{l.sn} — {l.msg}</div>
       {l.status==="missing"&&<button onClick={()=>{setPendingAddSN({sn:l.sn,isHash:itemType==="hash"});setModal(<Modal title={itemType==="hash"?"Nova HASH":"Nova Máquina"} onClose={()=>setModal(null)}>{itemType==="hash"?<AddHashForm ctx={ctx} initSN={l.sn} onClose={()=>setModal(null)}/>:<AddMachineForm ctx={ctx} initSN={l.sn} onClose={()=>setModal(null)}/>}</Modal>)}} style={{marginTop:4,background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>➕ Cadastrar {l.sn}</button>}
     </div>)}</div>}
-    <SL>Máquinas ({macs.length})</SL>
-    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"}</div><div style={{fontSize:10,color:C.muted}}>{m.model} · <SP s={m.situacao}/></div></div><button onClick={()=>remSN(m.sn||"",false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div>)}
+    <SL>Maquinas ({macs.length})</SL>
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"}</div><div style={{fontSize:10,color:C.muted}}>{m.model} . <SP s={m.situacao}/></div></div><button onClick={()=>remSN(m.sn||"",false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>X</button></div>)}
     <SL mt={14}>HASHs ({hashes.length})</SL>
-    {hashes.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:hashes.map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"}</div><div style={{fontSize:10,color:C.muted}}>{h.model} · <HP s={h.status}/></div></div><button onClick={()=>remSN(h.sn||"",true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div>)}
-    <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Palete</Btn>
+    {hashes.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:hashes.map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"}</div><div style={{fontSize:10,color:C.muted}}>{h.model} . <HP s={h.status}/></div></div><button onClick={()=>remSN(h.sn||"",true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>X</button></div>)}
+    <SL mt={14}>QR CODE DO PALETE</SL>
+    <PalletQRCode pallet={p} macs={macs} hashes={hashes}/>
+    <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>Remover Palete</Btn>
   </div>;
 }
 
-/* ═══ CLIENTES ═══════════════════════════════════════════════ */
+/* QR Code do palete — gera um link que, ao ser escaneado, abre o app
+   direto nesse palete. Como o QR aponta pra URL do app (nao pro conteudo),
+   quando voce tira/adiciona maquinas o conteudo muda automaticamente
+   sem precisar gerar QR de novo. */
+function PalletQRCode({pallet,macs,hashes}){
+  const[showQR,setShowQR]=useState(false);
+  const appUrl=window.location.origin+window.location.pathname;
+  const palletUrl=appUrl+(appUrl.includes("?")?"&":"?")+"pallet="+pallet._id;
+  const qrImgUrl="https://api.qrserver.com/v1/create-qr-code/?size=280x280&data="+encodeURIComponent(palletUrl);
+  const copyReport=()=>{
+    const lines=["PALETE: "+pallet.name];
+    if(pallet.location)lines.push("Local: "+pallet.location);
+    lines.push("","MAQUINAS ("+macs.length+"):");
+    macs.forEach(m=>lines.push("  "+(m.sn||"SEM SN")+" - "+m.model+" - "+(m.situacao||"?")));
+    lines.push("","HASHs ("+hashes.length+"):");
+    hashes.forEach(h=>lines.push("  "+(h.sn||"SEM SN")+" - "+h.model+" - "+(h.status||"?")));
+    lines.push("","Link: "+palletUrl);
+    navigator.clipboard?.writeText(lines.join("\n")).then(()=>alert("Copiado!")).catch(()=>{});
+  };
+  const downloadPDF=async()=>{
+    try{
+      const res=await fetch(qrImgUrl);
+      const blob=await res.blob();
+      const reader=new FileReader();
+      reader.onloadend=()=>{
+        const base64data=reader.result;
+        const pdf=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+        
+        pdf.setFontSize(36);
+        pdf.setFont("helvetica","bold");
+        const name=pallet.name.toUpperCase();
+        const textWidth=pdf.getStringUnitWidth(name)*36/pdf.internal.scaleFactor;
+        const x=(210-textWidth)/2;
+        pdf.text(name,x,60);
+        
+        pdf.addImage(base64data,"PNG",45,80,120,120);
+        
+        pdf.setFontSize(14);
+        pdf.setFont("helvetica","normal");
+        pdf.text("Escaneie para ver o conteudo deste palete",105,220,{align:"center"});
+        
+        pdf.save(`Palete-${pallet.name}.pdf`);
+      };
+      reader.readAsDataURL(blob);
+    }catch(e){
+      alert("Erro ao baixar o PDF. Verifique a internet e tente novamente.");
+    }
+  };
+
+  if(!showQR)return<div style={{display:"flex",gap:8}}>
+    <Btn v="b" onClick={()=>setShowQR(true)} style={{flex:1}}>QR Code</Btn>
+    <Btn v="s" onClick={copyReport} style={{flex:1}}>Copiar Lista</Btn>
+  </div>;
+  return<div style={{textAlign:"center",padding:12}}>
+    <div style={{background:"#fff",borderRadius:12,padding:12,display:"inline-block",marginBottom:10}}>
+      <img src={qrImgUrl} alt={"QR "+pallet.name} style={{width:220,height:220}}/>
+    </div>
+    <div style={{fontWeight:800,fontSize:14,marginBottom:4}}>{pallet.name}</div>
+    <div style={{color:C.muted,fontSize:11,marginBottom:8}}>{macs.length} maquinas . {hashes.length} HASHs</div>
+    <div style={{color:C.subtle,fontSize:10,marginBottom:10,wordBreak:"break-all"}}>{palletUrl}</div>
+    <Btn v="g" onClick={downloadPDF} style={{width:"100%",marginBottom:8,justifyContent:"center"}}>Baixar PDF do QR Code</Btn>
+    <div style={{display:"flex",gap:8}}>
+      <Btn v="s" onClick={()=>setShowQR(false)} style={{flex:1}}>Fechar QR</Btn>
+      <Btn v="b" onClick={copyReport} style={{flex:1}}>Copiar Lista</Btn>
+    </div>
+  </div>;
+}
+
+/* === CLIENTES === */
 function ClientesPage({ctx}){
   const{data,mutate,setModal}=ctx;
   const clients=data.clients||[];
@@ -4406,7 +4557,10 @@ function OrderCard({ctx,order:o}){
   const cancelOrder=async()=>{
     if(!confirm(`Cancelar o Pedido #${o.number}? Não dá pra desfazer.`))return;
     const u={...o,status:"cancelled",...audit(user)};
-    mutate("orders",arr=>arr.map(x=>x._id===o._id?u:x));await fbSet("orders",o._id,u);await markChanged("orders");
+    mutate("orders",arr=>arr.map(x=>x._id===o._id?u:x));
+    const res=await fbSet("orders",o._id,u);
+    if(!res.ok)alert(`⚠️ ERRO: não consegui cancelar o pedido no banco de dados!\n\nErro: ${res.error}\n\nAvisa o Admin.`);
+    await markChanged("orders");
   };
   const copyOrderReport=()=>{
     const lines=[`📋 Pedido #${o.number} — ${o.clientName}`,`📅 Data: ${fmtDate(o.date)}`,`👷 Feito por: ${o.employeeName}`,``,`Itens:`];
@@ -4494,7 +4648,9 @@ function AddOrderForm({ctx,onClose}){
     const d={number,clientId,clientName:client.name,date,employeeId:user._id,employeeName:user.name,employeeCode:user.code,
       items:items.map(it=>({model:it.model,th:Number(it.th)||0,qty:Number(it.qty),fulfilled:0})),
       status:"open",...audit(user),createdAt:TODAY()};
-    await fbSet("orders",id,d);mutate("orders",arr=>[...arr,{...d,_id:id}]);await markChanged("orders");
+    const res=await fbSet("orders",id,d);
+    if(!res.ok){alert(`⚠️ ERRO: o pedido NÃO foi salvo no banco de dados!\n\nErro: ${res.error}\n\nAvisa o Admin pra corrigir isso antes de continuar usando Pedidos.`);return}
+    mutate("orders",arr=>[...arr,{...d,_id:id}]);await markChanged("orders");
     onClose();
   };
   return<div>

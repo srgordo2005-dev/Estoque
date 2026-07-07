@@ -3,7 +3,13 @@
     "allow": [
       "Bash(git commit -m ' *)",
       "Bash(grep -n \"const mUpd={...exMac,situacao:targetSituacao\" src/App.jsx)",
-      "Bash(awk -F: '$1>750 && $1<975')"
+      "Bash(awk -F: '$1>750 && $1<975')",
+      "Bash(git diff *)",
+      "Read(//tmp/**)",
+      "Bash(awk '$1>1')",
+      "Bash(npx vite *)",
+      "Bash(npx vercel *)",
+      "Bash(gh auth *)"
     ]
   }
 }
