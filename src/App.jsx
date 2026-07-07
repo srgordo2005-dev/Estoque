@@ -882,6 +882,8 @@ export default function App(){
         hashes:JSON.parse(localStorage.getItem("hs_hashes")||"[]"),
         pallets:JSON.parse(localStorage.getItem("hs_pallets")||"[]"),
         clients:JSON.parse(localStorage.getItem("hs_clients")||"[]"),
+        orders:JSON.parse(localStorage.getItem("hs_orders")||"[]"),
+        shipments:JSON.parse(localStorage.getItem("hs_shipments")||"[]"),
       }));
       setLoading(false);
       return;
@@ -914,11 +916,15 @@ export default function App(){
       const cachedH=JSON.parse(localStorage.getItem("hs_hashes")||"[]");
       const cachedP=JSON.parse(localStorage.getItem("hs_pallets")||"[]");
       const cachedC=JSON.parse(localStorage.getItem("hs_clients")||"[]");
+      const cachedO=JSON.parse(localStorage.getItem("hs_orders")||"[]");
+      const cachedS=JSON.parse(localStorage.getItem("hs_shipments")||"[]");
       const gM=guardCount("machines",out.machines,cachedM);
       const gH=guardCount("hashes",out.hashes,cachedH);
       const gP=guardCount("pallets",out.pallets,cachedP);
       const gC=guardCount("clients",out.clients,cachedC);
-      const warnings=[...errs,gM.warn,gH.warn,gP.warn,gC.warn].filter(Boolean);
+      const gO=guardCount("orders",out.orders,cachedO);
+      const gS=guardCount("shipments",out.shipments,cachedS);
+      const warnings=[...errs,gM.warn,gH.warn,gP.warn,gC.warn,gO.warn,gS.warn].filter(Boolean);
       setData(d=>({
         ...d,
         machines:gM.use.length?gM.use:cachedM,
@@ -930,12 +936,16 @@ export default function App(){
         customModels:out.customModels.length?out.customModels:d.customModels,
         pallets:gP.use.length?gP.use:cachedP,
         clients:gC.use.length?gC.use:cachedC,
+        orders:gO.use.length?gO.use:cachedO,
+        shipments:gS.use.length?gS.use:cachedS,
         loadPhotos:out.loadPhotos.length?out.loadPhotos:d.loadPhotos,
       }));
       if(gM.use.length)localStorage.setItem("hs_machines",JSON.stringify(gM.use));
       if(gH.use.length)localStorage.setItem("hs_hashes",JSON.stringify(gH.use));
       if(gP.use.length)localStorage.setItem("hs_pallets",JSON.stringify(gP.use));
       if(gC.use.length)localStorage.setItem("hs_clients",JSON.stringify(gC.use));
+      if(gO.use.length)localStorage.setItem("hs_orders",JSON.stringify(gO.use));
+      if(gS.use.length)localStorage.setItem("hs_shipments",JSON.stringify(gS.use));
       localStorage.setItem("hs_lastFullFetch",String(Date.now()));
       if(warnings.length)setDataWarnings(w=>[...warnings.map(m=>({msg:m,at:stamp()})),...w].slice(0,20));
     }catch(e){
