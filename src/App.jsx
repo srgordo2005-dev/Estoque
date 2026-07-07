@@ -788,15 +788,15 @@ export default function App(){
   const setCol=(col,val)=>setData(d=>({...d,[col]:val}));
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
   const allModels=useCallback(()=>{
-    const hiddenNames=new Set(data.customModels.filter(m=>m._hidden).map(m=>m.m));
-    const customs=data.customModels.filter(m=>!m.chips&&!m._hidden);
+    const hiddenNames=new Set(data.customModels.filter(m=>m._hidden||m.th<0).map(m=>m.m));
+    const customs=data.customModels.filter(m=>!m.chips&&!m._hidden&&m.th>=0);
     const customNames=new Set(customs.map(m=>m.m));
     const defs=DEF_MODELS.filter(m=>!hiddenNames.has(m.m)&&!customNames.has(m.m));
     return [...defs,...customs].sort((a,b)=>a.m.localeCompare(b.m));
   },[data.customModels]);
   const gTH=useCallback(m=>{
     const nm=(m||"").toUpperCase().replace(/[\s\-_]/g,"");
-    const f=[...DEF_MODELS,...data.customModels].find(x=>(x.m||"").toUpperCase().replace(/[\s\-_]/g,"")===nm);
+    const f=[...DEF_MODELS,...data.customModels.filter(x=>x.th>=0)].find(x=>(x.m||"").toUpperCase().replace(/[\s\-_]/g,"")===nm);
     return f?.th||0;
   },[data.customModels]);
   const gChips=useCallback((m,material)=>{
@@ -1780,8 +1780,7 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
     </div>}
   </div>;
 }
-
-function MachineDetail({ctx,machine}){
+function MachineDetail({ctx,machine,readOnly}){
   const{data,mutate,setModal,user,webhookUrl,allModels,gTH}=ctx;const models=allModels();
   const[m,setM]=useState(machine);
   useEffect(()=>{setM(machine)},[machine]);
@@ -1823,13 +1822,60 @@ function MachineDetail({ctx,machine}){
     }
     if(mHashes.length)await markChanged("hashes");
   };
+  if(readOnly){
+    const paletsComMac=(data.pallets||[]).filter(p=>p.machinesSN?.includes(m.sn));
+    return<div>
+      <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}>
+        <div style={{fontWeight:800,fontSize:16,color:C.accent,marginBottom:6}}>🖥️ {m.sn||"SEM SN"}</div>
+        <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}><SP s={m.situacao}/>{m.type==="shell"&&<Tag color={C.muted}>CARCAÇA</Tag>}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:12,marginTop:10}}>
+          <div><div style={{color:C.muted,fontSize:10}}>MODELO</div><div style={{fontWeight:700}}>{m.model}</div></div>
+          <div><div style={{color:C.muted,fontSize:10}}>T/H</div><div style={{fontWeight:700}}>{m.th}TH</div></div>
+          <div><div style={{color:C.muted,fontSize:10}}>TIPO</div><div style={{fontWeight:700}}>{m.type==="shell"?"Carcaça":"Completa"}</div></div>
+        </div>
+        {m.destino&&<div style={{color:C.purple,fontWeight:700,fontSize:12,marginTop:10}}>👤 Destino: {m.destino}</div>}
+        {paletsComMac.length>0&&<div style={{color:C.blue,fontWeight:700,fontSize:12,marginTop:4}}>📦 Palete: {paletsComMac.map(p=>p.name).join(", ")}</div>}
+      </div>
+
+      <SL>Slots & Componentes</SL>
+      <Card style={{marginBottom:14}}>
+        {[0,1,2].map(i=>{
+          const sn=i===0?m.hashSN0:i===1?m.hashSN1:m.hashSN2;
+          const status=i===0?m.hash0:i===1?m.hash1:m.hash2;
+          return<div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
+            <span>Slot {i+1}: <b>{sn||"Vazio"}</b></span>
+            <Tag color={status==="ON"?C.green:C.red} small>{status||"OFF"}</Tag>
+          </div>;
+        })}
+        <div style={{display:"flex",gap:8,marginTop:10}}>
+          {[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><div key={k} style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 0",textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>{l}</div><div style={{fontWeight:800,color:m[k]==="ON"?C.green:C.red}}>{m[k]||"OFF"}</div></div>)}
+        </div>
+      </Card>
+
+      {m.photoKey&&<div style={{marginBottom:14}}>
+        <SL>Foto da Máquina</SL>
+        <PhotoView photoKey={m.photoKey} style={{maxHeight:220}}/>
+      </div>}
+
+      {history.length>0&&<>
+        <SL mt={12}>📋 HISTÓRICO</SL>
+        {history.slice().reverse().map((ev,i)=>(
+          <div key={i} style={{padding:"6px 0",borderBottom:"1px solid "+C.border,fontSize:12}}>
+            <div style={{fontWeight:700}}>{ev.text}</div>
+            <div style={{color:C.muted,fontSize:10}}>{fmtTS(ev.date)}</div>
+            {ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:140}}/>}
+          </div>
+        ))}
+      </>}
+    </div>;
+  }
   if(locked)return<div>
     <div style={{background:C.purple+"15",border:`1px solid ${C.purple}44`,borderRadius:10,padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:15}}>{m.sn||"SEM SN"} · {m.model}</div>
       <div style={{color:C.muted,fontSize:12,marginTop:4}}><SP s={m.situacao}/> · Enviada pro cliente: <b style={{color:C.purple}}>{m.destino}</b></div>
     </div>
     <div style={{color:C.amber,fontSize:12,marginBottom:12}}>🔒 Essa máquina já saiu pro cliente — não dá pra editar nem apagar nada nela (nem foto) até desvincular do cliente e ela voltar pro estoque normal.</div>
-    {m.photoKey&&<PhotoView photoKey={m.photoKey} style={{marginBottom:14,maxHeight:220}}/>}
+    {m.photoKey&&<PhotoView photoKey={m.photoKey} style={{maxHeight:220,marginBottom:14}}/>}
     <Btn v="y" onClick={desvincular} style={{width:"100%",marginBottom:14}}>🔓 Desvincular do Cliente (volta pro estoque)</Btn>
     {history.length>0&&<><SL>Histórico</SL>{history.slice().reverse().map((h,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}><div>{h.text}</div><div style={{color:C.muted,fontSize:10}}>{fmtTS(h.date)}</div>{h.photoKey&&<PhotoView photoKey={h.photoKey} style={{maxHeight:120,marginTop:4}}/>}</div>)}</>}
   </div>;
@@ -1857,7 +1903,26 @@ function MachineDetail({ctx,machine}){
           }
         }
         await markChanged("pallets");
+    } else if(!exitSits.includes(s) && m.destino){
+      for(const cl of data.clients){
+        if((cl.machinesSN||[]).includes(m.sn)){
+          const ns=(cl.machinesSN||[]).filter(x=>x!==m.sn);
+          const upd3={...cl,machinesSN:ns,...audit(user)};
+          mutate("clients",arr=>arr.map(x=>x._id===cl._id?upd3:x));await fbSet("clients",cl._id,upd3);
+        }
       }
+      await markChanged("clients");
+      const mHashes=data.hashes.filter(h=>h.machineSN===m.sn && m.sn);
+      for(const h of mHashes){
+        if(h.status==="SAIDA"){
+          const hu={...h,status:"NA MAQUINA",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA (máquina voltou ao estoque)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+          mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
+          syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"NA MAQUINA",machineSN:m.sn,employeeName:user.name,employeeCode:user.code});
+        }
+      }
+      if(mHashes.length)await markChanged("hashes");
+      await upd("destino", "");
+      syncSheet(webhookUrl,"machineFromClient",{sn:m.sn,employeeName:user.name,employeeCode:user.code});
     }
     await upd("situacao",s);
     // Marcar como BOA = máquina 100% funcionando — todas as peças ficam ON
@@ -2184,6 +2249,9 @@ function HashPhotoQuick({ctx,hash}){
 
 function HashDetail({ctx,hash}){
   const{data,mutate,setModal,user,webhookUrl,allModels,gChips}=ctx;const models=allModels();const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
+  const[retroDate,setRetroDate]=useState(TODAY());
+  const[retroEmpId,setRetroEmpId]=useState("");
+  const[retroSaving,setRetroSaving]=useState(false);
   useEffect(()=>{setH(hash)},[hash]);
   const upd=async(k,v)=>{
     if(h[k]===v)return;
@@ -2249,6 +2317,57 @@ function HashDetail({ctx,hash}){
       {(data.pallets||[]).filter(pl=>(pl.hashesSN||[]).includes(h.sn)).map(pl=><div key={pl._id} style={{fontSize:11,color:C.blue,marginTop:4}}>📦 {pl.name}{pl.location?` — ${pl.location}`:""}</div>)}
       <By by={h._byName} at={h._at}/>
     </div>
+    {(user?.code === "ADMIN 019" || user?.name === "ADMIN 019") && (
+      <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:14,border:`1px solid ${C.border}`}}>
+        <div style={{fontWeight:800,fontSize:12,color:C.accent,marginBottom:8}}>🔧 REGISTRAR CONSERTO RETROATIVO</div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,color:C.muted,marginBottom:2}}>DATA DO CONSERTO</div>
+            <input type="date" value={retroDate} onChange={e=>setRetroDate(e.target.value)} style={{...inp,padding:"5px 8px",fontSize:11,width:"100%"}}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,color:C.muted,marginBottom:2}}>TÉCNICO</div>
+            <select value={retroEmpId} onChange={e=>setRetroEmpId(e.target.value)} style={{...inp,padding:"5px 6px",fontSize:11,width:"100%"}}>
+              <option value="">Selecione...</option>
+              {data.employees.map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
+            </select>
+          </div>
+        </div>
+        <Btn v="g" onClick={async()=>{
+          if(!retroEmpId){alert("Selecione o técnico!");return}
+          const emp=data.employees.find(e=>e._id===retroEmpId);
+          if(!emp)return;
+          setRetroSaving(true);
+          const repId=uid();
+          const repRec={
+            hashSN:h.sn,
+            model:h.model,
+            material:h.material||"",
+            type:"repair",
+            photoKey:"",
+            employeeId:emp._id,
+            _by:emp._id,
+            _byName:emp.name,
+            _at:new Date(retroDate+"T12:00:00").toISOString(),
+            date:retroDate,
+            status:"TESTAR"
+          };
+          const res=await fbSet("repairs",repId,repRec);
+          if(res.ok){
+            mutate("repairs",arr=>[...arr,{...repRec,_id:repId}]);
+            const hu={...h,status:"TESTAR",repairedBy:emp._id,repairedByName:emp.name,...audit(user)};
+            setH(hu);
+            mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));
+            await fbSet("hashes",h._id,hu);
+            syncSheet(webhookUrl,"repair",{...repRec,employeeCode:emp.code,employeeName:emp.name,tecnico:emp.name});
+            alert("✓ Conserto retroativo registrado com sucesso!");
+          }else{
+            alert("Erro ao salvar: "+res.error);
+          }
+          setRetroSaving(false);
+        }} disabled={retroSaving} style={{width:"100%",fontSize:11,padding:"6px 0"}}>{retroSaving?"Gravando...":"💾 Gravar Conserto"}</Btn>
+      </div>
+    )}
     <SL>STATUS</SL><div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>{["ON","OFF","TESTAR","REPARO","STOCK","NA MAQUINA"].map(s=><button key={s} onClick={()=>upd("status",s)} style={{background:h.status===s?HST_C[s]:C.bg,color:"#fff",border:`1px solid ${HST_C[s]}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}}>{s}</button>)}</div>
     <EditableSNField label="SN (editar)" value={h.sn||""} onCommit={v=>upd("sn",v)}/>
     <MaterialPicker value={h.material||""} onChange={v=>upd("material",v)}/>
@@ -4030,10 +4149,10 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Modelos padrao (hardcoded) e customizados. Voce pode apagar qualquer um — inclusive os padrao. Se apagar um padrao, ele some dos menus mas as maquinas ja cadastradas com ele ficam intactas.</div>
       {(()=>{
         // Unifica DEF_MODELS + customModels sem duplicar
-        const customByName=new Map(data.customModels.filter(m=>!m.chips).map(m=>[m.m,m]));
-        const hiddenNames=new Set((data.customModels.filter(m=>m._hidden)).map(m=>m.m));
-        const defRows=DEF_MODELS.filter(m=>!customByName.has(m.m)).map(m=>({...m,_isDefault:true}));
-        const allRows=[...defRows,...data.customModels.filter(m=>!m.chips)].sort((a,b)=>a.m.localeCompare(b.m));
+        const customByName=new Map(data.customModels.filter(m=>!m.chips&&!m._hidden&&m.th>=0).map(m=>[m.m,m]));
+        const hiddenNames=new Set((data.customModels.filter(m=>m._hidden||m.th<0)).map(m=>m.m));
+        const defRows=DEF_MODELS.filter(m=>!customByName.has(m.m)&&!hiddenNames.has(m.m)).map(m=>({...m,_isDefault:true}));
+        const allRows=[...defRows,...data.customModels.filter(m=>!m.chips&&!m._hidden&&m.th>=0)].sort((a,b)=>a.m.localeCompare(b.m));
         return allRows.map(m=><div key={m._id||m.m} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:6}}>
             <span style={{fontWeight:700}}>{m.m}</span>
@@ -4044,8 +4163,8 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
             <button onClick={async()=>{
               if(!confirm("Apagar modelo "+m.m+"? Ele vai sumir dos menus mas as maquinas existentes nao mudam."))return;
               if(m._isDefault){
-                // Para modelos padrao, salva um registro "bloqueado" para remover do allModels
-                const id=uid();const d={m:m.m,th:m.th,_hidden:true};
+                // Para modelos padrao, salva um registro "bloqueado" (th: -1) para remover do allModels
+                const id=uid();const d={m:m.m,th:-1};
                 await fbSet("customModels",id,d);mutate("customModels",arr=>[...arr,{...d,_id:id}]);
               }else{
                 await fbDel("customModels",m._id);mutate("customModels",arr=>arr.filter(x=>x._id!==m._id));
@@ -4958,87 +5077,7 @@ function ClientDetail({ctx,client}){
       if((pl[field]||[]).includes(sn)){
         const ns=(pl[field]||[]).filter(s=>s!==sn);
         const u={...pl,[field]:ns,...audit(user)};
-        mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u:x));await fbSet("pallets",pl._id,u);
-      }
-    }
-  };
-  const saveAll=async()=>{
-    if(!pending.length)return;setSaving(true);
-    const newMSNs=[...(c.machinesSN||[])];const newHSNs=[...(c.hashesSN||[])];
-    for(const row of pending){
-      if(row.type==="machine"){
-        if(row.existing){
-          const ex=data.machines.find(m=>m._id===row._id);if(!ex)continue;
-          const mHashes=data.hashes.filter(h=>h.machineSN===row.sn);
-          for(const h of mHashes){const u={...h,status:"SAIDA",location:"Vendida: "+c.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);syncSheet(webhookUrl,"hashSaida",{sn:u.sn,machineSN:row.sn,employeeName:user.name,employeeCode:user.code})}
-          const u={...ex,situacao:"SAIDA",destino:c.name,changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"SAIDA",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
-          mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));await fbSet("machines",ex._id,u);
-          syncSheet(webhookUrl,"machineToClient",{sn:row.sn,destino:c.name,employeeName:user.name,employeeCode:user.code});
-          await removeFromAllPallets(row.sn,false);
-        }else{
-          const id=uid();const d={sn:row.sn,model:"M30S",th:86,type:"complete",situacao:"SAIDA",hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",destino:c.name,...audit(user),addedAt:TODAY()};
-          await fbSet("machines",id,d);mutate("machines",m=>[...m,{...d,_id:id}]);
-          syncSheet(webhookUrl,"addMachine",{sn:row.sn,model:d.model,situacao:"SAIDA",destino:c.name,employeeName:user.name,employeeCode:user.code});
-        }
-        newMSNs.push(row.sn);
-        // Registro de ENVIO — nunca é apagado nem sobrescrito, mesmo que
-        // essa máquina volte e seja mandada de novo (pro mesmo cliente ou
-        // outro). Cada envio vira uma linha própria no histórico do cliente.
-        {
-          const mForShip=data.machines.find(m=>m.sn===row.sn);
-          const testForShip=[...data.tests].reverse().find(t=>t.machineSN===row.sn&&t.overallResult==="good");
-          const shipPhoto=mForShip?.photoKey||testForShip?.testPhoto||"";
-          const shipId=uid();
-          await fbSet("shipments",shipId,{clientId:c._id,clientName:c.name,machineSN:row.sn,model:mForShip?.model||"",photoKey:shipPhoto,sentAt:stamp(),...audit(user)});
-          mutate("shipments",arr=>[...arr,{clientId:c._id,clientName:c.name,machineSN:row.sn,model:mForShip?.model||"",photoKey:shipPhoto,sentAt:stamp(),_id:shipId}]);
-        }
-      }else{
-        if(row.existing){
-          const ex=data.hashes.find(h=>h._id===row._id);if(!ex)continue;
-          const u={...ex,status:"SAIDA",location:"Vendida: "+c.name,changeLog:[{field:"status",label:"Status",from:ex.status,to:"SAIDA",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
-          mutate("hashes",arr=>arr.map(x=>x._id===ex._id?u:x));await fbSet("hashes",ex._id,u);
-          syncSheet(webhookUrl,"hashSaida",{sn:row.sn,employeeName:user.name,employeeCode:user.code});
-          await removeFromAllPallets(row.sn,true);
-        }else{
-          const id=uid();const d={sn:row.sn,model:"M30S",status:"SAIDA",location:"Vendida: "+c.name,machineSN:"",slot:-1,...audit(user),addedAt:TODAY()};
-          await fbSet("hashes",id,d);mutate("hashes",h=>[...h,{...d,_id:id}]);
-          syncSheet(webhookUrl,"addHash",{sn:row.sn,model:d.model,status:"SAIDA",employeeName:user.name,employeeCode:user.code});
-        }
-        newHSNs.push(row.sn);
-      }
-    }
-    const upd={...c,machinesSN:newMSNs,hashesSN:newHSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);
-    await markChanged("clients");await markChanged("machines");await markChanged("hashes");
-    setPending([]);setSaving(false);
-  };
-  const remMac=async(sn)=>{
-    if(!confirm(`Desvincular a máquina "${sn}" do cliente "${c.name}"? Ela volta pro estoque como BOA.`))return;
-    const newSNs=(c.machinesSN||[]).filter(s=>s!==sn);
-    const upd={...c,machinesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients");
-    // Desvincula a máquina de verdade também (volta pra BOA, tira o destino)
-    const ex=data.machines.find(m=>m.sn===sn);
-    if(ex){
-      const mu={...ex,situacao:"BOA",destino:"",changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"BOA (desvinculada de "+c.name+")",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
-      mutate("machines",arr=>arr.map(x=>x._id===ex._id?mu:x));await fbSet("machines",ex._id,mu);await markChanged("machines");
-      syncSheet(webhookUrl,"updateMachine",{sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
-      syncSheet(webhookUrl,"updateMachine",{sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
-      const mHashes=data.hashes.filter(h=>h.machineSN===sn);
-      for(const h of mHashes){
-        const hu={...h,status:"NA MAQUINA",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
-        mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
-        syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"NA MAQUINA",machineSN:sn,employeeName:user.name,employeeCode:user.code});
-      }
-      if(mHashes.length)await markChanged("hashes");
-    }
-  };
-  const remHash=async(sn)=>{
-    if(!confirm(`Desvincular a HASH "${sn}" do cliente "${c.name}"? Ela volta pro estoque.`))return;
-    const newSNs=(c.hashesSN||[]).filter(s=>s!==sn);
-    const upd={...c,hashesSN:newSNs,...audit(user)};setC(upd);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd:x));await fbSet("clients",c._id,upd);await markChanged("clients");
-    const ex=data.hashes.find(h=>h.sn===sn);
-    if(ex){
-      const hu={...ex,status:"STOCK",location:"",machineSN:"",changeLog:[{field:"status",label:"Status",from:ex.status,to:"STOCK (desvinculada de "+c.name+")",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
-      mutate("hashes",arr=>arr.map(x=>x._id===ex._id?hu:x));await fbSet("hashes",ex._id,hu);await markChanged("hashes");
+        mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u:x));await       mutate("hashes",arr=>arr.map(x=>x._id===ex._id?hu:x));await fbSet("hashes",ex._id,hu);await markChanged("hashes");
       syncSheet(webhookUrl,"updateHash",{sn,model:hu.model,status:"STOCK",machineSN:"",employeeName:user.name,employeeCode:user.code});
     }
   };
@@ -5080,19 +5119,17 @@ function ClientDetail({ctx,client}){
 // e status delas dentro, e a foto tirada no teste) e HASHs avulsas — com
 // filtro por modelo e data.
 function ClientReport({ctx,client}){
-  const{data,setModal}=ctx;
+  const{data,setModal,user}=ctx;
   const[modelFilter,setModelFilter]=useState(""),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[gen,setGen]=useState(false),[genProg,setGenProg]=useState("");
   const macs=(client.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
   const hshs=(client.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
   const allModelsUsed=[...new Set([...macs.map(m=>m.model),...hshs.map(h=>h.model)].filter(Boolean))].sort();
-  // Período: se só preencher "De", filtra só aquele dia; se preencher os
-  // dois, filtra o intervalo (ex: 02 até 15).
   const inRange=at=>{
     if(!at)return!dateFrom&&!dateTo;
     const d=at.slice(0,10);
     if(dateFrom&&d<dateFrom)return false;
     if(dateTo&&d>dateTo)return false;
-    if(dateFrom&&!dateTo&&d!==dateFrom)return false; // só "De" preenchido = só aquele dia
+    if(dateFrom&&!dateTo&&d!==dateFrom)return false;
     return true;
   };
   const macsF=macs.filter(m=>(!modelFilter||m.model===modelFilter)&&inRange(m._at));
@@ -5138,9 +5175,6 @@ function ClientReport({ctx,client}){
     {(()=>{
       const ships=(data.shipments||[]).filter(s=>s.clientId===client._id&&inRange(s.sentAt));
       if(!ships.length&&!loadPhotosF.length)return null;
-      // Agrupa por dia — mostra as máquinas enviadas naquele dia, e a(s)
-      // foto(s) da carga daquele dia logo em seguida, antes de passar pro
-      // próximo dia.
       const days=[...new Set([...ships.map(s=>(s.sentAt||"").slice(0,10)),...loadPhotosF.map(p=>p.date)])].filter(Boolean).sort().reverse();
       return<><SL mt={18}>📦 HISTÓRICO DE ENVIOS POR DIA</SL>
         <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Cada envio fica registrado aqui pra sempre — se a máquina voltar e for mandada de novo, aparece como um envio novo, separado.</div>
@@ -5161,8 +5195,7 @@ function ClientReport({ctx,client}){
         })}
       </>;
     })()}
-  </div>;
-}
+
 
 /* ═══ EQUIPE DETALHES ════════════════════════════════════════ */
 function EmpHistory({ctx,emp}){
