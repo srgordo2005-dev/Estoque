@@ -2294,7 +2294,7 @@ function HashDetail({ctx,hash}){
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10,fontSize:12}}>
         <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div><select value={h.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select>{gChips(h.model,h.material)&&<div style={{color:C.blue,fontSize:10,marginTop:2,fontWeight:700}}>{gChips(h.model,h.material)} chips</div>}</div>
         <div><div style={{color:C.muted,fontSize:10}}>LOCALIZAÇÃO</div>
-          {mac?<button onClick={()=>setModal(<Modal title={`🖥️ ${mac.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={mac}/></Modal>)} style={{background:"none",border:"none",color:C.green,fontWeight:700,fontSize:12,cursor:"pointer",padding:0,textAlign:"left"}}>🖥️ Slot{h.slot>=0?h.slot+1:"?"} → {mac.sn?.slice(0,10)} ↗</button>
+          {mac?<button onClick={()=>setModal(<Modal title={`🖥️ ${mac.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={mac} readOnly={true}/></Modal>)} style={{background:"none",border:"none",color:C.green,fontWeight:700,fontSize:12,cursor:"pointer",padding:0,textAlign:"left"}}>🖥️ Slot{h.slot>=0?h.slot+1:"?"} → {mac.sn?.slice(0,10)} ↗</button>
           :<div style={{color:C.muted,fontSize:11}}>
             {editLoc?<div><PalletLocationPicker pallets={data.pallets} value={locVal} onChange={setLocVal}/><Btn v="g" onClick={async()=>{
               await upd("location",locVal);
@@ -2436,7 +2436,7 @@ function HashSearchBox({ctx}){
         <div><span style={{fontWeight:800,color:C.accent}}>🖥️ {foundMachine.sn}</span> <span style={{color:C.muted,fontSize:12}}>{foundMachine.model}</span></div>
         <SP s={foundMachine.situacao}/>
       </div>
-      <Btn v="b" onClick={()=>setModal(<Modal title={`🖥️ ${foundMachine.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={foundMachine}/></Modal>)} style={{width:"100%",marginTop:8}}>📋 Ver Histórico Completo</Btn>
+      <Btn v="b" onClick={()=>setModal(<Modal title={`🖥️ ${foundMachine.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={foundMachine} readOnly={true}/></Modal>)} style={{width:"100%",marginTop:8}}>📋 Ver Histórico Completo</Btn>
     </div>}
   </div>;
 }
@@ -4940,7 +4940,7 @@ function OrderHistory({ctx,order:o}){
       return<Card key={i} style={{marginBottom:8}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div style={{fontWeight:800,fontSize:13,color:C.accent}}>🖥️ {f.machineSN} · {f.model}{f.th?` ${f.th}TH`:""}</div>
-          {m&&<button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>}
+          {m&&<button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>}
         </div>
         {item&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>Item pedido: {item.model}{item.th?` ${item.th}TH`:""}</div>}
         <div style={{fontSize:11,color:C.muted,marginTop:2}}>✅ Aprovado por {f.approvedByName} · {fmtTS(f.approvedAt)}</div>
@@ -5084,6 +5084,110 @@ function ClientDetail({ctx,client}){
     }
     await markChanged("pallets");
   };
+  const saveAll=async()=>{
+    if(!pending.length)return;
+    setSaving(true);
+    let newMacsSN=[...(c.machinesSN||[])];
+    let newHashesSN=[...(c.hashesSN||[])];
+    let newHData=[...data.hashes];
+    let newMData=[...data.machines];
+    
+    for(const p of pending){
+      if(p.type==="machine"){
+        newMacsSN.push(p.sn);
+        await removeFromAllPallets(p.sn,false);
+        const ex=data.machines.find(m=>m.sn===p.sn);
+        if(ex){
+          const u={...ex,situacao:"SAIDA",destino:c.name,...audit(user)};
+          newMData=newMData.map(x=>x._id===ex._id?u:x);
+          await fbSet("machines",ex._id,u);
+          syncSheet(webhookUrl,"machineToClient",{sn:u.sn,destino:c.name,employeeName:user.name,employeeCode:user.code});
+          
+          const slotSNs=[ex.hashSN0,ex.hashSN1,ex.hashSN2];
+          for(const hsn of slotSNs.filter(Boolean)){
+            const h=data.hashes.find(x=>x.sn===hsn);
+            if(h){
+              const uh={...h,status:"SAIDA",location:"Máquina "+ex.sn+" com "+c.name,...audit(user)};
+              newHData=newHData.map(x=>x._id===h._id?uh:x);
+              await fbSet("hashes",h._id,uh);
+              syncSheet(webhookUrl,"hashSaida",{sn:uh.sn,machineSN:ex.sn,employeeName:user.name,employeeCode:user.code});
+            }
+          }
+        }
+      }else{
+        newHashesSN.push(p.sn);
+        await removeFromAllPallets(p.sn,true);
+        const ex=data.hashes.find(h=>h.sn===p.sn);
+        if(ex){
+          const u={...ex,status:"SAIDA",location:"Cliente: "+c.name,...audit(user)};
+          newHData=newHData.map(x=>x._id===ex._id?u:x);
+          await fbSet("hashes",ex._id,u);
+          syncSheet(webhookUrl,"hashSaida",{sn:u.sn,machineSN:"",employeeName:user.name,employeeCode:user.code});
+        }
+      }
+    }
+    
+    const updC={...c,machinesSN:[...new Set(newMacsSN)],hashesSN:[...new Set(newHashesSN)],...audit(user)};
+    setC(updC);
+    mutate("clients",arr=>arr.map(x=>x._id===c._id?updC:x));
+    await fbSet("clients",c._id,updC);
+    mutate("hashes",arr=>newHData);
+    mutate("machines",arr=>newMData);
+    
+    await markChanged("clients");
+    await markChanged("machines");
+    await markChanged("hashes");
+    
+    setPending([]);
+    setSaving(false);
+  };
+  const remMac=async(sn)=>{
+    if(!confirm(`Desvincular a máquina ${sn} deste cliente e devolvê-la ao estoque?`))return;
+    const ex=data.machines.find(m=>m.sn===sn);
+    if(ex){
+      const u={...ex,situacao:"BOA",destino:"",changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"BOA (desvinculada de "+c.name+")",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
+      mutate("machines",arr=>arr.map(x=>x._id===ex._id?u:x));
+      await fbSet("machines",ex._id,u);
+      syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
+      syncSheet(webhookUrl,"machineFromClient",{sn:u.sn,employeeName:user.name,employeeCode:user.code});
+      
+      const mHashes=data.hashes.filter(h=>h.machineSN===sn&&sn);
+      for(const h of mHashes){
+        if(h.status==="SAIDA"){
+          const hu={...h,status:"NA MAQUINA",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+          mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
+          syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"NA MAQUINA",machineSN:sn,employeeName:user.name,employeeCode:user.code});
+        }
+      }
+      if(mHashes.length)await markChanged("hashes");
+    }
+    
+    const updC={...c,machinesSN:(c.machinesSN||[]).filter(s=>s!==sn),...audit(user)};
+    setC(updC);
+    mutate("clients",arr=>arr.map(x=>x._id===c._id?updC:x));
+    await fbSet("clients",c._id,updC);
+    
+    await markChanged("clients");
+    await markChanged("machines");
+  };
+  const remHash=async(sn)=>{
+    if(!confirm(`Desvincular a HASH ${sn} deste cliente e devolvê-la ao estoque?`))return;
+    const ex=data.hashes.find(h=>h.sn===sn);
+    if(ex){
+      const hu={...ex,status:"STOCK",location:"",changeLog:[{field:"status",label:"Status",from:ex.status,to:"STOCK (desvinculada do cliente)",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
+      mutate("hashes",arr=>arr.map(x=>x._id===ex._id?hu:x));
+      await fbSet("hashes",ex._id,hu);
+      syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"STOCK",machineSN:"",employeeName:user.name,employeeCode:user.code});
+    }
+    
+    const updC={...c,hashesSN:(c.hashesSN||[]).filter(s=>s!==sn),...audit(user)};
+    setC(updC);
+    mutate("clients",arr=>arr.map(x=>x._id===c._id?updC:x));
+    await fbSet("clients",c._id,updC);
+    
+    await markChanged("clients");
+    await markChanged("hashes");
+  };
   const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))remMac(sn);else if((c.hashesSN||[]).includes(sn))remHash(sn);setRemoveInput("")};
   const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
   return<div>
@@ -5111,7 +5215,7 @@ function ClientDetail({ctx,client}){
       <div style={{display:"flex",gap:8}}><input value={removeInput} onChange={e=>setRemoveInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&removeBySN()} placeholder="Bipe ou digite o SN pra remover..." style={{...inp,flex:1}}/><Btn v="d" onClick={removeBySN} style={{fontSize:12}}>Remover</Btn></div>
     </div>
     <SL>Máquinas ({macs.length})</SL>
-    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma máquina</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div><div style={{fontSize:10,color:C.muted}}>{m.model} · {m.th}TH</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button><button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div></div>)}
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma máquina</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div><div style={{fontSize:10,color:C.muted}}>{m.model} · {m.th}TH</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button><button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div></div>)}
     <SL mt={14}>HASHs avulsas ({hshs.length})</SL>
     {hshs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma HASH avulsa</div>:hshs.map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"} <HP s={h.status}/></div><div style={{fontSize:10,color:C.muted}}>{h.model}</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button><button onClick={()=>remHash(h.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div></div>)}
     <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Cliente</Btn>
@@ -5161,7 +5265,7 @@ function ClientReport({ctx,client}){
         return<Card key={m._id}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div style={{fontWeight:800,fontSize:13,color:C.accent}}>{m.sn} · {m.model}</div>
-            <button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>
+            <button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>
           </div>
           <div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {m._at?fmtTS(m._at):"—"}</div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>
