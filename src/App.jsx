@@ -5078,9 +5078,11 @@ function ClientDetail({ctx,client}){
       if((pl[field]||[]).includes(sn)){
         const ns=(pl[field]||[]).filter(s=>s!==sn);
         const u={...pl,[field]:ns,...audit(user)};
-        mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u:x));await       mutate("hashes",arr=>arr.map(x=>x._id===ex._id?hu:x));await fbSet("hashes",ex._id,hu);await markChanged("hashes");
-      syncSheet(webhookUrl,"updateHash",{sn,model:hu.model,status:"STOCK",machineSN:"",employeeName:user.name,employeeCode:user.code});
+        mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u:x));
+        await fbSet("pallets",pl._id,u);
+      }
     }
+    await markChanged("pallets");
   };
   const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))remMac(sn);else if((c.hashesSN||[]).includes(sn))remHash(sn);setRemoveInput("")};
   const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
