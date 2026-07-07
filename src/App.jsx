@@ -1444,6 +1444,8 @@ function BatchSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending,clearPending]=usePersistedBatch(user._id+"-machines-lote",[]),[saving,setSaving]=useState(false);
   const[dupMsg,setDupMsg]=useState("");
+  const[palletId,setPalletId]=useState("");
+  const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(null)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(null)}}/></Modal>);
   const addSN=(raw)=>{
     const s=raw.toUpperCase().trim();if(!s)return;
     const inBatch=pending.some(p=>p.sn===s);
@@ -1459,6 +1461,18 @@ function BatchSNForm({ctx,onClose}){
       return{c:"machines",id,d:{sn:p.sn,model,th:Number(th),type,situacao:sit,hash0,hash1,hash2,controladora:ctr,fonte,fans,ref,location:"",...audit(user),addedAt:TODAY(),destino:""}};
     });
     await fbBatch(writes);
+    
+    if(palletId){
+      const pallet=data.pallets.find(p=>p._id===palletId);
+      if(pallet){
+        const newMacs=writes.map(w=>w.d.sn);
+        const upd={...pallet,machinesSN:[...(pallet.machinesSN||[]),...newMacs],...audit(user)};
+        mutate("pallets",arr=>arr.map(x=>x._id===pallet._id?upd:x));
+        await fbSet("pallets",pallet._id,upd);
+        await markChanged("pallets");
+      }
+    }
+
     mutate("machines",m=>{
       const updIds=new Set(writes.filter((w,i)=>pending[i].existing).map(w=>w.id));
       const kept=m.filter(x=>!updIds.has(x._id));
@@ -1473,6 +1487,15 @@ function BatchSNForm({ctx,onClose}){
     setSaving(false);clearPending();onClose();
   };
   return<div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/></div><div style={{display:"flex",gap:8}}><Sel label="TIPO" value={type} onChange={e=>setType(e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div><Inp label="Referência (REF, aplicada a todos)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
+  <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:12}}>
+    <div style={{flex:1}}>
+      <Sel label="VINCULAR AO PALETE" value={palletId} onChange={e=>setPalletId(e.target.value)} style={{marginBottom:0}}>
+        <option value="">Nenhum</option>
+        {(data.pallets||[]).map(p=><option key={p._id} value={p._id}>{p.name}</option>)}
+      </Sel>
+    </div>
+    <Btn v="b" onClick={openNewPallet} style={{marginBottom:0}}>+ Novo</Btn>
+  </div>
   <div style={{color:C.muted,fontSize:11,marginBottom:6}}>As opções abaixo valem pra TODAS as máquinas desse lote:</div>
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
     {[["hash0","HASH 0",hash0,setHash0],["hash1","HASH 1",hash1,setHash1],["hash2","HASH 2",hash2,setHash2]].map(([k,l,v,setV])=><Sel key={k} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}
@@ -1494,8 +1517,91 @@ function BatchSNForm({ctx,onClose}){
 function BatchNoSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[itemType,setItemType]=useState("machine"),[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[qty,setQty]=useState("10"),[saving,setSaving]=useState(false),[prog,setProg]=useState(0);
-  const save=async()=>{const n=parseInt(qty);if(!n||n<1||n>1000)return;setSaving(true);const isHash=itemType==="hash";const writes=Array.from({length:n},()=>{const id=uid();const d=isHash?{sn:"",model,status:"REPARO",machineSN:"",slot:-1,location:"",...audit(user),addedAt:TODAY()}:{sn:"",model,th:Number(th),type:itemType==="shell"?"shell":"complete",situacao:sit,hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",ref,location:"",...audit(user),addedAt:TODAY(),destino:""};return{c:isHash?"hashes":"machines",id,d}});for(let i=0;i<writes.length;i+=500){await fbBatch(writes.slice(i,i+500));setProg(Math.min(i+500,writes.length))}mutate(isHash?"hashes":"machines",arr=>[...arr,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged(isHash?"hashes":"machines");syncSheet(webhookUrl,isHash?"addHashBatch":"addMachineBatch",{count:n,model,ref,employeeName:user.name,employeeCode:user.code});setSaving(false);onClose()};
-  return<div><SL>TIPO</SL><div style={{display:"flex",gap:8,marginBottom:14}}>{[["machine","🖥️ Máq."],["shell","📦 Carc."],["hash","⚡ HASH"]].map(([v,l])=><button key={v} onClick={()=>setItemType(v)} style={{flex:1,background:itemType===v?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}</div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div>{itemType!=="hash"&&<Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/>}</div>{itemType!=="hash"&&<Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>}{itemType!=="hash"&&<Inp label="Referência (REF)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>}<Inp label="QUANTIDADE" type="number" value={qty} onChange={e=>setQty(e.target.value)} placeholder="Ex: 300"/>{saving&&<div style={{background:"#0c2a0f",borderRadius:8,padding:10,marginBottom:12}}><div style={{color:C.green,fontWeight:700,marginBottom:4}}>Salvando {prog}/{qty}...</div><div style={{background:C.card2,borderRadius:4,height:6}}><div style={{background:C.green,borderRadius:4,height:6,width:`${(prog/parseInt(qty||1))*100}%`,transition:"width .3s"}}/></div></div>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"📦 Criar "+qty}</Btn></div></div>;
+  const[palletId,setPalletId]=useState("");
+  const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(null)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(null)}}/></Modal>);
+  const save=async()=>{
+    const n=parseInt(qty);if(!n||n<1||n>1000)return;setSaving(true);
+    const isHash=itemType==="hash";
+    const writes=Array.from({length:n},()=>{
+      const id=uid();
+      const tmpSN="GERADO-"+id.slice(0,6).toUpperCase();
+      const d=isHash?
+        {sn:tmpSN,model,status:"REPARO",machineSN:"",slot:-1,location:"",...audit(user),addedAt:TODAY()}
+        :
+        {sn:tmpSN,model,th:Number(th),type:itemType==="shell"?"shell":"complete",situacao:sit,hash0:"OFF",hash1:"OFF",hash2:"OFF",controladora:"OFF",fonte:"OFF",fans:"OFF",ref,location:"",...audit(user),addedAt:TODAY(),destino:""};
+      return{c:isHash?"hashes":"machines",id,d}
+    });
+    
+    for(let i=0;i<writes.length;i+=500){
+      await fbBatch(writes.slice(i,i+500));
+      setProg(Math.min(i+500,writes.length))
+    }
+    
+    if(palletId){
+      const pallet=data.pallets.find(p=>p._id===palletId);
+      if(pallet){
+        const newSNs=writes.map(w=>w.d.sn);
+        const upd={...pallet,[isHash?"hashesSN":"machinesSN"]:[...(pallet[isHash?"hashesSN":"machinesSN"]||[]),...newSNs],...audit(user)};
+        mutate("pallets",arr=>arr.map(x=>x._id===pallet._id?upd:x));
+        await fbSet("pallets",pallet._id,upd);
+        await markChanged("pallets");
+      }
+    }
+
+    mutate(isHash?"hashes":"machines",arr=>[...arr,...writes.map(w=>({...w.d,_id:w.id}))]);
+    await markChanged(isHash?"hashes":"machines");
+    syncSheet(webhookUrl,isHash?"addHashBatch":"addMachineBatch",{count:n,model,ref,employeeName:user.name,employeeCode:user.code});
+    setSaving(false);onClose()
+  };
+  return<div><SL>TIPO</SL><div style={{display:"flex",gap:8,marginBottom:14}}>{[["machine","🖥️ Máq."],["shell","📦 Carc."],["hash","⚡ HASH"]].map(([v,l])=><button key={v} onClick={()=>setItemType(v)} style={{flex:1,background:itemType===v?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}</div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div>{itemType!=="hash"&&<Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/>}</div>{itemType!=="hash"&&<Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>}{itemType!=="hash"&&<Inp label="Referência (REF)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>}<Inp label="QUANTIDADE" type="number" value={qty} onChange={e=>setQty(e.target.value)} placeholder="Ex: 300"/>
+  <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:12}}>
+    <div style={{flex:1}}>
+      <Sel label="VINCULAR AO PALETE" value={palletId} onChange={e=>setPalletId(e.target.value)} style={{marginBottom:0}}>
+        <option value="">Nenhum</option>
+        {(data.pallets||[]).map(p=><option key={p._id} value={p._id}>{p.name}</option>)}
+      </Sel>
+    </div>
+    <Btn v="b" onClick={openNewPallet} style={{marginBottom:0}}>+ Novo</Btn>
+  </div>
+  {saving&&<div style={{background:"#0c2a0f",borderRadius:8,padding:10,marginBottom:12}}><div style={{color:C.green,fontWeight:700,marginBottom:4}}>Salvando {prog}/{qty}...</div><div style={{background:C.card2,borderRadius:4,height:6}}><div style={{background:C.green,borderRadius:4,height:6,width:`${(prog/parseInt(qty||1))*100}%`,transition:"width .3s"}}/></div></div>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"📦 Criar "+qty}</Btn></div></div>;
+}
+
+function GenerateSNModal({ctx, onClose}){
+  const {data} = ctx;
+  const [type, setType] = useState(null);
+  const [nextSN, setNextSN] = useState("");
+
+  useEffect(()=>{
+    const allSNs = [...data.machines.map(m=>m.sn), ...data.hashes.map(h=>h.sn)].filter(Boolean);
+    let max = 999;
+    allSNs.forEach(sn => {
+      if(/^\d{4,8}$/.test(sn)){
+        const num = parseInt(sn, 10);
+        if(num > max) max = num;
+      }
+    });
+    setNextSN(String(max + 1));
+  }, [data.machines, data.hashes]);
+
+  if(!type){
+    return <div>
+      <div style={{marginBottom:10, fontSize:13, color:C.muted}}>Gerar SN simples (numérico) para:</div>
+      <div style={{display:"flex",gap:10}}>
+        <Btn onClick={()=>setType('machine')} style={{flex:1,justifyContent:"center",padding:"20px 0"}}>🖥️ Máquina</Btn>
+        <Btn onClick={()=>setType('hash')} style={{flex:1,justifyContent:"center",padding:"20px 0"}}>⚡ HASH</Btn>
+      </div>
+    </div>;
+  }
+
+  return <div>
+    <div style={{background:C.bg, padding:14, borderRadius:8, marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+      <span style={{color:C.muted, fontSize:12}}>SN Gerado:</span>
+      <span style={{fontSize:22, fontWeight:800, color:C.accent, fontFamily:"monospace"}}>{nextSN}</span>
+    </div>
+    <div style={{color:C.amber, fontSize:12, marginBottom:14, fontWeight:700, textAlign:"center"}}>⚠️ Escreva este SN na carcaça com um marcador AGORA!</div>
+    
+    {type==="machine" ? <AddMachineForm ctx={ctx} initSN={nextSN} onClose={onClose} /> : <AddHashForm ctx={ctx} initSN={nextSN} onClose={onClose} />}
+  </div>;
 }
 
 function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
@@ -1539,7 +1645,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
       syncSheet(webhookUrl,"hashApproved",{sn:slotSN,model:d.model,machineSN:d.sn,slot:i,employeeName:user.name,employeeCode:user.code});
     }
     await markChanged("hashes");
-    setSaving(false);onClose();
+    setSaving(false);onClose(finalSN);
   };
   // Gera um SN "livre" (SN-2, SN-3...) quando o usuário confirma que são
   // duas máquinas físicas diferentes com o mesmo SN impresso (acontece).
@@ -2003,7 +2109,7 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
     if(linkToMachine&&webhookUrl){
       syncSheet(webhookUrl,"hashApproved",{sn:s,model,machineSN:linkToMachine.sn,slot:linkToMachine.slot,employeeName:user.name,employeeCode:user.code});
     }
-    onClose(linkToMachine?s:undefined);
+    onClose(s);
   };
   return<div>
     <SNInput label="SN (deixe vazio se não tiver)" value={sn} onChange={checkSN} placeholder="SN da HASH"/>
@@ -2263,11 +2369,16 @@ function ConsertaPage({ctx}){
     {saved==="already_good"&&<Alrt type="ok">✅ Registrada como já estava boa! Vai para fila de teste.</Alrt>}
     <Card>
       <SL>REGISTRAR CONSERTO DE HASH</SL>
-      <SNInput label="SN DA HASHBOARD" value={f.hashSN} onChange={v=>{
-        set("hashSN",v);
-        const ex=data.hashes.find(h=>h.sn===v.toUpperCase().trim());
-        if(ex){if(ex.model)set("model",ex.model);if(ex.material)set("material",ex.material);if(ex.chips)set("boardChips",ex.chips)}
-      }} placeholder="Bipe, escaneie ou digite" list="hsh-rep"/>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:0}}>
+        <div style={{flex:1}}>
+          <SNInput label="SN DA HASHBOARD" value={f.hashSN} onChange={v=>{
+            set("hashSN",v);
+            const ex=data.hashes.find(h=>h.sn===v.toUpperCase().trim());
+            if(ex){if(ex.model)set("model",ex.model);if(ex.material)set("material",ex.material);if(ex.chips)set("boardChips",ex.chips)}
+          }} placeholder="Bipe, escaneie ou digite" list="hsh-rep"/>
+        </div>
+        <Btn v="b" onClick={()=>ctx.setModal(<Modal title="Gerar SN" onClose={()=>ctx.setModal(null)}><GenerateSNModal ctx={ctx} onClose={(newSN)=>{ctx.setModal(null);if(typeof newSN==='string'&&newSN){set("hashSN",newSN);}}}/></Modal>)} style={{height:44,marginBottom:12,padding:"0 12px"}}>+ SN</Btn>
+      </div>
       <datalist id="hsh-rep">{data.hashes.filter(h=>["REPARO","OFF"].includes(h.status)).map(h=><option key={h._id} value={h.sn||""}>{h.sn||"SEM SN"} — {h.model}</option>)}</datalist>
       <Sel label="MODELO" value={f.model} onChange={e=>set("model",e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
       <MaterialPicker value={f.material} onChange={v=>set("material",v)}/>
@@ -2504,6 +2615,12 @@ function TestePage({ctx}){
         await markChanged("orders");
       }
     }
+    if(sess){
+      if(sess.testPhoto) deleteDrivePhoto(sess.testPhoto);
+      sess.slots?.forEach(slot=>{
+        if(slot.photoKey) deleteDrivePhoto(slot.photoKey);
+      });
+    }
     await removeSessionLocal(id);
   };
 
@@ -2720,6 +2837,7 @@ function TestePage({ctx}){
       <div style={{display:"flex",gap:8}}>
         <input value={macInput} onChange={e=>setMacInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&loadMachine(macInput)} placeholder="Bipe ou escaneie o SN e Enter..." list="mac-list" style={{...inp,flex:1}}/>
         <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
+        <Btn v="b" onClick={()=>ctx.setModal(<Modal title="Gerar SN" onClose={()=>ctx.setModal(null)}><GenerateSNModal ctx={ctx} onClose={(newSN)=>{ctx.setModal(null);if(typeof newSN==='string'&&newSN){setMacInput(newSN);loadMachine(newSN)}}}/></Modal>)} style={{height:43,marginBottom:0,padding:"0 10px"}}>+ SN</Btn>
       </div>
       {/* Fixo — funciona com qualquer máquina, nova ou já cadastrada, em
           qualquer status. Muda o status pra PREPARANDO na hora (não precisa
@@ -4340,12 +4458,12 @@ function MovimentacaoTab({ctx}){
 function AddPalletForm({ctx,onClose}){
   const{mutate,user}=ctx;
   const[name,setName]=useState(""),[location,setLocation]=useState(""),[notes,setNotes]=useState("");
-  const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),location,notes,machinesSN:[],hashesSN:[],...audit(user),createdAt:TODAY()};await fbSet("pallets",id,d);mutate("pallets",p=>[...p,{...d,_id:id}]);await markChanged("pallets");onClose()};
+  const save=async()=>{if(!name.trim())return;const id=uid();const d={name:name.trim(),location,notes,machinesSN:[],hashesSN:[],...audit(user),createdAt:TODAY()};await fbSet("pallets",id,d);mutate("pallets",p=>[...p,{...d,_id:id}]);await markChanged("pallets");onClose(id)};
   return<div>
     <Inp label="Nome" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Palete 01" autoFocus/>
     <Inp label="Localização" value={location} onChange={e=>setLocation(e.target.value)} placeholder="Ex: Galpão A, Prateleira B3"/>
     <Inp label="Observações" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Opcional"/>
-    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div>
+    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>onClose()} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!name.trim()} style={{flex:1}}>Criar</Btn></div>
   </div>;
 }
 
