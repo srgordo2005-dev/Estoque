@@ -1668,7 +1668,8 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
         const hid=uid();const hd={sn:slotSN,model:d.model,status:slotOn?"NA MAQUINA":"STOCK",machineSN:d.sn,slot:i,...audit(user),addedAt:TODAY()};
         await fbSet("hashes",hid,hd);mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
       }
-      syncSheet(webhookUrl,"hashApproved",{sn:slotSN,model:d.model,machineSN:d.sn,slot:i,employeeName:user.name,employeeCode:user.code});
+      const foundH=data.hashes.find(h=>h.sn===slotSN);
+      syncSheet(webhookUrl,"hashApproved",{sn:slotSN,model:d.model,machineSN:d.sn,slot:i,chips:foundH?.chips||0,employeeName:user.name,employeeCode:user.code});
     }
     await markChanged("hashes");
     setSaving(false);onClose(finalSN);
@@ -1753,7 +1754,7 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
       if(found.model&&found.model!==m.model)await upd("model",found.model);
       const fu={...found,status:"NA MAQUINA",machineSN:m.sn,slot:i,...audit(user)};
       mutate("hashes",arr=>arr.map(x=>x._id===found._id?fu:x));await fbSet("hashes",found._id,fu);
-      syncSheet(webhookUrl,"hashApproved",{sn:found.sn,model:found.model,machineSN:m.sn,slot:i,employeeName:user.name,employeeCode:user.code});
+      syncSheet(webhookUrl,"hashApproved",{sn:found.sn,model:found.model,machineSN:m.sn,slot:i,chips:found.chips||0,employeeName:user.name,employeeCode:user.code});
     }
     await markChanged("hashes");
   };
@@ -2199,7 +2200,8 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
     // ainda), já vincula ela na máquina e manda o SN pro slot certo na
     // planilha — antes isso nunca acontecia, ficava só cadastrada solta.
     if(linkToMachine&&webhookUrl){
-      syncSheet(webhookUrl,"hashApproved",{sn:s,model,machineSN:linkToMachine.sn,slot:linkToMachine.slot,employeeName:user.name,employeeCode:user.code});
+      const defaultChips=gChips(model,material)||0;
+      syncSheet(webhookUrl,"hashApproved",{sn:s,model,machineSN:linkToMachine.sn,slot:linkToMachine.slot,chips:defaultChips,employeeName:user.name,employeeCode:user.code});
     }
     onClose(s);
   };
@@ -3515,7 +3517,7 @@ function ApprovalsPage({ctx}){
         const fromLabel=h.status==="SAIDA"?"Desvinculada da venda":h.machineSN?"Desvinculada de "+h.machineSN:h.status;
         const u={...h,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,location:"",changeLog:[{field:"status",label:"Status",from:fromLabel,to:"NA MAQUINA em "+appr.machineSN,by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
         newH=newH.map(x=>x._id===h._id?u:x);await fbSet("hashes",h._id,u);
-        syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
+        syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,chips:u.chips||0,employeeName:user.name,employeeCode:user.code});
       }else{
         // HASH nova — só é criada agora que foi aprovada como boa. Usa as
         // características que o testador definiu (modelo/material/chips)
@@ -3525,7 +3527,7 @@ function ApprovalsPage({ctx}){
         const newChips=test.newHashChips||"";
         const hid=uid();const hd={sn,model:newModel,material:newMaterial,chips:newChips,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,...audit(user),addedAt:TODAY()};
         await fbSet("hashes",hid,hd);newH=[...newH,{...hd,_id:hid}];
-        syncSheet(webhookUrl,"hashApproved",{sn,model:newModel,machineSN:appr.machineSN,slot:slotIdx,employeeName:user.name,employeeCode:user.code});
+        syncSheet(webhookUrl,"hashApproved",{sn,model:newModel,machineSN:appr.machineSN,slot:slotIdx,chips:newChips||0,employeeName:user.name,employeeCode:user.code});
         // Se colocou uma quantidade de chips que ainda não tava configurada
         // pra esse modelo+material, guarda como referência pras próximas.
         if(newChips&&!data.customModels.find(cm=>cm.m===newModel&&(cm.material||"")===newMaterial&&cm.chips)){
@@ -4204,7 +4206,7 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
 // Campos comparados campo a campo (máquina e HASH) — usado tanto na tela de
 // comparação manual quanto na checagem diária automática.
 const M_FIELDS=[["situacao","Situação"],["model","Modelo"],["th","T/H"],["ref","Referência"],["destino","Destino (cliente)"],["hashSN0","Slot 1 (SN)"],["hashSN1","Slot 2 (SN)"],["hashSN2","Slot 3 (SN)"],["hash0","Slot 1 (status)"],["hash1","Slot 2 (status)"],["hash2","Slot 3 (status)"],["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]];
-const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"],["chips","Chips"]];
+const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"]];
 const normCompare=v=>String(v??"").trim().toUpperCase();
 // Alguns SNs são só um texto de "placeholder" (tipo "SEM SN" escrito na
 // própria planilha) — isso NÃO é um SN de verdade e nunca pode ser usado
@@ -4253,7 +4255,6 @@ function SheetCompareReview({ctx,onClose}){
   const[diffsM,setDiffsM]=useState([]),[diffsH,setDiffsH]=useState([]),[resolved,setResolved]=useState(new Set());
   const[dupInfo,setDupInfo]=useState({blankM:[],blankH:[],dupM:[],dupH:[]});
   const[groupDiffs,setGroupDiffs]=useState([]);
-  const[tecDiffs,setTecDiffs]=useState([]);
   const[totals,setTotals]=useState(null);
   const[saving,setSaving]=useState(false),[err,setErr]=useState("");
   // Campos comparados campo a campo (máquina e HASH) — label é o que aparece pro Admin
@@ -4278,9 +4279,9 @@ function SheetCompareReview({ctx,onClose}){
         setSelAppM(new Set(em.map((_,i)=>i)));setSelAppH(new Set(eh.map((_,i)=>i)));
         // Existe nos dois lugares — compara campo a campo
         // BLINDAGEM: nunca compara SN vazio/em branco. Se dois itens sem SN
-        // "casassem" por engano (ex: "" === ""), o valor de UM acabaria sendo
-        // aplicado em TODOS os outros sem SN — foi exatamente isso que
-        // corrompeu o modelo de várias máquinas antes.
+        // "casassem" por engano (ex: "" === ""), the value of ONE would end up 
+        // being applied to ALL others without SN — it was exactly this that 
+        // corrupted the model of several machines before.
         const dm=[];
         const rowUpdates=[];
         data.machines.forEach(appM=>{
@@ -4310,20 +4311,6 @@ function SheetCompareReview({ctx,onClose}){
           if(diffs.length)dh.push({sn:appH.sn,appItem:appH,sheetItem:sheetH,diffs});
         });
         setDiffsM(dm);setDiffsH(dh);
-        // Comparação específica de TÉCNICO — separado do resto porque o
-        // nome do campo é diferente dos dois lados (repairedByName no app,
-        // tecnico na planilha), então não entra no H_FIELDS comum.
-        const tecD=[];
-        data.hashes.forEach(appH=>{
-          const appSN=validSN(appH.sn);if(!appSN)return;
-          const sheetH=sheetHashes.find(h=>validSN(h.sn)===appSN);if(!sheetH)return;
-          const appTec=(appH.repairedByName||"").trim();
-          const sheetTec=(sheetH.tecnico||"").trim();
-          if(appTec&&normCompare(appTec)!==normCompare(sheetTec)){
-            tecD.push({sn:appH.sn,model:appH.model,appTec,sheetTec:sheetTec||"(vazio)"});
-          }
-        });
-        setTecDiffs(tecD);
         // Diagnóstico extra: máquinas/HASHs sem SN e SNs duplicados no APP —
         // a comparação normal (por presença de SN) não pega isso, e é
         // exatamente o que explica "a contagem bate diferente mas não achei
@@ -4472,7 +4459,7 @@ function SheetCompareReview({ctx,onClose}){
     }
     await markChanged("pallets");await markChanged("clients");
     // Avisa a blindagem de dados que essa contagem menor é de propósito —
-    // senão ela ia "proteger" e trazer de volta o que acabamos de apagar.
+    // senão ela ia "proteger" e trazer de volta o que acabamos de apagate.
     if(mToDel.length)resetMaxCount("machines",data.machines.length-mToDel.length);
     if(hToDel.length)resetMaxCount("hashes",data.hashes.length-hToDel.length);
     setSaving(false);onClose();
@@ -4482,7 +4469,7 @@ function SheetCompareReview({ctx,onClose}){
   if(err)return<Alrt type="err">✗ {err}</Alrt>;
   const pendingDiffsM=diffsM.filter(d=>!resolved.has("m:"+d.sn));
   const pendingDiffsH=diffsH.filter(d=>!resolved.has("h:"+d.sn));
-  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length+pendingDiffsM.length+pendingDiffsH.length+groupDiffs.length+tecDiffs.length;
+  const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length+pendingDiffsM.length+pendingDiffsH.length+groupDiffs.length;
   const hasDupInfo=dupInfo.blankM.length+dupInfo.blankH.length+dupInfo.dupM.length+dupInfo.dupH.length>0;
   const DupInfoBox=hasDupInfo&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 CONTAGEM NÃO BATE? Achei isso no app:</div>
@@ -4505,13 +4492,6 @@ function SheetCompareReview({ctx,onClose}){
     </div>}
     {dupInfo.dupH.length>0&&<div style={{fontSize:12}}>⚠️ SN duplicado em HASHs: {dupInfo.dupH.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
   </div>;
-  const TecDiffBox=tecDiffs.length>0&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
-    <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>👷 TÉCNICO DIFERENTE ENTRE APP E PLANILHA ({tecDiffs.length})</div>
-    {tecDiffs.map((t,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`,fontSize:12}}>
-      <b>{t.sn}</b> · {t.model} — <span style={{color:C.accent}}>App: {t.appTec}</span> · <span style={{color:C.blue}}>Planilha: {t.sheetTec}</span>
-      <Btn v="g" onClick={()=>{syncSheet(webhookUrl,"updateHashTecnico",{sn:t.sn,tecnico:t.appTec,employeeName:user.name,employeeCode:user.code});setTecDiffs(td=>td.filter((_,j)=>j!==i))}} style={{width:"100%",marginTop:6}}>Corrigir na planilha (usar "{t.appTec}")</Btn>
-    </div>)}
-  </div>;
   const GroupDiffBox=groupDiffs.length>0&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 MÁQUINAS SEM SN — QUANTIDADE NÃO BATE POR GRUPO ({groupDiffs.length})</div>
     <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Comparando por Modelo + T/H + Referência (não dá pra saber "qual é qual" sem SN, mas dá pra saber se a QUANTIDADE bate).</div>
@@ -4527,11 +4507,10 @@ function SheetCompareReview({ctx,onClose}){
     <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>HASHs</div><div style={{fontWeight:800}}>App: {totals.appH} · Planilha: {totals.sheetH} {totals.appH!==totals.sheetH&&<span style={{color:C.red}}>({totals.appH>totals.sheetH?"+":""}{totals.appH-totals.sheetH})</span>}</div></div>
   </div>;
   if(totalDiff===0)return<div>{TotalsBox}{DupInfoBox}<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente (por SN) — app e planilha estão iguais nesse quesito.</div></div>;
-  return<div>
+  return <div>
     {TotalsBox}
     {DupInfoBox}
     {GroupDiffBox}
-    {TecDiffBox}
     {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
       <div style={{display:"flex",gap:8,marginBottom:10}}>

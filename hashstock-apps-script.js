@@ -13,9 +13,10 @@
  */
 
 // --- CONFIGURAÇÃO DE COLUNAS DA ABA "MAQUINAS" (1-based: A=1, B=2, C=3, etc.) ---
-const COL_MAC_SN = 1;          // A - SN
-const COL_MAC_REF = 2;         // B - Referência (REF)
-const COL_MAC_MODEL = 3;       // C - Modelo
+// Estrutura: A=Data, B=SN, C=Modelo, D=TH, E=Situação, F=Localização, G=Destino, H=Slot1 SN...
+const COL_MAC_REF = 1;         // A - Referência / Data de Entrada (Coluna A)
+const COL_MAC_SN = 2;          // B - SN (Coluna B)
+const COL_MAC_MODEL = 3;       // C - Modelo (Coluna C)
 const COL_MAC_TH = 4;          // D - T/H
 const COL_MAC_SITUACAO = 5;    // E - Situação
 const COL_MAC_LOCATION = 6;    // F - Localização
@@ -32,13 +33,85 @@ const COL_MAC_FONTE = 16;      // P - FONTE
 const COL_MAC_FANS = 17;       // Q - FANS
 
 // --- CONFIGURAÇÃO DE COLUNAS DA ABA "HASH" (1-based) ---
-const COL_HASH_SN = 1;         // A - SN
-const COL_HASH_MODEL = 2;      // B - Modelo
-const COL_HASH_STATUS = 3;     // C - Status (STOCK, NA MAQUINA, etc.)
-const COL_HASH_CHIPS = 4;      // D - Chips
-const COL_HASH_TECNICO = 5;    // E - Técnico
-const COL_HASH_MAQUINA = 6;    // F - Máquina (SN)
-const COL_HASH_DEFEITO = 7;    // G - Defeito
+// Estrutura Real (Imagem 1): A=Data, B=SN, C=Modelo, D=Status, E=Máquina SN, F=Foto Log, G=Obs
+const COL_HASH_SN = 2;         // B - SN (Coluna B)
+const COL_HASH_MODEL = 3;      // C - Modelo (Coluna C)
+const COL_HASH_STATUS = 4;     // D - Status (Coluna D)
+const COL_HASH_MAQUINA = 5;    // E - Máquina (SN) (Coluna E)
+const COL_HASH_FOTO = 6;       // F - Link da Foto (Coluna F)
+const COL_HASH_DEFEITO = 7;    // G - Defeito / Obs (Coluna G)
+
+// --- FUNÇÃO DE NORMALIZAÇÃO ROBUSTA DE TEXTO ---
+function normalizeString(str) {
+  if (!str) return "";
+  return str.toString().toLowerCase()
+    .replace(/[áàâãä]/g, "a")
+    .replace(/[éèêë]/g, "e")
+    .replace(/[íìîï]/g, "i")
+    .replace(/[óòôõö]/g, "o")
+    .replace(/[úùûü]/g, "u")
+    .replace(/[ç]/g, "c")
+    .replace(/[^a-z0-9]/g, ""); // Remove espaços e caracteres especiais
+}
+
+// --- FUNÇÃO PARA BUSCA ROBUSTA DE ABAS ---
+function getSheetByNameRobust(ss, name) {
+  const target = normalizeString(name);
+  const sheets = ss.getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const sName = normalizeString(sheets[i].getName());
+    if (sName === target) {
+      return sheets[i];
+    }
+  }
+  return null;
+}
+
+// --- BUSCADOR INTELIGENTE DE ABA DE MÁQUINAS ---
+function getMachinesSheet(ss) {
+  // 1. Tenta achar pelo nome padrão robusto "MAQUINAS"
+  let sheet = getSheetByNameRobust(ss, "MAQUINAS") || getSheetByNameRobust(ss, "MAQUINA");
+  if (sheet) return sheet;
+  
+  // 2. Busca por uma aba cujo cabeçalho B1 seja "SN" (ignora históricos/reparos/testes/hashes)
+  const sheets = ss.getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const s = sheets[i];
+    const name = normalizeString(s.getName());
+    if (name.includes("reparo") || name.includes("teste") || name.includes("envio") || name.includes("saida") || name.includes("historico") || name.includes("hash")) {
+      continue;
+    }
+    const hB = String(s.getRange(1, COL_MAC_SN).getValue() || "").trim().toLowerCase();
+    if (hB === "sn" || hB === "s/n" || hB === "serial") {
+      return s;
+    }
+  }
+  
+  // 3. Fallback
+  return ss.getSheets()[0];
+}
+
+// --- BUSCADOR INTELIGENTE DE ABA DE HASH ---
+function getHashesSheet(ss) {
+  // 1. Tenta encontrar pelo nome exato robusto "HASH"
+  let sheet = getSheetByNameRobust(ss, "HASH") || getSheetByNameRobust(ss, "HASHES") || getSheetByNameRobust(ss, "HASHBOARD");
+  if (sheet) return sheet;
+  
+  // 2. Busca por uma aba cujo cabeçalho B1 seja "SN" (ignora históricos/reparos/testes)
+  const sheets = ss.getSheets();
+  for (let i = 0; i < sheets.length; i++) {
+    const s = sheets[i];
+    const name = normalizeString(s.getName());
+    if (name.includes("reparo") || name.includes("teste") || name.includes("envio") || name.includes("saida") || name.includes("historico")) {
+      continue;
+    }
+    const hB = String(s.getRange(1, COL_HASH_SN).getValue() || "").trim().toLowerCase();
+    if (hB === "sn" || hB === "s/n" || hB === "serial") {
+      return s;
+    }
+  }
+  return null;
+}
 
 // --- DIRETIVAS DO DOPOST ---
 function doPost(e) {
@@ -47,10 +120,10 @@ function doPost(e) {
     const batch = json.batch || [];
     
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheetMac = ss.getSheetByName("MAQUINAS") || ss.getSheets()[0];
-    const sheetHash = ss.getSheetByName("HASH");
-    const sheetReparo = ss.getSheetByName("REPARO HASH");
-    const sheetTestes = ss.getSheetByName("TESTES");
+    const sheetMac = getMachinesSheet(ss);
+    const sheetHash = getHashesSheet(ss) || getSheetByNameRobust(ss, "HASH");
+    const sheetReparo = getSheetByNameRobust(ss, "REPARO DE HASH") || getSheetByNameRobust(ss, "REPARO HASH") || ss.getSheetByName("REPARO DE HASH");
+    const sheetTestes = getSheetByNameRobust(ss, "TESTES") || ss.getSheetByName("TESTES");
     
     // Processa o lote (batch) de forma rápida
     for (let i = 0; i < batch.length; i++) {
@@ -77,13 +150,13 @@ function doPost(e) {
       } else if (action === "hashSaida") {
         hashSaidaRow(sheetHash, payload);
       } else if (action === "hashApproved") {
-        hashApprovedRow(sheetMac, sheetHash, payload);
+        hashApprovedRow(sheetMac, sheetHash, sheetReparo, payload);
       } else if (action === "hashBad") {
         hashBadRow(sheetHash, payload);
       } else if (action === "updateHashChips") {
-        updateHashChipsRow(sheetHash, payload);
+        // No-op: aba HASH não tem coluna de Chips
       } else if (action === "updateHashTecnico") {
-        updateHashTecnicoRow(sheetHash, payload);
+        // No-op: aba HASH não tem coluna de Técnico
       } else if (action === "repair" || action === "alreadyGood") {
         addRepairRow(sheetReparo, sheetHash, payload);
       } else if (action === "test") {
@@ -106,25 +179,55 @@ function doGet(e) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     
     if (action === "test") {
-      return ContentService.createTextOutput(JSON.stringify({ status: "ok", time: new Date().toISOString(), version: "v5" }))
-        .setMimeType(ContentService.MimeType.JSON);
+      const ssMac = getMachinesSheet(ss);
+      const ssHash = getHashesSheet(ss);
+      return ContentService.createTextOutput(JSON.stringify({ 
+        status: "ok", 
+        time: new Date().toISOString(), 
+        version: "v11",
+        detectedMachinesSheet: ssMac ? ssMac.getName() : "Nenhuma",
+        detectedHashesSheet: ssHash ? ssHash.getName() : "Nenhuma",
+        sheetsList: ss.getSheets().map(s => ({
+          name: s.getName(),
+          a1: String(s.getRange(1,1).getValue() || ""),
+          b1: String(s.getRange(1,2).getValue() || "")
+        }))
+      })).setMimeType(ContentService.MimeType.JSON);
     }
     
     if (action === "getMachines") {
-      const sheet = ss.getSheetByName("MAQUINAS") || ss.getSheets()[0];
+      const sheet = getMachinesSheet(ss);
       const data = sheet.getDataRange().getValues();
-      const headers = data[0];
       const machines = [];
       
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
-        const sn = String(row[COL_MAC_SN - 1] || "").trim();
+        const rawSN = row[COL_MAC_SN - 1];
+        
+        // Pula se for objeto Date legítimo (não é SN de máquina)
+        if (rawSN instanceof Date) continue;
+        
+        const sn = String(rawSN || "").trim();
         if (!sn) continue;
+        
+        // Pula se o SN tiver formato de data (ex: 23/03/2026 ou 2026-03-23)
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(sn) || /^\d{4}-\d{2}-\d{2}$/.test(sn)) {
+          continue;
+        }
+        
+        // Formata a Referência (Coluna A) se vier como Date da planilha
+        let refVal = row[COL_MAC_REF - 1];
+        let refStr = "";
+        if (refVal instanceof Date) {
+          refStr = Utilities.formatDate(refVal, Session.getScriptTimeZone(), "dd/MM/yyyy");
+        } else {
+          refStr = String(refVal || "").trim();
+        }
         
         machines.push({
           sheetRow: r + 1,
           sn: sn,
-          ref: String(row[COL_MAC_REF - 1] || ""),
+          ref: refStr,
           model: String(row[COL_MAC_MODEL - 1] || ""),
           th: Number(row[COL_MAC_TH - 1] || 0),
           situacao: String(row[COL_MAC_SITUACAO - 1] || ""),
@@ -146,7 +249,7 @@ function doGet(e) {
     }
     
     if (action === "getHashes") {
-      const sheet = ss.getSheetByName("HASH");
+      const sheet = getHashesSheet(ss) || getSheetByNameRobust(ss, "HASH");
       if (!sheet) return ContentService.createTextOutput(JSON.stringify({ hashes: [] })).setMimeType(ContentService.MimeType.JSON);
       
       const data = sheet.getDataRange().getValues();
@@ -154,15 +257,23 @@ function doGet(e) {
       
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
-        const sn = String(row[COL_HASH_SN - 1] || "").trim();
+        const rawSN = row[COL_HASH_SN - 1];
+        
+        if (rawSN instanceof Date) continue;
+        
+        const sn = String(rawSN || "").trim();
         if (!sn) continue;
+        
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(sn) || /^\d{4}-\d{2}-\d{2}$/.test(sn)) {
+          continue;
+        }
         
         hashes.push({
           sn: sn,
           model: String(row[COL_HASH_MODEL - 1] || ""),
           status: String(row[COL_HASH_STATUS - 1] || ""),
-          chips: Number(row[COL_HASH_CHIPS - 1] || 0),
-          tecnico: String(row[COL_HASH_TECNICO - 1] || ""),
+          chips: 0, // Sem coluna de Chips na aba HASH
+          tecnico: "", // Sem coluna de Técnico na aba HASH
           machineSN: String(row[COL_HASH_MAQUINA - 1] || ""),
           defeito: String(row[COL_HASH_DEFEITO - 1] || "")
         });
@@ -203,7 +314,6 @@ function updateMachineRow(sheet, p) {
   
   if (row === -1) return;
   
-  // Mapeia o campo do App para a coluna correspondente
   let col = -1;
   const f = p.field;
   if (f === "situacao") col = COL_MAC_SITUACAO;
@@ -231,7 +341,6 @@ function addMachineRow(sheet, p) {
   if (!p.sn) return;
   const existing = findRowBySN(sheet, COL_MAC_SN, p.sn);
   if (existing !== -1) {
-    // Apenas atualiza
     sheet.getRange(existing, COL_MAC_MODEL).setValue(p.model || "");
     sheet.getRange(existing, COL_MAC_TH).setValue(p.th || 0);
     sheet.getRange(existing, COL_MAC_SITUACAO).setValue(p.situacao || "STOCK");
@@ -239,10 +348,8 @@ function addMachineRow(sheet, p) {
     return;
   }
   
-  // Cria nova linha com o número padrão de colunas
   const lastRow = sheet.getLastRow();
   const rowData = [];
-  // Inicializa colunas vazias
   for (let i = 0; i < 20; i++) rowData.push("");
   
   rowData[COL_MAC_SN - 1] = p.sn.toUpperCase().trim();
@@ -271,7 +378,6 @@ function updateHashRow(sheet, p) {
   } else if (p.field === "machineSN") {
     sheet.getRange(row, COL_HASH_MAQUINA).setValue(p.to || "");
   } else if (p.field === "location") {
-    // Se a HASH tem coluna de localização ou usa a coluna Máquina
     sheet.getRange(row, COL_HASH_MAQUINA).setValue(p.to || "");
   }
 }
@@ -311,7 +417,7 @@ function machineToClientRow(sheet, p) {
   
   sheet.getRange(row, COL_MAC_SITUACAO).setValue("SAIDA");
   sheet.getRange(row, COL_MAC_DESTINO).setValue(p.destino || "");
-  sheet.getRange(row, COL_MAC_DATA_SAIDA).setValue(todayStr); // DATA DE SAÍDA NA COLUNA O (15) configurada acima
+  sheet.getRange(row, COL_MAC_DATA_SAIDA).setValue(todayStr);
 }
 
 function machineFromClientRow(sheet, p) {
@@ -319,7 +425,7 @@ function machineFromClientRow(sheet, p) {
   if (row === -1) return;
   
   sheet.getRange(row, COL_MAC_DESTINO).setValue(""); // Limpa cliente
-  sheet.getRange(row, COL_MAC_DATA_SAIDA).setValue(""); // Limpa data de saída da planilha
+  sheet.getRange(row, COL_MAC_DATA_SAIDA).setValue(""); // Limpa data de saída
 }
 
 function hashSaidaRow(sheet, p) {
@@ -331,8 +437,30 @@ function hashSaidaRow(sheet, p) {
   sheet.getRange(row, COL_HASH_MAQUINA).setValue(p.machineSN || "");
 }
 
-function hashApprovedRow(sheetMac, sheetHash, p) {
-  // Atualiza os slots da máquina na planilha
+function hashApprovedRow(sheetMac, sheetHash, sheetReparo, p) {
+  let modelVal = p.model || "";
+  let chipsVal = p.chips || 0;
+  let tecVal = p.employeeName || "";
+  
+  // 1. Atualiza o status da HASH na aba principal "HASH" (Fica "NA MAQUINA")
+  if (sheetHash && p.sn) {
+    const hRow = findRowBySN(sheetHash, COL_HASH_SN, p.sn);
+    if (hRow !== -1) {
+      modelVal = String(sheetHash.getRange(hRow, COL_HASH_MODEL).getValue() || modelVal);
+      sheetHash.getRange(hRow, COL_HASH_STATUS).setValue("NA MAQUINA");
+      sheetHash.getRange(hRow, COL_HASH_MAQUINA).setValue(p.machineSN || "");
+    } else {
+      const rowData = [];
+      for (let i = 0; i < 10; i++) rowData.push("");
+      rowData[COL_HASH_SN - 1] = p.sn.toUpperCase().trim();
+      rowData[COL_HASH_MODEL - 1] = modelVal;
+      rowData[COL_HASH_STATUS - 1] = "NA MAQUINA";
+      rowData[COL_HASH_MAQUINA - 1] = p.machineSN || "";
+      sheetHash.appendRow(rowData);
+    }
+  }
+
+  // 2. Atualiza os slots da máquina na planilha (Fica "ON")
   if (sheetMac && p.machineSN) {
     const mRow = findRowBySN(sheetMac, COL_MAC_SN, p.machineSN);
     if (mRow !== -1) {
@@ -345,22 +473,22 @@ function hashApprovedRow(sheetMac, sheetHash, p) {
     }
   }
   
-  // Atualiza o status da HASH
-  if (sheetHash && p.sn) {
-    const hRow = findRowBySN(sheetHash, COL_HASH_SN, p.sn);
-    if (hRow !== -1) {
-      sheetHash.getRange(hRow, COL_HASH_STATUS).setValue("NA MAQUINA");
-      sheetHash.getRange(hRow, COL_HASH_MAQUINA).setValue(p.machineSN || "");
-    } else {
-      // Cria a HASH se não existir, evitando duplicatas no app
-      const rowData = [];
-      for (let i = 0; i < 10; i++) rowData.push("");
-      rowData[COL_HASH_SN - 1] = p.sn.toUpperCase().trim();
-      rowData[COL_HASH_MODEL - 1] = p.model || "";
-      rowData[COL_HASH_STATUS - 1] = "NA MAQUINA";
-      rowData[COL_HASH_MAQUINA - 1] = p.machineSN || "";
-      sheetHash.appendRow(rowData);
-    }
+  // 3. Grava uma nova linha na aba "REPARO DE HASH" com SITUACAO = "BOA" (Imagem 2)
+  if (sheetReparo && p.sn) {
+    const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+    
+    // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL (deixado vazio), F=SITUACAO (BOA), G=TECNICO, H=DEFEITO
+    const rowData = [
+      todayStr,                             // A - Data
+      modelVal,                             // B - MODELO
+      chipsVal,                             // C - CHIPS
+      p.sn.toUpperCase().trim(),            // D - SN / MAC
+      "",                                   // E - LOCAL (Deixado em branco)
+      "BOA",                                // F - SITUACAO (Fica "BOA" conforme pedido!)
+      tecVal,                               // G - TECNICO
+      ""                                    // H - DEFEITO
+    ];
+    sheetReparo.appendRow(rowData);
   }
 }
 
@@ -376,51 +504,36 @@ function hashBadRow(sheet, p) {
   }
 }
 
-function updateHashChipsRow(sheet, p) {
-  if (!sheet) return;
-  const row = findRowBySN(sheet, COL_HASH_SN, p.sn);
-  if (row !== -1) {
-    sheet.getRange(row, COL_HASH_CHIPS).setValue(Number(p.chips || 0));
-  }
-}
-
-function updateHashTecnicoRow(sheet, p) {
-  if (!sheet) return;
-  const row = findRowBySN(sheet, COL_HASH_SN, p.sn);
-  if (row !== -1) {
-    sheet.getRange(row, COL_HASH_TECNICO).setValue(p.tecnico || "");
-  }
-}
-
 function addRepairRow(sheet, sheetHash, p) {
   if (!sheet) return;
   
-  // Grava o conserto na aba "REPARO HASH"
+  // Grava o conserto na aba "REPARO DE HASH" (Estrutura Real do Usuário - Imagem 2)
   const dateVal = p.date ? new Date(p.date + "T12:00:00") : new Date();
   const dateStr = Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "dd/MM/yyyy");
   
+  const statusVal = p.type === "rework" ? "REPARAR" : "TESTAR";
+  
+  // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL (deixado vazio conforme pedido!), F=SITUACAO, G=TECNICO, H=DEFEITO
   const rowData = [
-    p.hashSN || "",
-    p.model || "",
-    p.type === "rework" ? "RETRABALHO" : "CONSERTO",
-    dateStr,
-    p.tecnico || p.employeeName || "",
-    p.chips || 0,
-    p.sensores || 0,
-    p.ldos || 0,
-    p.obsManual || p.notes || ""
+    dateStr,                              // A - Data
+    p.model || "",                        // B - MODELO
+    p.chips || 0,                         // C - CHIPS
+    p.hashSN || "",                       // D - SN / MAC
+    "",                                   // E - LOCAL (Deixado em branco para você selecionar manualmente na planilha)
+    statusVal,                            // F - SITUACAO (TESTAR ou REPARAR)
+    p.tecnico || p.employeeName || "",    // G - TECNICO (Nome do técnico)
+    p.obsManual || p.notes || ""          // H - DEFEITO (Obs)
   ];
   sheet.appendRow(rowData);
   
-  // Garante que o status da HASH na aba principal vira "TESTAR", vinculando o técnico correto
+  // Garante que o status da HASH na aba principal "HASH" vira "TESTAR" ou "REPARO"
   if (sheetHash && p.hashSN) {
     const hRow = findRowBySN(sheetHash, COL_HASH_SN, p.hashSN);
     if (hRow !== -1) {
-      sheetHash.getRange(hRow, COL_HASH_STATUS).setValue("TESTAR");
-      sheetHash.getRange(hRow, COL_HASH_TECNICO).setValue(p.tecnico || p.employeeName || "");
+      sheetHash.getRange(hRow, COL_HASH_STATUS).setValue(statusVal);
       sheetHash.getRange(hRow, COL_HASH_MAQUINA).setValue(""); // Desvincula
-      if (p.chips) {
-        sheetHash.getRange(hRow, COL_HASH_CHIPS).setValue(Number(p.chips));
+      if (p.obsManual || p.notes) {
+        sheetHash.getRange(hRow, COL_HASH_DEFEITO).setValue(p.obsManual || p.notes);
       }
     } else {
       // HASH nova sendo cadastrada via conserto
@@ -428,10 +541,9 @@ function addRepairRow(sheet, sheetHash, p) {
       for (let i = 0; i < 10; i++) rowDataHash.push("");
       rowDataHash[COL_HASH_SN - 1] = p.hashSN.toUpperCase().trim();
       rowDataHash[COL_HASH_MODEL - 1] = p.model || "";
-      rowDataHash[COL_HASH_STATUS - 1] = "TESTAR";
-      rowDataHash[COL_HASH_TECNICO - 1] = p.tecnico || p.employeeName || "";
-      if (p.chips) {
-        rowDataHash[COL_HASH_CHIPS - 1] = Number(p.chips);
+      rowDataHash[COL_HASH_STATUS - 1] = statusVal;
+      if (p.obsManual || p.notes) {
+        rowDataHash[COL_HASH_DEFEITO - 1] = p.obsManual || p.notes;
       }
       sheetHash.appendRow(rowDataHash);
     }
