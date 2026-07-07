@@ -2494,6 +2494,16 @@ function TestePage({ctx}){
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
   // Cada sessão é um documento próprio (não fica mais 1 sessão por usuário).
   const[sessions,setSessions]=useState([]),[allSessions,setAllSessions]=useState([]),[activeId,setActiveId]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false),[unlinkPrompt,setUnlinkPrompt]=useState(null);
+  const[sessionOrder,setSessionOrder]=usePersistedField("session-order-"+user._id,[]);
+  const orderedSessions=useMemo(()=>{
+    return sessions.slice().sort((a,b)=>{
+      let idxA=sessionOrder.indexOf(a._id);
+      let idxB=sessionOrder.indexOf(b._id);
+      if(idxA===-1)idxA=99999;
+      if(idxB===-1)idxB=99999;
+      return idxA-idxB;
+    });
+  },[sessions,sessionOrder]);
   const slotRefs=useRef([]);
   const recentlyCreated=useRef(new Set());
   // allSessions guarda TODAS as sessões (de todo mundo, não só as minhas) —
@@ -2859,13 +2869,34 @@ function TestePage({ctx}){
     {err&&<Alrt type="err">{err}</Alrt>}
 
     {/* Sessões em aberto — pode ter várias máquinas em teste ao mesmo tempo */}
-    {sessions.length>0&&<div style={{marginBottom:12}}>
-      <SL>🖥️ MÁQUINAS EM TESTE ({sessions.length})</SL>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {sessions.map(s=><button key={s._id} onClick={()=>{setActiveId(s._id);setMacInput(s.machineSN)}} style={{background:s._id===activeId?C.accent:(s.rejected?"#3a0a0a":C.card),color:"#fff",border:`1px solid ${s._id===activeId?C.accent:(s.rejected?C.red:C.border)}`,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-          {s.rejected?"❌":s.machineBad?"💀":s.orderRef?"📋":s.prepShipment?"📦":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
-          <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900}}>✕</span>
+    {orderedSessions.length>0&&<div style={{marginBottom:12}}>
+      <SL>🖥️ MÁQUINAS EM TESTE ({orderedSessions.length})</SL>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        {orderedSessions.map((s,index)=><button
+          key={s._id}
+          draggable
+          onDragStart={e=>{
+            e.dataTransfer.setData("text/plain",String(index));
+            e.dataTransfer.effectAllowed="move";
+          }}
+          onDragOver={e=>e.preventDefault()}
+          onDrop={e=>{
+            e.preventDefault();
+            const fromIdx=Number(e.dataTransfer.getData("text/plain"));
+            const toIdx=index;
+            if(fromIdx===toIdx)return;
+            const next=[...orderedSessions];
+            const[dragged]=next.splice(fromIdx,1);
+            next.splice(toIdx,0,dragged);
+            setSessionOrder(next.map(x=>x._id));
+          }}
+          onClick={()=>{setActiveId(s._id);setMacInput(s.machineSN)}}
+          style={{background:s._id===activeId?C.accent:(s.rejected?"#3a0a0a":C.card),color:"#fff",border:`1px solid ${s._id===activeId?C.accent:(s.rejected?C.red:C.border)}`,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"grab",display:"flex",alignItems:"center",gap:6}}
+        >
+          {index+1}. {s.rejected?"❌":s.machineBad?"💀":s.orderRef?"📋":s.prepShipment?"📦":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
+          <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900,marginLeft:4}}>✕</span>
         </button>)}
+        <button onClick={()=>{setActiveId(null);setMacInput("")}} style={{background:C.card2,color:C.accent,border:`1px dashed ${C.accent}`,borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="Iniciar novo teste">+</button>
       </div>
     </div>}
 
@@ -3158,8 +3189,10 @@ function EditHashBadApprovalForm({ctx,appr,onSaved}){
 // Mostra e deixa editar TUDO que o testador viu/preencheu (modelo, T/H, os 3
 // slots com SN e resultado, componentes) — a mesma coisa, tanto pra máquina
 // que já existe quanto pra uma nova que só vai ser criada ao aprovar.
+
 function EditPendingTestForm({ctx,appr,test,onSaved}){
   const{data,mutate,allModels,gTH,gChips}=ctx;const models=allModels();
+  const[machineSN,setMachineSN]=useState(appr.machineSN||"");
   const[model,setModel]=useState(test?.model||appr.model||models[0]?.m||"M30S");
   const[th,setTh]=useState(test?.th||appr.th||gTH(model));
   const[slots,setSlots]=useState([
@@ -3172,10 +3205,11 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
   const[fans,setFans]=useState(test?.fans||"OFF");
   const setSlot=(i,k,v)=>setSlots(s=>s.map((sl,idx)=>idx===i?{...sl,[k]:v}:sl));
   const save=async()=>{
-    const apprU={...appr,model,th:Number(th)};
+    const cleanSN=machineSN.toUpperCase().trim();
+    const apprU={...appr,machineSN:cleanSN,model,th:Number(th)};
     await fbSet("pendingApprovals",appr._id,apprU);mutate("approvals",a=>a.map(x=>x._id===appr._id?apprU:x));
     if(test){
-      const testU={...test,model,th:Number(th),
+      const testU={...test,machineSN:cleanSN,model,th:Number(th),
         slot0HashSN:slots[0].hashSN,slot0Result:slots[0].result,
         slot1HashSN:slots[1].hashSN,slot1Result:slots[1].result,
         slot2HashSN:slots[2].hashSN,slot2Result:slots[2].result,
@@ -3184,8 +3218,15 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
     }
     onSaved();
   };
+  const exMac=machineSN.trim()?data.machines.find(m=>m.sn===machineSN.toUpperCase().trim()):null;
   return<div>
-    {!data.machines.find(m=>m.sn===appr.machineSN)&&<div style={{color:C.muted,fontSize:12,marginBottom:12}}>⚠️ Essa máquina ainda não existe no estoque — só vai ser criada quando você aprovar.</div>}
+    <Inp label="SN DA MÁQUINA" value={machineSN} onChange={e=>setMachineSN(e.target.value.toUpperCase())} placeholder="Digite o SN da máquina"/>
+    {exMac&&<div style={{background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:10,padding:12,marginBottom:12,fontSize:12,color:C.green}}>
+      ✅ Esse SN já pertence a uma máquina no estoque ({exMac.model} · {exMac.situacao}). O teste será vinculado e atualizará essa máquina.
+    </div>}
+    {!exMac&&machineSN.trim()&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:12,fontSize:12,color:C.amber}}>
+      ⚠️ Essa máquina ainda não existe no estoque — ela será criada quando você aprovar o teste.
+    </div>}
     <div style={{color:C.muted,fontSize:12,marginBottom:12}}>👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
     {appr.adminNote&&<Alrt type="err">{appr.adminNote}</Alrt>}
     <div style={{display:"flex",gap:8}}>
