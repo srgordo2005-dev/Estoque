@@ -1903,6 +1903,7 @@ function MachineDetail({ctx,machine,readOnly}){
           }
         }
         await markChanged("pallets");
+      }
     } else if(!exitSits.includes(s) && m.destino){
       for(const cl of data.clients){
         if((cl.machinesSN||[]).includes(m.sn)){
