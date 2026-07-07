@@ -5195,7 +5195,8 @@ function ClientReport({ctx,client}){
         })}
       </>;
     })()}
-
+  </div>;
+}
 
 /* ═══ EQUIPE DETALHES ════════════════════════════════════════ */
 function EmpHistory({ctx,emp}){
