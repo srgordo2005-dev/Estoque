@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { jsPDF } from 'jspdf';
 import { BrowserMultiFormatReader } from '@zxing/browser';
@@ -250,7 +250,7 @@ async function importHashesFromSheet(url){
   return(d.hashes||[]).map(h=>({...h,sn:normSNField(h.sn),machineSN:normSNField(h.machineSN)}));
 }
 async function importFromSheet(url){const r=await fetch(url+"?action=getMachines");const d=await r.json();return(d.machines||[]).map(m=>({...m,sn:normSNField(m.sn)}))}
-const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{const img=new Image();img.onload=()=>{const M=720,r=Math.min(M/img.width,M/img.height,1),c=document.createElement("canvas");c.width=img.width*r;c.height=img.height*r;c.getContext("2d").drawImage(img,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.65))};img.src=e.target.result};rd.readAsDataURL(f)});
+const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{const img=new Image();img.onload=()=>{const M=1280,r=Math.min(M/img.width,M/img.height,1),c=document.createElement("canvas");c.width=img.width*r;c.height=img.height*r;c.getContext("2d").drawImage(img,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.85))};img.src=e.target.result};rd.readAsDataURL(f)});
 
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
 const DEF_MODELS=[{m:"E9 Pro",th:3680},{m:"E9 Pro+",th:3880},{m:"KS5",th:21},{m:"KS5L",th:14},{m:"KS3",th:8},{m:"S19JPRO+",th:120},{m:"S19KPRO",th:77},{m:"S21XP",th:270},{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
@@ -728,8 +728,8 @@ function PhotoView({photoKey,style}){
   if(!src)return null;
   return<>
     <div style={{position:"relative"}}>
-      <img src={src} alt="" onClick={()=>setBig(true)} style={{width:"100%",borderRadius:8,objectFit:"cover",cursor:"zoom-in",...style}}/>
-      <button onClick={()=>downloadPhoto(src,"foto.jpg")} title="Baixar" style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",borderRadius:8,padding:"4px 8px",cursor:"pointer",fontSize:14}}>⬇️</button>
+      <img src={src} alt="" onClick={e=>{e.stopPropagation();setBig(true)}} style={{width:"100%",borderRadius:8,objectFit:"cover",cursor:"zoom-in",...style}}/>
+      <button onClick={e=>{e.stopPropagation();downloadPhoto(src,"foto.jpg")}} title="Baixar" style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,.6)",border:"none",color:"#fff",borderRadius:8,padding:"4px 8px",cursor:"pointer",fontSize:14}}>⬇️</button>
     </div>
     {big&&<div onClick={()=>setBig(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.9)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,cursor:"zoom-out"}}>
       <img src={src} alt="" style={{maxWidth:"100%",maxHeight:"100%",borderRadius:8,objectFit:"contain"}}/>
