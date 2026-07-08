@@ -212,7 +212,6 @@ function syncSheet(url,action,payload){
   const mapSituacao = (v) => {
     if (!v) return v;
     const s = String(v).trim().toUpperCase();
-    if (s === "RUIM") return "ENTRADA OFICINA ";
     if (s === "ENTRADA OFICINA") return "ENTRADA OFICINA ";
     if (s === "AGUARD. REVISAO" || s === "AGUARD. REVISÃO" || s === "REVISAR" || s === "CASTANHAO") return "STOCK";
     return v;

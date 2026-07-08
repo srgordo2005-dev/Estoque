@@ -55,8 +55,8 @@ function mapSituacaoToSheet(val) {
   const s = String(val).trim().toUpperCase();
   
   // Lista exata aceita pela validação de dados da planilha:
-  // BOA, ENTRADA OFICINA , LIGADA, STOCK, VENDIDA, PREPARANDO, SAIDA, EXPORTADA, REMOVIDO
-  const VALID_VALUES = ["BOA", "ENTRADA OFICINA ", "LIGADA", "STOCK", "VENDIDA", "PREPARANDO", "SAIDA", "EXPORTADA", "REMOVIDO"];
+  // BOA, RUIM, ENTRADA OFICINA , LIGADA, STOCK, VENDIDA, PREPARANDO, SAIDA, EXPORTADA, REMOVIDO
+  const VALID_VALUES = ["BOA", "RUIM", "ENTRADA OFICINA ", "LIGADA", "STOCK", "VENDIDA", "PREPARANDO", "SAIDA", "EXPORTADA", "REMOVIDO"];
   
   // Corrige o espaço extra no final de "ENTRADA OFICINA " exigido pela planilha do usuário
   if (s === "ENTRADA OFICINA") return "ENTRADA OFICINA ";
@@ -66,9 +66,6 @@ function mapSituacaoToSheet(val) {
   // Mapeamentos de Fallback para status do App que não existem na planilha:
   if (s === "AGUARD. REVISAO" || s === "AGUARD. REVISÃO" || s === "REVISAR" || s === "CASTANHAO") {
     return "STOCK";
-  }
-  if (s === "RUIM") {
-    return "ENTRADA OFICINA ";
   }
   
   return "STOCK"; // Fallback padrão seguro
