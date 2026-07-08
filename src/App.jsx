@@ -1543,9 +1543,12 @@ function BatchSNForm({ctx,onClose}){
     const s=raw.toUpperCase().trim();if(!s)return;
     const inBatch=pending.some(p=>p.sn===s);
     const ex=data.machines.find(m=>m.sn===s);
-    if(inBatch)setDupMsg("⚠️ "+s+" já está na lista deste lote — adicionado de novo mesmo assim.");
-    else setDupMsg("");
-    setPending(p=>[...p,{sn:s,existing:ex||null,dupInBatch:inBatch}]);
+    if(inBatch){
+      setDupMsg("⚠️ A máquina "+s+" já foi bipada neste lote!");
+      return;
+    }
+    setDupMsg("");
+    setPending(p=>[...p,{sn:s,existing:ex||null,dupInBatch:false}]);
   };
   const saveAll=async()=>{
     if(!pending.length)return;setSaving(true);
@@ -1591,9 +1594,22 @@ function BatchSNForm({ctx,onClose}){
       await markChanged("machines");
       
       writes.forEach(w=>{
-        syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code});
-        syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn||undefined,row:undefined,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
-        ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn||undefined,row:undefined,field:k,to:w.d[k],employeeName:user.name,employeeCode:user.code}));
+        syncSheet(webhookUrl,"addMachine",{
+          sn:w.d.sn,
+          model:w.d.model,
+          th:w.d.th,
+          situacao:w.d.situacao,
+          ref,
+          employeeName:user.name,
+          employeeCode:user.code,
+          hash0:w.d.hash0,
+          hash1:w.d.hash1,
+          hash2:w.d.hash2,
+          controladora:w.d.controladora,
+          fonte:w.d.fonte,
+          fans:w.d.fans,
+          destino:""
+        });
       });
     }
     
@@ -1745,15 +1761,22 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     if(isUpdate)mutate("machines",m=>m.map(x=>x._id===id?{...d,_id:id}:x));
     else mutate("machines",m=>[...m,{...d,_id:id}]);
     await markChanged("machines");
-    syncSheet(webhookUrl,"addMachine",{sn:d.sn,model:d.model,th:d.th,situacao:d.situacao,ref:d.ref,employeeName:user.name,employeeCode:user.code});
-    // Sempre limpa o destino na planilha ao readicionar — a máquina volta
-    // pro ciclo normal (o histórico dela no cliente continua existindo, só
-    // não fica mais marcada como "saída" pra ele).
-    syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
-    // Sempre manda o ON/OFF de cada componente pra planilha — antes só ia
-    // quando a situação era BOA (forceOn), então qualquer ON/OFF marcado
-    // manualmente com outra situação nunca chegava na planilha.
-    ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:d.sn,field:k,to:d[k],employeeName:user.name,employeeCode:user.code}));
+    syncSheet(webhookUrl,"addMachine",{
+      sn:d.sn,
+      model:d.model,
+      th:d.th,
+      situacao:d.situacao,
+      ref:d.ref,
+      employeeName:user.name,
+      employeeCode:user.code,
+      hash0:d.hash0,
+      hash1:d.hash1,
+      hash2:d.hash2,
+      controladora:d.controladora,
+      fonte:d.fonte,
+      fans:d.fans,
+      destino:""
+    });
     // Cria (se for nova) ou vincula (se já existir) a HASH de cada slot —
     // antes isso nunca acontecia, só ficava o texto do SN salvo na máquina,
     // sem criar a HASH nem mandar o SN pra planilha de verdade.
@@ -3799,10 +3822,22 @@ function ApprovalsPage({ctx}){
       // e mandada pro conserto.
       const mUpd={...exMac,situacao:targetSituacao,model:test.model||exMac.model,th:test.th||exMac.th,...compPatch,hashSN0:test.slot0HashSN||"",hashSN1:test.slot1HashSN||"",hashSN2:test.slot2HashSN||"",...photoPatch,...destinoPatch,...audit(user)};
       await fbSet("machines",exMac._id,mUpd);mutate("machines",m=>m.map(x=>x._id===exMac._id?mUpd:x));
-      syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"situacao",to:targetSituacao,employeeName:user.name,employeeCode:user.code});
-      if(test.model&&test.model!==exMac.model)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"model",to:test.model,employeeName:user.name,employeeCode:user.code});
-      if(test.th&&test.th!==exMac.th)syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:"th",to:test.th,employeeName:user.name,employeeCode:user.code});
-      ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:mUpd.sn,field:k,to:compPatch[k],employeeName:user.name,employeeCode:user.code}));
+      syncSheet(webhookUrl,"addMachine",{
+        sn:mUpd.sn,
+        model:mUpd.model,
+        th:mUpd.th,
+        situacao:mUpd.situacao,
+        ref:mUpd.ref,
+        employeeName:user.name,
+        employeeCode:user.code,
+        hash0:mUpd.hash0,
+        hash1:mUpd.hash1,
+        hash2:mUpd.hash2,
+        controladora:mUpd.controladora,
+        fonte:mUpd.fonte,
+        fans:mUpd.fans,
+        destino:mUpd.destino||""
+      });
       // Se o testador colocou um T/H diferente do padrão do modelo, guarda
       // isso como modelo customizado — próximas máquinas desse modelo já
       // vêm com o T/H certo.
@@ -3823,8 +3858,22 @@ function ApprovalsPage({ctx}){
       }else{
         mutate("machines",m=>[...m,{...mNew,_id:mid}]);
       }
-      syncSheet(webhookUrl,"addMachine",{sn:mNew.sn,model:mNew.model,th:mNew.th,situacao:targetSituacao,ref:mNew.ref,employeeName:user.name,employeeCode:user.code});
-      ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:mNew.sn,field:k,to:mNew[k],employeeName:user.name,employeeCode:user.code}));
+      syncSheet(webhookUrl,"addMachine",{
+        sn:mNew.sn,
+        model:mNew.model,
+        th:mNew.th,
+        situacao:mNew.situacao,
+        ref:mNew.ref,
+        employeeName:user.name,
+        employeeCode:user.code,
+        hash0:mNew.hash0,
+        hash1:mNew.hash1,
+        hash2:mNew.hash2,
+        controladora:mNew.controladora,
+        fonte:mNew.fonte,
+        fans:mNew.fans,
+        destino:mNew.destino||""
+      });
     }
     let newH=[...data.hashes];
     // Quando a máquina é aprovada com as 3 HASHs boas, o status da HASH vira

@@ -385,6 +385,13 @@ function addMachineRow(sheet, p) {
     sheet.getRange(existing, COL_MAC_TH).setValue(p.th || 0);
     sheet.getRange(existing, COL_MAC_SITUACAO).setValue(mapSituacaoToSheet(p.situacao || "STOCK"));
     sheet.getRange(existing, COL_MAC_REF).setValue(p.ref || "");
+    if (p.hash0 !== undefined) sheet.getRange(existing, COL_MAC_HASH0).setValue(p.hash0 || "OFF");
+    if (p.hash1 !== undefined) sheet.getRange(existing, COL_MAC_HASH1).setValue(p.hash1 || "OFF");
+    if (p.hash2 !== undefined) sheet.getRange(existing, COL_MAC_HASH2).setValue(p.hash2 || "OFF");
+    if (p.controladora !== undefined || p.ctr !== undefined) sheet.getRange(existing, COL_MAC_CTR).setValue(p.controladora || p.ctr || "OFF");
+    if (p.fonte !== undefined) sheet.getRange(existing, COL_MAC_FONTE).setValue(p.fonte || "OFF");
+    if (p.fans !== undefined) sheet.getRange(existing, COL_MAC_FANS).setValue(p.fans || "OFF");
+    if (p.destino !== undefined) sheet.getRange(existing, COL_MAC_DESTINO).setValue(p.destino || "");
     return;
   }
   
@@ -400,6 +407,13 @@ function addMachineRow(sheet, p) {
   rowData[COL_MAC_MODEL - 1] = p.model || "";
   rowData[COL_MAC_TH - 1] = p.th || 0;
   rowData[COL_MAC_SITUACAO - 1] = mapSituacaoToSheet(p.situacao || "STOCK");
+  rowData[COL_MAC_HASH0 - 1] = p.hash0 || "OFF";
+  rowData[COL_MAC_HASH1 - 1] = p.hash1 || "OFF";
+  rowData[COL_MAC_HASH2 - 1] = p.hash2 || "OFF";
+  rowData[COL_MAC_CTR - 1] = p.controladora || p.ctr || "OFF";
+  rowData[COL_MAC_FONTE - 1] = p.fonte || "OFF";
+  rowData[COL_MAC_FANS - 1] = p.fans || "OFF";
+  rowData[COL_MAC_DESTINO - 1] = p.destino || "";
   
   sheet.appendRow(rowData);
 }
