@@ -5187,7 +5187,7 @@ function PalletDetail({ctx,pallet}){
    sem precisar gerar QR de novo. */
 function PalletQRCode({pallet,macs,hashes}){
   const[showQR,setShowQR]=useState(false);
-  const appUrl=window.location.origin+window.location.pathname;
+  const appUrl="https://estoque-zeta-one.vercel.app/";
   const palletUrl=appUrl+(appUrl.includes("?")?"&":"?")+"pallet="+pallet._id;
   const qrImgUrl="https://api.qrserver.com/v1/create-qr-code/?size=280x280&data="+encodeURIComponent(palletUrl);
   const copyReport=()=>{
