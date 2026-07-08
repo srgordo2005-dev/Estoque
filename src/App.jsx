@@ -1521,34 +1521,54 @@ function BatchSNForm({ctx,onClose}){
   };
   const saveAll=async()=>{
     if(!pending.length)return;setSaving(true);
-    const writes=pending.map(p=>{
-      const isUpdate=!!p.existing;const id=isUpdate?p.existing._id:uid();
+    
+    // Apenas as máquinas NOVAS são gravadas/criadas no banco de dados.
+    const newMachinesPending=pending.filter(p=>!p.existing);
+    const writes=newMachinesPending.map(p=>{
+      const id=uid();
       return{c:"machines",id,d:{sn:p.sn,model,th:Number(th),type,situacao:sit,hash0,hash1,hash2,controladora:ctr,fonte,fans,ref,location:"",...audit(user),addedAt:TODAY(),destino:""}};
     });
-    await fbBatch(writes);
+    
+    if(writes.length>0){
+      await fbBatch(writes);
+    }
     
     if(palletId){
       const pallet=data.pallets.find(p=>p._id===palletId);
       if(pallet){
-        const newMacs=writes.map(w=>w.d.sn);
-        const upd={...pallet,machinesSN:[...(pallet.machinesSN||[]),...newMacs],...audit(user)};
+        const allSNs=pending.map(p=>p.sn);
+        
+        // Remove de outros paletes
+        for(const pl of data.pallets){
+          if(pl._id===palletId) continue;
+          const hasSome=allSNs.some(sn=>(pl.machinesSN||[]).includes(sn));
+          if(hasSome){
+            const ns=(pl.machinesSN||[]).filter(sn=>!allSNs.includes(sn));
+            const upd2={...pl,machinesSN:ns,...audit(user)};
+            mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));
+            await fbSet("pallets",pl._id,upd2);
+          }
+        }
+        
+        // Adiciona no palete destino
+        const upd={...pallet,machinesSN:[...new Set([...(pallet.machinesSN||[]),...allSNs])],...audit(user)};
         mutate("pallets",arr=>arr.map(x=>x._id===pallet._id?upd:x));
-        await fbSet("pallets",pallet._id,upd);
+        await fbSet("pallets",palletId,upd);
         await markChanged("pallets");
       }
     }
 
-    mutate("machines",m=>{
-      const updIds=new Set(writes.filter((w,i)=>pending[i].existing).map(w=>w.id));
-      const kept=m.filter(x=>!updIds.has(x._id));
-      return[...kept,...writes.map(w=>({...w.d,_id:w.id}))];
-    });
-    await markChanged("machines");
-    writes.forEach(w=>{
-      syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code});
-      syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
-      ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn,field:k,to:w.d[k],employeeName:user.name,employeeCode:user.code}));
-    });
+    if(writes.length>0){
+      mutate("machines",m=>[...m,...writes.map(w=>({...w.d,_id:w.id}))]);
+      await markChanged("machines");
+      
+      writes.forEach(w=>{
+        syncSheet(webhookUrl,"addMachine",{sn:w.d.sn,model:w.d.model,th:w.d.th,situacao:w.d.situacao,ref,employeeName:user.name,employeeCode:user.code});
+        syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn||undefined,row:undefined,field:"destino",to:"",employeeName:user.name,employeeCode:user.code});
+        ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:w.d.sn||undefined,row:undefined,field:k,to:w.d[k],employeeName:user.name,employeeCode:user.code}));
+      });
+    }
+    
     setSaving(false);clearPending();onClose();
   };
   return<div><div style={{display:"flex",gap:8}}><div style={{flex:2}}><Sel label="MODELO" value={model} onChange={e=>{setModel(e.target.value);setTh(gTH(e.target.value))}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div><Inp label="T/H" type="number" value={th} onChange={e=>setTh(e.target.value)} style={{width:70}}/></div><div style={{display:"flex",gap:8}}><Sel label="TIPO" value={type} onChange={e=>setType(e.target.value)} style={{flex:1}}><option value="complete">Completa</option><option value="shell">Carcaça</option></Sel><Sel label="SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)} style={{flex:1}}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel></div><Inp label="Referência (REF, aplicada a todos)" value={ref} onChange={e=>setRef(e.target.value.toUpperCase())} placeholder="Ex: seu código, lote, etc."/>
