@@ -418,6 +418,27 @@ function addMachineRow(sheet, p) {
   sheet.appendRow(rowData);
 }
 
+function archiveToLixeira(ss, originalSheetName, sn, model, ref, employeeName) {
+  try {
+    let sheetLixeira = ss.getSheetByName("LIXEIRA");
+    if (!sheetLixeira) {
+      sheetLixeira = ss.insertSheet("LIXEIRA");
+      sheetLixeira.appendRow(["DATA REMOCAO", "QUEM REMOVEU", "ABA ORIGINAL", "SN / MAC", "MODELO", "REF"]);
+    }
+    const todayStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+    sheetLixeira.appendRow([
+      todayStr,
+      employeeName || "Sistema",
+      originalSheetName,
+      sn || "",
+      model || "",
+      ref || ""
+    ]);
+  } catch (err) {
+    Logger.log("Erro ao arquivar na lixeira: " + err.message);
+  }
+}
+
 function deleteMachineRow(sheet, p) {
   let row = -1;
   if (p.row) {
@@ -426,6 +447,11 @@ function deleteMachineRow(sheet, p) {
     row = findRowBySN(sheet, COL_MAC_SN, p.sn);
   }
   if (row !== -1) {
+    const model = sheet.getRange(row, COL_MAC_MODEL).getValue();
+    const ref = sheet.getRange(row, COL_MAC_REF).getValue();
+    const sn = sheet.getRange(row, COL_MAC_SN).getValue();
+    const ss = sheet.getParent();
+    archiveToLixeira(ss, "MÁQUINAS", sn, model, ref, p.employeeName);
     sheet.deleteRow(row);
   }
 }
@@ -471,6 +497,10 @@ function deleteHashRow(sheet, p) {
   if (!sheet) return;
   const row = findRowBySN(sheet, COL_HASH_SN, p.sn);
   if (row !== -1) {
+    const model = sheet.getRange(row, COL_HASH_MODEL).getValue();
+    const sn = sheet.getRange(row, COL_HASH_SN).getValue();
+    const ss = sheet.getParent();
+    archiveToLixeira(ss, "HASH", sn, model, "", p.employeeName);
     sheet.deleteRow(row);
   }
 }

@@ -1460,7 +1460,8 @@ function MacPage({ctx}){
       {selected.size>0&&<><Tag color={C.accent}>{selected.size} selecionadas</Tag>
       <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🏷️ Mudar Status</Btn>
       <Btn v="p" onClick={()=>setBulkAction("pallet")} style={{fontSize:11,padding:"6px 10px"}}>📦 Mover p/ Palete</Btn>
-      <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>👤 Enviar p/ Cliente</Btn></> }
+      <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>👤 Enviar p/ Cliente</Btn>
+      <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn></> }
     </div>}
     {filtered.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>🖥️</div>Nenhuma máquina</div>
       :filtered.map(m=><div key={m._id} style={{position:"relative"}}>
@@ -1469,7 +1470,7 @@ function MacPage({ctx}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:14,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{m.model} · {m.th}TH</div><By by={m._byName} at={m._at}/><LastMove log={m.changeLog}/></div><SP s={m.situacao}/></div>
         <div style={{display:"flex",gap:5,flexWrap:"wrap"}}><HP s={m.hash0}/><HP s={m.hash1}/><HP s={m.hash2}/>{m.controladora&&<span style={{fontSize:10,color:C.subtle}}>CTR:{m.controladora}</span>}{m.fans&&<span style={{fontSize:10,color:C.subtle}}>FAN:{m.fans}</span>}</div>
       </Card></div>)}
-    {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="pallet"?"📦 Mover p/ Palete":"👤 Enviar p/ Cliente"} onClose={()=>setBulkAction(null)}>
+    {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="pallet"?"📦 Mover p/ Palete":bulkAction==="client"?"👤 Enviar p/ Cliente":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
       <BulkMachineAction ctx={ctx} action={bulkAction} machines={selMachines} onDone={()=>{setBulkAction(null);setSelected(new Set());setSelMode(false)}}/>
     </Modal>}
   </div>;
@@ -1498,15 +1499,71 @@ function BulkMachineAction({ctx,action,machines,onDone}){
         const ns=[...new Set([...(cl.machinesSN||[]),...sns])];const updc={...cl,machinesSN:ns,...audit(user)};mutate("clients",arr=>arr.map(x=>x._id===clientId?updc:x));await fbSet("clients",clientId,updc);
         await markChanged("machines");await markChanged("hashes");await markChanged("clients");
       }
+    }else if(action==="remove"){
+      if(!confirm(`⚠️ Tem certeza que deseja REMOVER as ${machines.length} máquinas selecionadas permanentemente? Isso também as apagará da planilha!`)) {
+        setSaving(false);
+        return;
+      }
+      for(const m of machines){
+        // 1. Log deletion
+        const repId = uid();
+        const repRec = {
+          hashSN: m.sn,
+          model: m.model || "",
+          type: "remove_machine",
+          employeeId: user._id,
+          date: TODAY(),
+          ...audit(user)
+        };
+        await fbSet("repairs", repId, repRec);
+        mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
+
+        // 2. Webhook deleteMachineRow
+        syncSheet(webhookUrl,"deleteMachineRow",{sn:m.sn||undefined,row:!m.sn?m.sheetRow:undefined,employeeName:user.name});
+
+        // 3. Components return to test queue
+        const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
+        for(const h of mHashes){
+          const hu={...h,status:"ON",machineSN:"",slot:-1,changeLog:[{field:"status",label:"Status",from:h.status,to:"ON (máquina "+m.sn+" removida)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+          mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
+          syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"ON",machineSN:"",employeeName:user.name,employeeCode:user.code});
+        }
+
+        // 4. Remove from pallets
+        for(const pl of data.pallets){
+          if((pl.machinesSN||[]).includes(m.sn)){
+            const ns=(pl.machinesSN||[]).filter(s=>s!==m.sn);
+            const upd2={...pl,machinesSN:ns,...audit(user)};
+            mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2);
+          }
+        }
+
+        // 5. Remove from clients
+        for(const cl of data.clients){
+          if((cl.machinesSN||[]).includes(m.sn)){
+            const ns=(cl.machinesSN||[]).filter(s=>s!==m.sn);
+            const upd3={...cl,machinesSN:ns,...audit(user)};
+            mutate("clients",arr=>arr.map(x=>x._id===cl._id?upd3:x));await fbSet("clients",cl._id,upd3);
+          }
+        }
+
+        // 6. Delete from Supabase
+        mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await fbDel("machines",m._id);
+      }
+      await markChanged("hashes");
+      await markChanged("pallets");
+      await markChanged("clients");
+      await markChanged("machines");
     }
     setSaving(false);onDone();
   };
   return<div>
     <div style={{color:C.muted,fontSize:12,marginBottom:14}}>{machines.length} máquina(s) selecionada(s)</div>
+    {action==="remove" && <div style={{color:C.red,fontSize:12,marginBottom:14,fontWeight:700}}>Você está prestes a apagar permanentemente estas máquinas do estoque e da planilha.</div>}
     {action==="status"&&<Sel label="NOVA SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>}
     {action==="pallet"&&<Sel label="PALETE DESTINO" value={palletId} onChange={e=>setPalletId(e.target.value)}><option value="">Selecionar...</option>{(data.pallets||[]).map(p=><option key={p._id} value={p._id}>{p.name}</option>)}</Sel>}
     {action==="client"&&<><Sel label="CLIENTE DESTINO" value={clientId} onChange={e=>setClientId(e.target.value)}><option value="">Selecionar...</option>{(data.clients||[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}</Sel><div style={{color:C.amber,fontSize:11,marginBottom:10}}>⚠️ Máquinas e HASHs internas vão para SAIDA</div></>}
-    <Btn v="g" onClick={apply} disabled={saving||(action==="pallet"&&!palletId)||(action==="client"&&!clientId)} style={{width:"100%"}}>{saving?"Aplicando...":"✓ Aplicar a "+machines.length}</Btn>
+    <Btn v={action==="remove"?"d":"g"} onClick={apply} disabled={saving||(action==="pallet"&&!palletId)||(action==="client"&&!clientId)} style={{width:"100%"}}>{saving?"Processando...":action==="remove"?"🗑️ Remover "+machines.length+" máquina(s)":"✓ Aplicar a "+machines.length}</Btn>
   </div>;
 }
 
@@ -2140,7 +2197,19 @@ function MachineDetail({ctx,machine,readOnly}){
       )}
       <Btn v="d" onClick={async()=>{
         if(!confirm("⚠️ Tem certeza que deseja REMOVER esta máquina do estoque permanentemente? Isso também a apagará da planilha!")) return;
-        syncSheet(webhookUrl,"deleteMachineRow",{sn:m.sn||undefined,row:!m.sn?m.sheetRow:undefined});
+        // Grava no histórico (repairs) a remoção
+        const repId = uid();
+        const repRec = {
+          hashSN: m.sn,
+          model: m.model || "",
+          type: "remove_machine",
+          employeeId: user._id,
+          date: TODAY(),
+          ...audit(user)
+        };
+        await fbSet("repairs", repId, repRec);
+        mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
+        syncSheet(webhookUrl,"deleteMachineRow",{sn:m.sn||undefined,row:!m.sn?m.sheetRow:undefined,employeeName:user.name});
         // As HASHs que estavam dentro dessa máquina voltam pra fila de teste
         // (podem ser usadas em outra máquina) em vez de ficarem presas
         const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
@@ -2203,6 +2272,7 @@ function HashPage({ctx}){
       <Tag color={C.accent}>{selected.size} selecionadas</Tag>
       <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🏷️ Mudar Status</Btn>
       <Btn v="p" onClick={()=>setBulkAction("location")} style={{fontSize:11,padding:"6px 10px"}}>📍 Mudar Local</Btn>
+      <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn>
     </div>}
     {filtered.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>⚡</div>Nenhuma HASH</div>
       :filtered.map(h=>{const mac=data.machines.find(m=>m.sn===h.machineSN);const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{position:"relative"}}>
@@ -2212,35 +2282,91 @@ function HashPage({ctx}){
         <div style={{display:"flex",gap:10,fontSize:11,color:C.muted,marginTop:5}}>{mac?<span style={{color:C.accent}}>🖥️ {mac.sn||"SEM SN"} · Slot {h.slot>=0?h.slot+1:"?"}</span>:<span>📦 Solta</span>}{repName&&<span>👷 {repName}</span>}</div>
         <By by={h._byName} at={h._at}/><LastMove log={h.changeLog}/>
       </Card></div>})}
-    {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":"📍 Mudar Local em Lote"} onClose={()=>setBulkAction(null)}>
+    {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="location"?"📍 Mudar Local em Lote":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
       <BulkHashAction ctx={ctx} action={bulkAction} hashes={selHashes} onDone={()=>{setBulkAction(null);setSelected(new Set());setSelMode(false)}}/>
     </Modal>}
   </div>;
 }
 
 function BulkHashAction({ctx,action,hashes,onDone}){
-  const{mutate,user,webhookUrl}=ctx;
+  const{mutate,user,webhookUrl,data}=ctx;
   const[status,setStatus]=useState("STOCK"),[loc,setLoc]=useState(""),[saving,setSaving]=useState(false);
   const apply=async()=>{
     setSaving(true);
     const allowedHashes = hashes.filter(h => h.status !== "NA MAQUINA" && !(h.machineSN && h.machineSN.trim() !== ""));
-    for(const h of allowedHashes){
-      const patch=action==="status"?{status}:{location:loc.toUpperCase()};
-      const field=action==="status"?"status":"location";
-      const to=action==="status"?status:loc.toUpperCase();
-      const u={...h,...patch,changeLog:[{field,label:FIELD_LABELS[field]||field,from:h[field],to,by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
-      mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);
-      syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:u.status,location:u.location,employeeName:user.name,employeeCode:user.code});
+    if(action==="status"){
+      for(const h of allowedHashes){
+        const patch={status};
+        const u={...h,...patch,changeLog:[{field:"status",label:"Status",from:h.status,to:status,by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+        mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);
+        syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:u.status,location:u.location,employeeName:user.name,employeeCode:user.code});
+      }
+      await markChanged("hashes");
+    }else if(action==="location"){
+      for(const h of allowedHashes){
+        const patch={location:loc.toUpperCase()};
+        const u={...h,...patch,changeLog:[{field:"location",label:"Localização",from:h.location,to:loc.toUpperCase(),by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
+        mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);
+        syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:u.status,location:u.location,employeeName:user.name,employeeCode:user.code});
+      }
+      await markChanged("hashes");
+    }else if(action==="remove"){
+      if(!confirm(`⚠️ Tem certeza que deseja REMOVER as ${allowedHashes.length} HASHs selecionadas permanentemente? Isso também as apagará da planilha!`)) {
+        setSaving(false);
+        return;
+      }
+      for(const h of allowedHashes){
+        // 1. Log deletion in history
+        const repId = uid();
+        const repRec = {
+          hashSN: h.sn,
+          model: h.model || "",
+          type: "remove_hash",
+          employeeId: user._id,
+          date: TODAY(),
+          ...audit(user)
+        };
+        await fbSet("repairs", repId, repRec);
+        mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
+
+        // 2. Webhook deleteHashRow
+        syncSheet(webhookUrl,"deleteHashRow",{sn:h.sn||undefined,row:!h.sn?h.sheetRow:undefined,employeeName:user.name});
+
+        // 3. Remove from pallets
+        for(const pl of data.pallets){
+          if((pl.hashesSN||[]).includes(h.sn)){
+            const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);
+            const upd2={...pl,hashesSN:ns,...audit(user)};
+            mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));await fbSet("pallets",pl._id,upd2);
+          }
+        }
+
+        // 4. Remove from clients
+        for(const cl of data.clients){
+          if((cl.hashesSN||[]).includes(h.sn)){
+            const ns=(cl.hashesSN||[]).filter(s=>s!==h.sn);
+            const upd3={...cl,hashesSN:ns,...audit(user)};
+            mutate("clients",arr=>arr.map(x=>x._id===cl._id?upd3:x));await fbSet("clients",cl._id,upd3);
+          }
+        }
+
+        // 5. Delete from Supabase
+        mutate("hashes",arr=>arr.filter(x=>x._id!==h._id));await fbDel("hashes",h._id);
+      }
+      await markChanged("hashes");
+      await markChanged("pallets");
+      await markChanged("clients");
     }
-    await markChanged("hashes");setSaving(false);onDone();
+    setSaving(false);onDone();
   };
   const skippedCount = hashes.length - hashes.filter(h => h.status !== "NA MAQUINA" && !(h.machineSN && h.machineSN.trim() !== "")).length;
   return<div>
     <div style={{color:C.muted,fontSize:12,marginBottom:14}}>{hashes.length} HASH(s) selecionada(s)</div>
     {skippedCount > 0 && <div style={{color:C.amber,fontSize:11,marginBottom:10,fontWeight:700,background:C.amber+"11",padding:8,borderRadius:6}}>⚠️ {skippedCount} HASH(s) dentro de máquina serão ignoradas.</div>}
-    {action==="status"?<Sel label="NOVO STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
+    {action==="remove" ? <div style={{color:C.red,fontSize:12,marginBottom:14,fontWeight:700}}>Você está prestes a apagar permanentemente estas HASHboards do estoque e da planilha.</div>
+      : action==="status"?<Sel label="NOVO STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
       :<Inp label="NOVA LOCALIZAÇÃO" value={loc} onChange={e=>setLoc(e.target.value)} placeholder="Ex: PRATELEIRA B3"/>}
-    <Btn v="g" onClick={apply} disabled={saving || (action==="status" && hashes.length === skippedCount)} style={{width:"100%"}}>{saving?"Aplicando...":"✓ Aplicar a "+(hashes.length - skippedCount)+" HASH(s)"}</Btn>
+    <Btn v={action==="remove"?"d":"g"} onClick={apply} disabled={saving || (action!=="remove" && hashes.length === skippedCount)} style={{width:"100%"}}>{saving?"Processando...":action==="remove"?"🗑️ Remover "+(hashes.length - skippedCount)+" HASH(s)":"✓ Aplicar a "+(hashes.length - skippedCount)+" HASH(s)"}</Btn>
   </div>;
 }
 
@@ -2601,7 +2727,19 @@ function HashDetail({ctx,hash,readOnly=false}){
     {history.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Sem histórico</div>:history.map((ev,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:12}}><div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><div style={{width:24,height:24,borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0}}>{ev.icon}</div>{i<history.length-1&&<div style={{width:2,flex:1,background:C.border,marginTop:4}}/>}</div><div style={{flex:1,paddingBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{ev.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(ev.date)}</div>{ev.notes&&<div style={{fontSize:11,color:C.subtle,marginTop:2}}>{ev.notes}</div>}{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:100}}/>}</div></div>)}
     {!readOnly && <Btn v="d" onClick={async()=>{
       if(!confirm("⚠️ Tem certeza que deseja REMOVER esta placa HASH do estoque permanentemente? Isso também a apagará da planilha!")) return;
-      syncSheet(webhookUrl,"deleteHashRow",{sn:h.sn||undefined,row:!h.sn?h.sheetRow:undefined});
+      // Grava no histórico (repairs) a remoção
+      const repId = uid();
+      const repRec = {
+        hashSN: h.sn,
+        model: h.model || "",
+        type: "remove_hash",
+        employeeId: user._id,
+        date: TODAY(),
+        ...audit(user)
+      };
+      await fbSet("repairs", repId, repRec);
+      mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
+      syncSheet(webhookUrl,"deleteHashRow",{sn:h.sn||undefined,row:!h.sn?h.sheetRow:undefined,employeeName:user.name});
       for(const pl of data.pallets){
         if((pl.hashesSN||[]).includes(h.sn)){
           const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);
@@ -4175,7 +4313,13 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   const machineLogs=[];data.machines.forEach(m=>(m.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date&&matchEmp(null,l.by))machineLogs.push({...l,sn:m.sn})}));
   const hashLogs=[];data.hashes.forEach(h=>(h.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date&&matchEmp(null,l.by))hashLogs.push({...l,sn:h.sn})}));
   const items=[
-    ...dayRepairs.map(r=>({at:r._at,who:r._byName||"?",text:`Consertou HASH ${r.hashSN||"SEM SN"} (${r.model}) — ${r.type==="already_good"?"ja estava boa":"conserto"}`})),
+    ...dayRepairs.map(r=>({
+      at:r._at,
+      who:r._byName||"?",
+      text:r.type==="remove_machine" ? `Removeu máquina ${r.hashSN||"SEM SN"} (${r.model})`
+           : r.type==="remove_hash" ? `Removeu HASH ${r.hashSN||"SEM SN"} (${r.model})`
+           : `Consertou HASH ${r.hashSN||"SEM SN"} (${r.model}) — ${r.type==="already_good"?"ja estava boa":"conserto"}`
+    })),
     ...dayTests.map(t=>({at:t._at,who:t.employeeName||t._byName||"?",text:`Testou maquina ${t.machineSN||"SEM SN"} — ${t.overallResult==="good"?"BOA":"RUIM/pendente"}`})),
     ...machineLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da maquina ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
     ...hashLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
@@ -4252,7 +4396,12 @@ function EmpProfile({ctx,emp}){
       <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📋</Btn>
     </div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
-      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}><div style={{fontWeight:700,fontSize:13,color:r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}}>{r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(r._at)}</div>{r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}</Card>)}
+      {dayR.map(r=>{
+        const isRemove = r.type?.startsWith("remove");
+        const accent = r.type==="already_good"?C.green:r.type==="rework"?C.amber:isRemove?C.red:C.blue;
+        const icon = r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":r.type==="remove_machine"?"🗑️ REMOVEU MÁQUINA":r.type==="remove_hash"?"🗑️ REMOVEU HASH":"🔧";
+        return<Card key={r._id} accent={accent}><div style={{fontWeight:700,fontSize:13,color:accent}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(r._at)}</div>{!isRemove&&r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}</Card>
+      })}
       {dayT.map(t=>{const stC=t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red;return<Card key={t._id} accent={stC}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(t._at)}</div><Tag color={stC} small>{t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"}</Tag></Card>})}
     </>}
     <SL mt={12}>HISTÓRICO</SL>
@@ -5740,7 +5889,12 @@ function EmpHistory({ctx,emp}){
     </div>
     <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
-      {dayR.map(r=><Card key={r._id} accent={r.type==="already_good"?C.green:r.type==="rework"?C.amber:C.blue}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>{r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":"🔧"} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></div>{isSuperAdmin&&<button onClick={()=>delItem(r,true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></Card>)}
+      {dayR.map(r=>{
+        const isRemove = r.type?.startsWith("remove");
+        const accent = r.type==="already_good"?C.green:r.type==="rework"?C.amber:isRemove?C.red:C.blue;
+        const icon = r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":r.type==="remove_machine"?"🗑️ MÁQUINA REMOVIDA":r.type==="remove_hash"?"🗑️ HASH REMOVIDA":"🔧";
+        return<Card key={r._id} accent={accent}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></div>{isSuperAdmin&&<button onClick={()=>delItem(r,true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></Card>
+      })}
       {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></div>{isSuperAdmin&&<button onClick={()=>delItem(t,false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></Card>)}
     </>}
     <SL mt={12}>Por Dia</SL>
