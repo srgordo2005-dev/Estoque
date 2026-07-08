@@ -2690,6 +2690,18 @@ function ConsertaPage({ctx}){
         </div>
         <Btn v="b" onClick={()=>ctx.setModal(<Modal title="Gerar SN" onClose={()=>ctx.setModal(null)}><GenerateSNModal ctx={ctx} onClose={(newSN)=>{ctx.setModal(null);if(typeof newSN==='string'&&newSN){set("hashSN",newSN);}}}/></Modal>)} style={{height:44,marginBottom:12,padding:"0 12px"}}>+ SN</Btn>
       </div>
+      {(() => {
+        const existingHash = f.hashSN.trim() ? data.hashes.find(h => h.sn === f.hashSN.toUpperCase().trim()) : null;
+        if (!existingHash) return null;
+        return (
+          <div style={{background:C.blue+"15",border:`1px solid ${C.blue}44`,borderRadius:10,padding:10,marginBottom:12,fontSize:12}}>
+            💡 <b>Essa HASH já existe no sistema:</b>
+            <div style={{marginTop:4,color:C.muted,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              Modelo: <b>{existingHash.model}</b> · Status atual: <HP s={existingHash.status}/> {existingHash.location ? `· Local: ${existingHash.location}` : ""}
+            </div>
+          </div>
+        );
+      })()}
       <datalist id="hsh-rep">{data.hashes.filter(h=>["REPARO","OFF"].includes(h.status)).map(h=><option key={h._id} value={h.sn||""}>{h.sn||"SEM SN"} — {h.model}</option>)}</datalist>
       <Sel label="MODELO" value={f.model} onChange={e=>set("model",e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
       <MaterialPicker value={f.material} onChange={v=>set("material",v)}/>
