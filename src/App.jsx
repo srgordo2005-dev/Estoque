@@ -2986,11 +2986,12 @@ function TestePage({ctx}){
     setSubmitting(true);
     
     // Movimentação imediata para o palete sem precisar de aprovação
-    if(sess.palletId){
-      const pallet=data.pallets.find(p=>p._id===sess.palletId);
+    const palletId=sess.slots?.[0]?.palletId;
+    if(palletId){
+      const pallet=data.pallets.find(p=>p._id===palletId);
       if(pallet){
         for(const pl of data.pallets){
-          if(pl._id===sess.palletId) continue;
+          if(pl._id===palletId) continue;
           if((pl.machinesSN||[]).includes(sess.machineSN)){
             const ns=(pl.machinesSN||[]).filter(sn=>sn!==sess.machineSN);
             const upd2={...pl,machinesSN:ns,...audit(user)};
@@ -3199,7 +3200,7 @@ function TestePage({ctx}){
       {/* Vinculação de palete imediata */}
       <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
         <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>VINCULAR A UM PALETE (MOVIMENTAÇÃO IMEDIATA)</div>
-        <select value={session.palletId||""} onChange={e=>{const val=e.target.value;saveSession({...session,palletId:val,updatedAt:stamp()})}} style={{...inp,marginBottom:0}}>
+        <select value={session.slots?.[0]?.palletId||""} onChange={e=>{const val=e.target.value;const newSlots=[...session.slots];newSlots[0]={...newSlots[0],palletId:val};saveSession({...session,slots:newSlots,updatedAt:stamp()})}} style={{...inp,marginBottom:0}}>
           <option value="">Nenhum palete</option>
           {(data.pallets||[]).map(p=><option key={p._id} value={p._id}>{p.name}</option>)}
         </select>
