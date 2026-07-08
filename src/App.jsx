@@ -2088,7 +2088,7 @@ function MachineDetail({ctx,machine,readOnly}){
         ))}</>
       )}
       <Btn v="d" onClick={async()=>{
-        syncSheet(webhookUrl,"trashMachine",{sn:m.sn,model:m.model,removedBy:user.name});
+        syncSheet(webhookUrl,"deleteMachineRow",{sn:m.sn||undefined,row:!m.sn?m.sheetRow:undefined});
         // As HASHs que estavam dentro dessa máquina voltam pra fila de teste
         // (podem ser usadas em outra máquina) em vez de ficarem presas
         const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
@@ -2350,6 +2350,7 @@ function HashDetail({ctx,hash}){
   (h.changeLog||[]).forEach(l=>history.push({icon:"✏️",date:l.at,text:`${l.label} alterado por ${l.by}: "${l.from||"—"}" → "${l.to||"—"}"`}));
   history.sort((a,b)=>a.date<b.date?-1:1);
   const mac=data.machines.find(m=>m.sn===h.machineSN);
+  const isInsideMachine = h.status === "NA MAQUINA" || (h.machineSN && h.machineSN.trim() !== "");
   // Depois que a HASH sai pro cliente, fica travada — só desvincular volta
   // pro estoque normal.
   const locked=h.status==="SAIDA"&&(h.location||"").toLowerCase().includes("vendida");
@@ -2474,7 +2475,7 @@ function HashDetail({ctx,hash}){
     <SL mt={8}>📋 HISTÓRICO COMPLETO</SL>
     {history.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Sem histórico</div>:history.map((ev,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:12}}><div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><div style={{width:24,height:24,borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0}}>{ev.icon}</div>{i<history.length-1&&<div style={{width:2,flex:1,background:C.border,marginTop:4}}/>}</div><div style={{flex:1,paddingBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{ev.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(ev.date)}</div>{ev.notes&&<div style={{fontSize:11,color:C.subtle,marginTop:2}}>{ev.notes}</div>}{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:100}}/>}</div></div>)}
     <Btn v="d" onClick={async()=>{
-      syncSheet(webhookUrl,"trashHash",{sn:h.sn,model:h.model,removedBy:user.name});
+      syncSheet(webhookUrl,"deleteHashRow",{sn:h.sn||undefined,row:!h.sn?h.sheetRow:undefined});
       for(const pl of data.pallets){
         if((pl.hashesSN||[]).includes(h.sn)){
           const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);

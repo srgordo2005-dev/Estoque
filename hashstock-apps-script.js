@@ -36,6 +36,7 @@ const COL_MAC_LOCATION = -1;   // Sem coluna de localização na aba Máquinas d
 
 // --- CONFIGURAÇÃO DE COLUNAS DA ABA "HASH" (1-based) ---
 // Layout Real: A=Data, B=SN, C=Modelo, D=Status, E=Máquina SN, F=FotoLog, G=Obs
+const COL_HASH_DATE = 1;        // A - Data (Coluna A)
 const COL_HASH_SN = 2;         // B - SN (Coluna B)
 const COL_HASH_MODEL = 3;      // C - Modelo (Coluna C)
 const COL_HASH_STATUS = 4;     // D - Status (Coluna D)
@@ -187,8 +188,10 @@ function doPost(e) {
         // No-op: aba HASH não tem coluna de Chips
       } else if (action === "updateHashTecnico") {
         // No-op: aba HASH não tem coluna de Técnico
-      } else if (action === "repair" || action === "alreadyGood") {
+      } else if (action === "repair") {
         addRepairRow(sheetReparo, sheetHash, payload);
+      } else if (action === "alreadyGood") {
+        addAlreadyGoodRow(sheetHash, payload);
       } else if (action === "test") {
         addTestRow(sheetTestes, payload);
       }
@@ -440,6 +443,9 @@ function addHashRow(sheet, p) {
   const rowData = [];
   for (let i = 0; i < 10; i++) rowData.push("");
   
+  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+  
+  rowData[COL_HASH_DATE - 1] = todayStr;
   rowData[COL_HASH_SN - 1] = p.sn.toUpperCase().trim();
   rowData[COL_HASH_MODEL - 1] = p.model || "";
   rowData[COL_HASH_STATUS - 1] = p.status || "STOCK";
@@ -587,8 +593,12 @@ function addRepairRow(sheet, sheetHash, p) {
   if (sheetHash && p.hashSN) {
     const hRow = findRowBySN(sheetHash, COL_HASH_SN, p.hashSN);
     if (hRow !== -1) {
+      sheetHash.getRange(hRow, COL_HASH_DATE).setValue(dateStr);
       sheetHash.getRange(hRow, COL_HASH_STATUS).setValue(statusVal);
       sheetHash.getRange(hRow, COL_HASH_MAQUINA).setValue(""); // Desvincula
+      if (p.photoKey) {
+        sheetHash.getRange(hRow, COL_HASH_FOTO).setValue(p.photoKey);
+      }
       if (p.obsManual || p.notes) {
         sheetHash.getRange(hRow, COL_HASH_DEFEITO).setValue(p.obsManual || p.notes);
       }
@@ -596,14 +606,48 @@ function addRepairRow(sheet, sheetHash, p) {
       // HASH nova sendo cadastrada via conserto
       const rowDataHash = [];
       for (let i = 0; i < 10; i++) rowDataHash.push("");
+      rowDataHash[COL_HASH_DATE - 1] = dateStr;
       rowDataHash[COL_HASH_SN - 1] = p.hashSN.toUpperCase().trim();
       rowDataHash[COL_HASH_MODEL - 1] = p.model || "";
       rowDataHash[COL_HASH_STATUS - 1] = statusVal;
+      if (p.photoKey) {
+        rowDataHash[COL_HASH_FOTO - 1] = p.photoKey;
+      }
       if (p.obsManual || p.notes) {
         rowDataHash[COL_HASH_DEFEITO - 1] = p.obsManual || p.notes;
       }
       sheetHash.appendRow(rowDataHash);
     }
+  }
+}
+
+function addAlreadyGoodRow(sheetHash, p) {
+  if (!sheetHash || !p.hashSN) return;
+  
+  const dateVal = p.date ? new Date(p.date + "T12:00:00") : new Date();
+  const dateStr = Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "dd/MM/yyyy");
+  
+  const statusVal = "TESTAR"; 
+  const hRow = findRowBySN(sheetHash, COL_HASH_SN, p.hashSN);
+  
+  if (hRow !== -1) {
+    sheetHash.getRange(hRow, COL_HASH_DATE).setValue(dateStr);
+    sheetHash.getRange(hRow, COL_HASH_STATUS).setValue(statusVal);
+    sheetHash.getRange(hRow, COL_HASH_MAQUINA).setValue(""); // Desvincula
+    if (p.photoKey) {
+      sheetHash.getRange(hRow, COL_HASH_FOTO).setValue(p.photoKey);
+    }
+  } else {
+    const rowDataHash = [];
+    for (let i = 0; i < 10; i++) rowDataHash.push("");
+    rowDataHash[COL_HASH_DATE - 1] = dateStr;
+    rowDataHash[COL_HASH_SN - 1] = p.hashSN.toUpperCase().trim();
+    rowDataHash[COL_HASH_MODEL - 1] = p.model || "";
+    rowDataHash[COL_HASH_STATUS - 1] = statusVal;
+    if (p.photoKey) {
+      rowDataHash[COL_HASH_FOTO - 1] = p.photoKey;
+    }
+    sheetHash.appendRow(rowDataHash);
   }
 }
 
