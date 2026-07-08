@@ -1784,7 +1784,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
         )}
       </div>;
     })}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
-    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} onUploadFail={setPhotoBlocked}/>
+    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} folder="maquinas" snHint={f.sn} onUploadFail={setPhotoBlocked}/>
     {photoBlocked&&<Alrt type="err">⚠️ A foto não subiu pro Drive — corrige isso (ou tira a foto) antes de salvar.</Alrt>}
     {confirmOverwrite&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
       <div style={{fontWeight:800,color:C.amber,marginBottom:4}}>Tem certeza?</div>
@@ -2294,7 +2294,7 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
     <Sel label="STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
     <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
     <Inp label="Observação" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: Chip U3 trocado, Chain Break corrigida..."/>
-    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} onUploadFail={setPhotoBlocked}/>
+    <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} folder="hashes" snHint={sn} onUploadFail={setPhotoBlocked}/>
     {photoBlocked&&<Alrt type="err">⚠️ A foto não subiu pro Drive — corrige isso (ou tira a foto) antes de salvar.</Alrt>}
     <div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>onClose()} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={snInfo?.type==="exists"||photoBlocked} style={{flex:1}}>Salvar</Btn></div>
   </div>;
@@ -2325,7 +2325,7 @@ function HashPhotoQuick({ctx,hash}){
   const savePhoto=async k=>{const u={...h,photoKey:k,...audit(user)};setH(u);mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);await markChanged("hashes");setAdding(false)};
   return<div>
     <div style={{background:C.bg,borderRadius:10,padding:12,marginBottom:12}}><HP s={h.status}/><span style={{marginLeft:8,fontWeight:700,color:C.blue}}>{h.model} · {h.sn||"SEM SN"}</span></div>
-    {h.photoKey?<PhotoView photoKey={h.photoKey} style={{maxHeight:320}}/>:adding?<PhotoCapture label="Adicionar foto" photoKey={null} onChange={savePhoto}/>:<div style={{textAlign:"center",padding:24}}><div style={{color:C.muted,fontSize:12,marginBottom:12}}>Sem foto salva</div><button onClick={()=>setAdding(true)} style={{background:C.bg,border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:24,width:60,height:60}}>+</button></div>}
+    {h.photoKey?<PhotoView photoKey={h.photoKey} style={{maxHeight:320}}/>:adding?<PhotoCapture label="Adicionar foto" photoKey={null} onChange={savePhoto} folder="hashes" snHint={h.sn}/>:<div style={{textAlign:"center",padding:24}}><div style={{color:C.muted,fontSize:12,marginBottom:12}}>Sem foto salva</div><button onClick={()=>setAdding(true)} style={{background:C.bg,border:`2px dashed ${C.border}`,color:C.muted,borderRadius:10,padding:16,cursor:"pointer",fontSize:24,width:60,height:60}}>+</button></div>}
   </div>;
 }
 
