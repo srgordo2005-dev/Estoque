@@ -2830,73 +2830,36 @@ function NewHashCharsForm({ctx,unknownSlots,initial,templateHash,onSave}){
   </div>;
 }
 
-function LinkNewHashTechForm({ctx, sn, initialModel, onClose}){
-  const{data,mutate,user,webhookUrl,allModels,gChips}=ctx;
+function LinkNewHashTechForm({ctx, sn, initialModel, onSave, onClose}){
+  const{data,allModels,gChips}=ctx;
   const models=allModels();
   const[techId,setTechId]=useState("");
   const[model,setModel]=useState(initialModel||models[0]?.m||"M30S");
   const[material,setMaterial]=useState("");
+  const[chips,setChips]=useState(String(gChips(initialModel || models[0]?.m || "M30S", "") || ""));
   const[techDate,setTechDate]=useState(TODAY());
-  const[saving,setSaving]=useState(false);
 
-  const save=async()=>{
+  useEffect(()=>{
+    setChips(String(gChips(model, material) || ""));
+  }, [model, material]);
+
+  const handleSave=()=>{
     if(!techId){alert("Selecione o técnico!");return}
-    setSaving(true);
     const techEmp=data.employees.find(e=>e._id===techId);
-    const techName=techEmp?.name||"";
-    
-    // 1. Cadastra a HASH
-    const hashId=uid();
-    const hashRec={
-      sn: sn.toUpperCase().trim(),
+    onSave({
+      techId,
+      techName: techEmp?.name || "",
+      techCode: techEmp?.code || "",
+      techDate,
       model,
       material,
-      status: "STOCK",
-      location: "",
-      obs: "Cadastrada via Teste (conserto de " + techName + ")",
-      ...audit(user),
-      addedAt: TODAY(),
-      machineSN: "",
-      slot: -1,
-      repairedBy: techId,
-      repairedByName: techName,
-      photoKey: ""
-    };
-    await fbSet("hashes", hashId, hashRec);
-    mutate("hashes", arr=>[...arr, { ...hashRec, _id: hashId }]);
-    
-    // 2. Cadastra o Conserto
-    const repId=uid();
-    const repRec={
-      hashSN: sn.toUpperCase().trim(),
-      model,
-      material: material || "",
-      type: "repair",
-      photoKey: "",
-      employeeId: techId,
-      _by: techId,
-      _byName: techName,
-      _at: new Date(techDate + "T12:00:00").toISOString(),
-      date: techDate,
-      status: "BOA"
-    };
-    await fbSet("repairs", repId, repRec);
-    mutate("repairs", arr=>[...arr, { ...repRec, _id: repId }]);
-    
-    await markChanged("hashes");
-    await markChanged("repairs");
-
-    if(webhookUrl){
-      syncSheet(webhookUrl,"addHash",{sn:sn.toUpperCase().trim(),model,status:"STOCK",obs:hashRec.obs,employeeName:techName,employeeCode:techEmp?.code});
-      syncSheet(webhookUrl,"repair",{...repRec,status:"BOA",employeeCode:techEmp?.code,employeeName:techName,tecnico:techName});
-    }
-    
-    setSaving(false);
+      chips: Number(chips) || 0
+    });
     onClose();
   };
 
   return <div>
-    <div style={{fontWeight:800,fontSize:14,color:C.accent,marginBottom:12}}>⚡ HASH SN: {sn}</div>
+    <div style={{fontWeight:800,fontSize:14,color:C.accent,marginBottom:12}}>⚡ CONFIGURAR CONSERTO DA HASH: {sn}</div>
     <Sel label="TÉCNICO QUE CONSERTOU" value={techId} onChange={e=>setTechId(e.target.value)}>
       <option value="">Selecione...</option>
       {data.employees.map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
@@ -2904,11 +2867,11 @@ function LinkNewHashTechForm({ctx, sn, initialModel, onClose}){
     <Inp label="DATA DO CONSERTO" type="date" value={techDate} onChange={e=>setTechDate(e.target.value)}/>
     <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
     <MaterialPicker value={material} onChange={setMaterial}/>
-    {gChips(model,material)&&<div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>Chips placa: {gChips(model,material)}</div>}
+    <Inp label="QUANTIDADE DE CHIPS" type="number" value={chips} onChange={e=>setChips(e.target.value)} placeholder={gChips(model,material)?String(gChips(model,material)):"0"}/>
     
     <div style={{display:"flex",gap:8,marginTop:12}}>
       <Btn v="s" onClick={()=>onClose()} style={{flex:1}}>Cancelar</Btn>
-      <Btn onClick={save} disabled={saving||!techId} style={{flex:1}}>{saving?"Gravando...":"💾 Salvar e Vincular"}</Btn>
+      <Btn onClick={handleSave} disabled={!techId} style={{flex:1}}>💾 Confirmar Configuração</Btn>
     </div>
   </div>;
 }
@@ -2948,6 +2911,25 @@ function TestePage({ctx}){
   const saveSession=async s=>{
     await fbSet("sessions",s._id,s);
     setSessions(prev=>prev.some(x=>x._id===s._id)?prev.map(x=>x._id===s._id?s:x):[...prev,s]);
+  };
+  const setSlotTechConfig = async (slotIdx, config) => {
+    const newSlots = session.slots.map((s, idx) => {
+      if (idx === slotIdx) {
+        return {
+          ...s,
+          techId: config.techId,
+          techName: config.techName,
+          techCode: config.techCode,
+          techDate: config.techDate,
+          newHashModel: config.model,
+          newHashMaterial: config.material,
+          newHashChips: config.chips
+        };
+      }
+      return s;
+    });
+    const s = { ...session, slots: newSlots, updatedAt: stamp() };
+    await saveSession(s);
   };
 
   // Confere se outro testador já está com essa máquina em mãos, e se já tem
@@ -3238,6 +3220,12 @@ function TestePage({ctx}){
       slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
       slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
       slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
+      slot0TechId:sess.slots[0].techId||"",slot0TechName:sess.slots[0].techName||"",slot0TechCode:sess.slots[0].techCode||"",slot0TechDate:sess.slots[0].techDate||"",
+      slot0NewHashModel:sess.slots[0].newHashModel||"",slot0NewHashMaterial:sess.slots[0].newHashMaterial||"",slot0NewHashChips:sess.slots[0].newHashChips||"",
+      slot1TechId:sess.slots[1].techId||"",slot1TechName:sess.slots[1].techName||"",slot1TechCode:sess.slots[1].techCode||"",slot1TechDate:sess.slots[1].techDate||"",
+      slot1NewHashModel:sess.slots[1].newHashModel||"",slot1NewHashMaterial:sess.slots[1].newHashMaterial||"",slot1NewHashChips:sess.slots[1].newHashChips||"",
+      slot2TechId:sess.slots[2].techId||"",slot2TechName:sess.slots[2].techName||"",slot2TechCode:sess.slots[2].techCode||"",slot2TechDate:sess.slots[2].techDate||"",
+      slot2NewHashModel:sess.slots[2].newHashModel||"",slot2NewHashMaterial:sess.slots[2].newHashMaterial||"",slot2NewHashChips:sess.slots[2].newHashChips||"",
       controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
       prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,machineBad:!!sess.machineBad,
       newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
@@ -3277,7 +3265,7 @@ function TestePage({ctx}){
   const otherSessions=sessions.filter(s=>s._id!==activeId);
   // SNs bipados que ainda não existem em lugar nenhum — precisa definir as
   // características (modelo/material/chips) deles antes de poder enviar.
-  const unknownSlots=session?session.slots.map((s,i)=>({i,sn:s.hashSN})).filter(x=>x.sn&&!data.hashes.find(h=>h.sn===x.sn.toUpperCase())):[];
+  const unknownSlots=session?session.slots.map((s,i)=>({i,sn:s.hashSN,hasTech:!!s.newHashModel})).filter(x=>x.sn&&!x.hasTech&&!data.hashes.find(h=>h.sn===x.sn.toUpperCase())):[];
   // Se tiver 1 HASH já existente nesse teste, usa as características dela
   // como ponto de partida pra preencher as novas (não muda nada nela).
   const existingHashesInSession=session?session.slots.map(s=>s.hashSN?data.hashes.find(h=>h.sn===s.hashSN.toUpperCase()):null).filter(Boolean):[];
@@ -3404,15 +3392,21 @@ function TestePage({ctx}){
             {h.location&&<span style={{fontSize:10,color:C.muted}}>📍{h.location}</span>}
             <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{marginLeft:"auto",background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️ Editar</button>
           </div>}
-          {!h&&slot.hashSN&&(session.newHashChars?
+          {!h&&slot.hashSN&&(slot.newHashModel?
             <div style={{background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.green,fontWeight:700,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-              <span>✓ HASH nova — {session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</span>
-              {(user.permissions?.repairs||user.permissions?.admin||user.code==="019")&&<button onClick={()=>setModal(<Modal title="Vincular Técnico & Cadastrar HASH" onClose={()=>setModal(null)}><LinkNewHashTechForm ctx={ctx} sn={slot.hashSN} initialModel={session.newHashChars.model||session.model} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.accent,color:"#fff",border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,fontWeight:800,cursor:"pointer"}}>➕ Vincular Técnico</button>}
+              <span>✓ HASH nova (Conserto de {slot.techName}) — {slot.newHashModel}{slot.newHashMaterial?` · ${slot.newHashMaterial==="FIBRA"?"Fibra":"Alumínio"}`:""}{slot.newHashChips?` · ${slot.newHashChips} chips`:""}</span>
+              {(user.permissions?.repairs||user.permissions?.admin||user.code==="019")&&<button onClick={()=>setModal(<Modal title="Vincular Técnico & Cadastrar HASH" onClose={()=>setModal(null)}><LinkNewHashTechForm ctx={ctx} sn={slot.hashSN} initialModel={slot.newHashModel} onSave={(config)=>setSlotTechConfig(i,config)} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.accent,color:"#fff",border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,fontWeight:800,cursor:"pointer"}}>✏️ Alterar</button>}
             </div>
-            :<div style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.red,fontWeight:700,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
-              <span>❌ Essa HASH não existe ainda — defina as características abaixo antes de enviar</span>
-              {(user.permissions?.repairs||user.permissions?.admin||user.code==="019")&&<button onClick={()=>setModal(<Modal title="Vincular Técnico & Cadastrar HASH" onClose={()=>setModal(null)}><LinkNewHashTechForm ctx={ctx} sn={slot.hashSN} initialModel={session.model} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.accent,color:"#fff",border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,fontWeight:800,cursor:"pointer"}}>➕ Vincular Técnico</button>}
-            </div>
+            : (session.newHashChars?
+              <div style={{background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.green,fontWeight:700,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                <span>✓ HASH nova — {session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</span>
+                {(user.permissions?.repairs||user.permissions?.admin||user.code==="019")&&<button onClick={()=>setModal(<Modal title="Vincular Técnico & Cadastrar HASH" onClose={()=>setModal(null)}><LinkNewHashTechForm ctx={ctx} sn={slot.hashSN} initialModel={session.newHashChars.model||session.model} onSave={(config)=>setSlotTechConfig(i,config)} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.accent,color:"#fff",border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,fontWeight:800,cursor:"pointer"}}>➕ Vincular Técnico</button>}
+              </div>
+              :<div style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.red,fontWeight:700,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                <span>❌ Essa HASH não existe ainda — vincule um técnico ou defina as características abaixo</span>
+                {(user.permissions?.repairs||user.permissions?.admin||user.code==="019")&&<button onClick={()=>setModal(<Modal title="Vincular Técnico & Cadastrar HASH" onClose={()=>setModal(null)}><LinkNewHashTechForm ctx={ctx} sn={slot.hashSN} initialModel={session.model} onSave={(config)=>setSlotTechConfig(i,config)} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.accent,color:"#fff",border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,fontWeight:800,cursor:"pointer"}}>➕ Vincular Técnico</button>}
+              </div>
+            )
           )}
           {modelMismatch&&<div style={{background:C.amber+"22",border:"1px solid "+C.amber+"44",borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.amber}}>⚠️ HASH é <b>{h.model}</b> mas máquina é <b>{session.model}</b></div>}
           {slot.status!=="bad"&&slot.hashSN&&<button onClick={()=>setRuimModal(i)} style={{background:C.red+"22",border:"1px solid "+C.red+"44",color:C.red,borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,width:"100%"}}>✗ Marcar como RUIM</button>}
@@ -3859,19 +3853,56 @@ function ApprovalsPage({ctx}){
         newH=newH.map(x=>x._id===h._id?u:x);await fbSet("hashes",h._id,u);
         syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,chips:u.chips||0,employeeName:user.name,employeeCode:user.code});
       }else{
-        // HASH nova — só é criada agora que foi aprovada como boa. Usa as
-        // características que o testador definiu (modelo/material/chips)
-        // pra essa HASH nova, não o modelo genérico da máquina.
-        const newModel=test.newHashModel||test.model;
-        const newMaterial=test.newHashMaterial||"";
-        const newChips=test.newHashChips||"";
-        const hid=uid();const hd={sn,model:newModel,material:newMaterial,chips:newChips,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,...audit(user),addedAt:TODAY()};
+        // HASH nova — só é criada agora que foi aprovada como boa.
+        const techId = test["slot" + slotIdx + "TechId"];
+        const techName = test["slot" + slotIdx + "TechName"];
+        const techCode = test["slot" + slotIdx + "TechCode"];
+        const techDate = test["slot" + slotIdx + "TechDate"];
+        const customModel = test["slot" + slotIdx + "NewHashModel"] || test.newHashModel || test.model;
+        const customMaterial = test["slot" + slotIdx + "NewHashMaterial"] || test.newHashMaterial || "";
+        const customChips = test["slot" + slotIdx + "NewHashChips"] || test.newHashChips || "";
+
+        const hid=uid();
+        const hd={
+          sn,
+          model:customModel,
+          material:customMaterial,
+          chips:customChips,
+          status:"NA MAQUINA",
+          machineSN:appr.machineSN,
+          slot:slotIdx,
+          repairedBy:techId||"",
+          repairedByName:techName||"",
+          ...audit(user),
+          addedAt:TODAY()
+        };
         await fbSet("hashes",hid,hd);newH=[...newH,{...hd,_id:hid}];
-        syncSheet(webhookUrl,"hashApproved",{sn,model:newModel,machineSN:appr.machineSN,slot:slotIdx,chips:newChips||0,employeeName:user.name,employeeCode:user.code});
-        // Se colocou uma quantidade de chips que ainda não tava configurada
-        // pra esse modelo+material, guarda como referência pras próximas.
-        if(newChips&&!data.customModels.find(cm=>cm.m===newModel&&(cm.material||"")===newMaterial&&cm.chips)){
-          const cmid=uid();const cmd={m:newModel,th:0,chips:Number(newChips),material:newMaterial};
+        syncSheet(webhookUrl,"hashApproved",{sn,model:customModel,machineSN:appr.machineSN,slot:slotIdx,chips:customChips||0,employeeName:user.name,employeeCode:user.code});
+
+        if (techId) {
+          const repId = uid();
+          const repRec = {
+            hashSN: sn,
+            model: customModel,
+            material: customMaterial,
+            type: "repair",
+            photoKey: "",
+            employeeId: techId,
+            _by: techId,
+            _byName: techName,
+            _at: new Date(techDate + "T12:00:00").toISOString(),
+            date: techDate,
+            status: "BOA"
+          };
+          await fbSet("repairs", repId, repRec);
+          mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
+          if (webhookUrl) {
+            syncSheet(webhookUrl, "repair", { ...repRec, status: "BOA", employeeCode: techCode, employeeName: techName, tecnico: techName });
+          }
+        }
+
+        if(customChips&&!data.customModels.find(cm=>cm.m===customModel&&(cm.material||"")===customMaterial&&cm.chips)){
+          const cmid=uid();const cmd={m:customModel,th:0,chips:Number(customChips),material:customMaterial};
           await fbSet("customModels",cmid,cmd);mutate("customModels",arr=>[...arr,{...cmd,_id:cmid}]);
         }
       }
