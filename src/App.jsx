@@ -2088,6 +2088,7 @@ function MachineDetail({ctx,machine,readOnly}){
         ))}</>
       )}
       <Btn v="d" onClick={async()=>{
+        if(!confirm("⚠️ Tem certeza que deseja REMOVER esta máquina do estoque permanentemente? Isso também a apagará da planilha!")) return;
         syncSheet(webhookUrl,"deleteMachineRow",{sn:m.sn||undefined,row:!m.sn?m.sheetRow:undefined});
         // As HASHs que estavam dentro dessa máquina voltam pra fila de teste
         // (podem ser usadas em outra máquina) em vez de ficarem presas
@@ -2503,6 +2504,7 @@ function HashDetail({ctx,hash,readOnly=false}){
     <SL mt={8}>📋 HISTÓRICO COMPLETO</SL>
     {history.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Sem histórico</div>:history.map((ev,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:12}}><div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><div style={{width:24,height:24,borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0}}>{ev.icon}</div>{i<history.length-1&&<div style={{width:2,flex:1,background:C.border,marginTop:4}}/>}</div><div style={{flex:1,paddingBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{ev.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(ev.date)}</div>{ev.notes&&<div style={{fontSize:11,color:C.subtle,marginTop:2}}>{ev.notes}</div>}{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:100}}/>}</div></div>)}
     {!readOnly && <Btn v="d" onClick={async()=>{
+      if(!confirm("⚠️ Tem certeza que deseja REMOVER esta placa HASH do estoque permanentemente? Isso também a apagará da planilha!")) return;
       syncSheet(webhookUrl,"deleteHashRow",{sn:h.sn||undefined,row:!h.sn?h.sheetRow:undefined});
       for(const pl of data.pallets){
         if((pl.hashesSN||[]).includes(h.sn)){
