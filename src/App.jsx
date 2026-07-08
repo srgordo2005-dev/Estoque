@@ -3214,7 +3214,7 @@ function TestePage({ctx}){
     }
 
     const id=uid();
-    const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,...audit(user),date:TODAY(),status:"pending",
+    const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,...audit(user),date:TODAY(),status:"pending",
       slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
       slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
       slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
@@ -4118,12 +4118,12 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     return byId===empFilter||byName===emp.name;
   };
   const dayRepairs=data.repairs.filter(r=>r.date===date&&matchEmp(r._by||r.employeeId,r._byName));
-  const dayTests=data.tests.filter(t=>t.date===date&&matchEmp(t._by||t.employeeId,t._byName));
+  const dayTests=data.tests.filter(t=>t.date===date&&matchEmp(t.employeeId||t._by,t.employeeName||t._byName));
   const machineLogs=[];data.machines.forEach(m=>(m.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date&&matchEmp(null,l.by))machineLogs.push({...l,sn:m.sn})}));
   const hashLogs=[];data.hashes.forEach(h=>(h.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date&&matchEmp(null,l.by))hashLogs.push({...l,sn:h.sn})}));
   const items=[
     ...dayRepairs.map(r=>({at:r._at,who:r._byName||"?",text:`Consertou HASH ${r.hashSN||"SEM SN"} (${r.model}) — ${r.type==="already_good"?"ja estava boa":"conserto"}`})),
-    ...dayTests.map(t=>({at:t._at,who:t._byName||"?",text:`Testou maquina ${t.machineSN||"SEM SN"} — ${t.overallResult==="good"?"BOA":"RUIM/pendente"}`})),
+    ...dayTests.map(t=>({at:t._at,who:t.employeeName||t._byName||"?",text:`Testou maquina ${t.machineSN||"SEM SN"} — ${t.overallResult==="good"?"BOA":"RUIM/pendente"}`})),
     ...machineLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da maquina ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
     ...hashLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
   ].sort((a,b)=>(a.at||"")<(b.at||"")?1:-1);
