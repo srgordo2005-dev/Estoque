@@ -576,11 +576,12 @@ function addRepairRow(sheet, sheetHash, p) {
   
   const statusVal = p.type === "rework" ? "REPARAR" : "TESTAR";
   
+  const chipsCount = parseInt(p.chips, 10) || 0;
   // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL (deixado vazio conforme pedido!), F=SITUACAO, G=TECNICO, H=DEFEITO
   const rowData = [
     dateStr,                              // A - Data
     p.model || "",                        // B - MODELO
-    p.chips || 0,                         // C - CHIPS
+    chipsCount,                           // C - CHIPS
     p.hashSN || "",                       // D - SN / MAC
     "",                                   // E - LOCAL (Deixado em branco para você selecionar manualmente na planilha)
     statusVal,                            // F - SITUACAO (TESTAR ou REPARAR)
