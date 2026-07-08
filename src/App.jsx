@@ -1651,9 +1651,9 @@ function BatchNoSNForm({ctx,onClose}){
   {saving&&<div style={{background:"#0c2a0f",borderRadius:8,padding:10,marginBottom:12}}><div style={{color:C.green,fontWeight:700,marginBottom:4}}>Salvando {prog}/{qty}...</div><div style={{background:C.card2,borderRadius:4,height:6}}><div style={{background:C.green,borderRadius:4,height:6,width:`${(prog/parseInt(qty||1))*100}%`,transition:"width .3s"}}/></div></div>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"📦 Criar "+qty}</Btn></div></div>;
 }
 
-function GenerateSNModal({ctx, onClose}){
+function GenerateSNModal({ctx, onClose, testMode}){
   const {data} = ctx;
-  const [type, setType] = useState(null);
+  const [type, setType] = useState(testMode ? 'machine' : null);
   const [nextSN, setNextSN] = useState("");
 
   useEffect(()=>{
@@ -1685,7 +1685,11 @@ function GenerateSNModal({ctx, onClose}){
     </div>
     <div style={{color:C.amber, fontSize:12, marginBottom:14, fontWeight:700, textAlign:"center"}}>⚠️ Escreva este SN na carcaça com um marcador AGORA!</div>
     
-    {type==="machine" ? <AddMachineForm ctx={ctx} initSN={nextSN} onClose={onClose} /> : <AddHashForm ctx={ctx} initSN={nextSN} onClose={onClose} />}
+    {testMode ? (
+      <Btn v="g" onClick={()=>onClose(nextSN)} style={{width:"100%"}}>✓ Usar no Teste (Sem cadastrar ainda)</Btn>
+    ) : (
+      type==="machine" ? <AddMachineForm ctx={ctx} initSN={nextSN} onClose={onClose} /> : <AddHashForm ctx={ctx} initSN={nextSN} onClose={onClose} />
+    )}
   </div>;
 }
 
@@ -2979,7 +2983,29 @@ function TestePage({ctx}){
 
   const doSubmit=async(s)=>{
     const sess=s||session;if(!sess)return;
-    setSubmitting(true);const id=uid();
+    setSubmitting(true);
+    
+    // Movimentação imediata para o palete sem precisar de aprovação
+    if(sess.palletId){
+      const pallet=data.pallets.find(p=>p._id===sess.palletId);
+      if(pallet){
+        for(const pl of data.pallets){
+          if(pl._id===sess.palletId) continue;
+          if((pl.machinesSN||[]).includes(sess.machineSN)){
+            const ns=(pl.machinesSN||[]).filter(sn=>sn!==sess.machineSN);
+            const upd2={...pl,machinesSN:ns,...audit(user)};
+            mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));
+            await fbSet("pallets",pl._id,upd2);
+          }
+        }
+        const upd={...pallet,machinesSN:[...new Set([...(pallet.machinesSN||[]),sess.machineSN])],...audit(user)};
+        mutate("pallets",arr=>arr.map(x=>x._id===pallet._id?upd:x));
+        await fbSet("pallets",pallet._id,upd);
+        await markChanged("pallets");
+      }
+    }
+
+    const id=uid();
     const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,...audit(user),date:TODAY(),status:"pending",
       slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
       slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
@@ -3113,7 +3139,7 @@ function TestePage({ctx}){
       <div style={{display:"flex",gap:8}}>
         <input value={macInput} onChange={e=>setMacInput(e.target.value.toUpperCase())} onKeyDown={e=>{if(e.key==="Enter")e.preventDefault();}} placeholder="Bipe ou digite o SN..." list="mac-list" style={{...inp,flex:1}}/>
         <button onClick={()=>setScanning(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18}}>📷</button>
-        <Btn v="b" onClick={()=>ctx.setModal(<Modal title="Gerar SN" onClose={()=>ctx.setModal(null)}><GenerateSNModal ctx={ctx} onClose={(newSN)=>{ctx.setModal(null);if(typeof newSN==='string'&&newSN){setMacInput(newSN);loadMachine(newSN)}}}/></Modal>)} style={{height:43,marginBottom:0,padding:"0 10px"}}>+ SN</Btn>
+        <Btn v="b" onClick={()=>ctx.setModal(<Modal title="Gerar SN" onClose={()=>ctx.setModal(null)}><GenerateSNModal ctx={ctx} testMode={true} onClose={(newSN)=>{ctx.setModal(null);if(typeof newSN==='string'&&newSN){setMacInput(newSN);loadMachine(newSN)}}}/></Modal>)} style={{height:43,marginBottom:0,padding:"0 10px"}}>+ SN</Btn>
       </div>
       {!session&&<div style={{display:"flex",gap:8,marginTop:8}}>
         <Btn onClick={()=>loadMachine(macInput)} style={{flex:1,justifyContent:"center"}}>🔍 Carregar Máquina</Btn>
@@ -3168,6 +3194,15 @@ function TestePage({ctx}){
       {/* Foto */}
       <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
         <PhotoCapture label="📸 Foto da Tela / App Fabricante (obrigatória)" photoKey={session.photoKey||null} onChange={k=>saveSession({...session,photoKey:k,updatedAt:stamp()})} folder="testes" snHint={session.machineSN} required/>
+      </div>
+
+      {/* Vinculação de palete imediata */}
+      <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
+        <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>VINCULAR A UM PALETE (MOVIMENTAÇÃO IMEDIATA)</div>
+        <select value={session.palletId||""} onChange={e=>{const val=e.target.value;saveSession({...session,palletId:val,updatedAt:stamp()})}} style={{...inp,marginBottom:0}}>
+          <option value="">Nenhum palete</option>
+          {(data.pallets||[]).map(p=><option key={p._id} value={p._id}>{p.name}</option>)}
+        </select>
       </div>
 
       {unknownSlots.length>0&&<div style={{background:needsChars?C.red+"15":C.green+"15",border:`1px solid ${needsChars?C.red:C.green}44`,borderRadius:12,padding:14,marginBottom:12}}>
