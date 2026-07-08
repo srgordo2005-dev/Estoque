@@ -2830,6 +2830,89 @@ function NewHashCharsForm({ctx,unknownSlots,initial,templateHash,onSave}){
   </div>;
 }
 
+function LinkNewHashTechForm({ctx, sn, initialModel, onClose}){
+  const{data,mutate,user,webhookUrl,allModels,gChips}=ctx;
+  const models=allModels();
+  const[techId,setTechId]=useState("");
+  const[model,setModel]=useState(initialModel||models[0]?.m||"M30S");
+  const[material,setMaterial]=useState("");
+  const[techDate,setTechDate]=useState(TODAY());
+  const[saving,setSaving]=useState(false);
+
+  const save=async()=>{
+    if(!techId){alert("Selecione o técnico!");return}
+    setSaving(true);
+    const techEmp=data.employees.find(e=>e._id===techId);
+    const techName=techEmp?.name||"";
+    
+    // 1. Cadastra a HASH
+    const hashId=uid();
+    const hashRec={
+      sn: sn.toUpperCase().trim(),
+      model,
+      material,
+      status: "STOCK",
+      location: "",
+      obs: "Cadastrada via Teste (conserto de " + techName + ")",
+      ...audit(user),
+      addedAt: TODAY(),
+      machineSN: "",
+      slot: -1,
+      repairedBy: techId,
+      repairedByName: techName,
+      photoKey: ""
+    };
+    await fbSet("hashes", hashId, hashRec);
+    mutate("hashes", arr=>[...arr, { ...hashRec, _id: hashId }]);
+    
+    // 2. Cadastra o Conserto
+    const repId=uid();
+    const repRec={
+      hashSN: sn.toUpperCase().trim(),
+      model,
+      material: material || "",
+      type: "repair",
+      photoKey: "",
+      employeeId: techId,
+      _by: techId,
+      _byName: techName,
+      _at: new Date(techDate + "T12:00:00").toISOString(),
+      date: techDate,
+      status: "BOA"
+    };
+    await fbSet("repairs", repId, repRec);
+    mutate("repairs", arr=>[...arr, { ...repRec, _id: repId }]);
+    
+    await markChanged("hashes");
+    await markChanged("repairs");
+
+    if(webhookUrl){
+      syncSheet(webhookUrl,"addHash",{sn:sn.toUpperCase().trim(),model,status:"STOCK",obs:hashRec.obs,employeeName:techName,employeeCode:techEmp?.code});
+      syncSheet(webhookUrl,"repair",{...repRec,status:"BOA",employeeCode:techEmp?.code,employeeName:techName,tecnico:techName});
+    }
+    
+    setSaving(false);
+    onClose();
+  };
+
+  return <div>
+    <div style={{fontWeight:800,fontSize:14,color:C.accent,marginBottom:12}}>⚡ HASH SN: {sn}</div>
+    <Sel label="TÉCNICO QUE CONSERTOU" value={techId} onChange={e=>setTechId(e.target.value)}>
+      <option value="">Selecione...</option>
+      {data.employees.map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
+    </Sel>
+    <Inp label="DATA DO CONSERTO" type="date" value={techDate} onChange={e=>setTechDate(e.target.value)}/>
+    <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
+    <MaterialPicker value={material} onChange={setMaterial}/>
+    {gChips(model,material)&&<div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>Chips placa: {gChips(model,material)}</div>}
+    
+    <div style={{display:"flex",gap:8,marginTop:12}}>
+      <Btn v="s" onClick={()=>onClose()} style={{flex:1}}>Cancelar</Btn>
+      <Btn onClick={save} disabled={saving||!techId} style={{flex:1}}>{saving?"Gravando...":"💾 Salvar e Vincular"}</Btn>
+    </div>
+  </div>;
+}
+
 function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH,gChips,setModal}=ctx;const models=allModels();
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
@@ -3322,8 +3405,14 @@ function TestePage({ctx}){
             <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{marginLeft:"auto",background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️ Editar</button>
           </div>}
           {!h&&slot.hashSN&&(session.newHashChars?
-            <div style={{background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.green,fontWeight:700}}>✓ HASH nova — {session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</div>
-            :<div style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.red,fontWeight:700}}>❌ Essa HASH não existe ainda — defina as características abaixo antes de enviar</div>
+            <div style={{background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.green,fontWeight:700,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <span>✓ HASH nova — {session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</span>
+              {(user.permissions?.repairs||user.permissions?.admin||user.code==="019")&&<button onClick={()=>setModal(<Modal title="Vincular Técnico & Cadastrar HASH" onClose={()=>setModal(null)}><LinkNewHashTechForm ctx={ctx} sn={slot.hashSN} initialModel={session.newHashChars.model||session.model} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.accent,color:"#fff",border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,fontWeight:800,cursor:"pointer"}}>➕ Vincular Técnico</button>}
+            </div>
+            :<div style={{background:C.red+"15",border:`1px solid ${C.red}44`,borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.red,fontWeight:700,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+              <span>❌ Essa HASH não existe ainda — defina as características abaixo antes de enviar</span>
+              {(user.permissions?.repairs||user.permissions?.admin||user.code==="019")&&<button onClick={()=>setModal(<Modal title="Vincular Técnico & Cadastrar HASH" onClose={()=>setModal(null)}><LinkNewHashTechForm ctx={ctx} sn={slot.hashSN} initialModel={session.model} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.accent,color:"#fff",border:"none",borderRadius:4,padding:"3px 8px",fontSize:10,fontWeight:800,cursor:"pointer"}}>➕ Vincular Técnico</button>}
+            </div>
           )}
           {modelMismatch&&<div style={{background:C.amber+"22",border:"1px solid "+C.amber+"44",borderRadius:8,padding:"6px 10px",marginBottom:6,fontSize:11,color:C.amber}}>⚠️ HASH é <b>{h.model}</b> mas máquina é <b>{session.model}</b></div>}
           {slot.status!=="bad"&&slot.hashSN&&<button onClick={()=>setRuimModal(i)} style={{background:C.red+"22",border:"1px solid "+C.red+"44",color:C.red,borderRadius:8,padding:"5px 12px",cursor:"pointer",fontSize:11,fontWeight:700,width:"100%"}}>✗ Marcar como RUIM</button>}
