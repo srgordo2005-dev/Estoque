@@ -13,7 +13,7 @@
  */
 
 // --- CONFIGURAÇÃO DE COLUNAS DA ABA "MAQUINAS" (1-based: A=1, B=2, C=3, etc.) ---
-// Estrutura: A=Data, B=SN, C=Modelo, D=TH, E=Situação, F=Localização, G=Destino, H=Slot1 SN...
+// Na aba MÁQUINAS: A=Data/REF, B=SN, C=Modelo, D=TH, E=Situação, F=Localização, G=Destino...
 const COL_MAC_REF = 1;         // A - Referência / Data de Entrada (Coluna A)
 const COL_MAC_SN = 2;          // B - SN (Coluna B)
 const COL_MAC_MODEL = 3;       // C - Modelo (Coluna C)
@@ -40,6 +40,12 @@ const COL_HASH_STATUS = 4;     // D - Status (Coluna D)
 const COL_HASH_MAQUINA = 5;    // E - Máquina (SN) (Coluna E)
 const COL_HASH_FOTO = 6;       // F - Link da Foto (Coluna F)
 const COL_HASH_DEFEITO = 7;    // G - Defeito / Obs (Coluna G)
+
+// --- LISTA DE TEXTOS DE SN INVÁLIDOS (Referências e Placeholders) ---
+const INVALID_SN_TEXTS = [
+  "SEM SN","SEMSN","SEM S/N","S/N","SN","N/A","NA","-","--","NENHUM","VAZIO",
+  "TJC", "BSL", "SP", "BSL/TJC", "SP/TJC", "TJC/BSL", "TJC/SP"
+];
 
 // --- FUNÇÃO DE NORMALIZAÇÃO ROBUSTA DE TEXTO ---
 function normalizeString(str) {
@@ -184,7 +190,7 @@ function doGet(e) {
       return ContentService.createTextOutput(JSON.stringify({ 
         status: "ok", 
         time: new Date().toISOString(), 
-        version: "v11",
+        version: "v12",
         detectedMachinesSheet: ssMac ? ssMac.getName() : "Nenhuma",
         detectedHashesSheet: ssHash ? ssHash.getName() : "Nenhuma",
         sheetsList: ss.getSheets().map(s => ({
@@ -215,7 +221,13 @@ function doGet(e) {
           continue;
         }
         
-        // Formata a Referência (Coluna A) se vier como Date da planilha
+        // Pula se for uma referência ou placeholder sem SN real
+        const upperSN = sn.toUpperCase();
+        if (INVALID_SN_TEXTS.indexOf(upperSN) !== -1) {
+          continue;
+        }
+        
+        // Formata a Referência se vier como Date da planilha
         let refVal = row[COL_MAC_REF - 1];
         let refStr = "";
         if (refVal instanceof Date) {
@@ -265,6 +277,11 @@ function doGet(e) {
         if (!sn) continue;
         
         if (/^\d{2}\/\d{2}\/\d{4}$/.test(sn) || /^\d{4}-\d{2}-\d{2}$/.test(sn)) {
+          continue;
+        }
+        
+        const upperSN = sn.toUpperCase();
+        if (INVALID_SN_TEXTS.indexOf(upperSN) !== -1) {
           continue;
         }
         
