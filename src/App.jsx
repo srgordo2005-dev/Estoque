@@ -1510,8 +1510,8 @@ function BulkMachineAction({ctx,action,machines,onDone}){
   </div>;
 }
 
-function AddModeSelect({ctx,onClose}){
-  const[mode,setMode]=useState(null);
+function AddModeSelect({ctx,onClose,initialMode=null}){
+  const[mode,setMode]=useState(initialMode);
   if(!mode)return<div><div style={{color:C.subtle,fontSize:13,marginBottom:18,textAlign:"center"}}>Como deseja adicionar?</div><div style={{display:"flex",flexDirection:"column",gap:10}}><Btn onClick={()=>setMode("single")} style={{justifyContent:"center",padding:"14px 0"}}>🖥️ Individual</Btn><Btn v="b" onClick={()=>setMode("batch-sn")} style={{justifyContent:"center",padding:"14px 0"}}>📋 Lote COM SN</Btn><Btn v="p" onClick={()=>setMode("batch-nosn")} style={{justifyContent:"center",padding:"14px 0"}}>📦 Lote SEM SN</Btn></div></div>;
   if(mode==="single")return<AddMachineForm ctx={ctx} onClose={onClose}/>;
   if(mode==="batch-sn")return<BatchSNForm ctx={ctx} onClose={onClose}/>;
@@ -1523,7 +1523,7 @@ function BatchSNForm({ctx,onClose}){
   const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending,clearPending]=usePersistedBatch(user._id+"-machines-lote",[]),[saving,setSaving]=useState(false);
   const[dupMsg,setDupMsg]=useState("");
   const[palletId,setPalletId]=useState("");
-  const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(null)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(null)}}/></Modal>);
+  const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-sn"/></Modal>)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-sn"/></Modal>)}}/></Modal>);
   const addSN=(raw)=>{
     const s=raw.toUpperCase().trim();if(!s)return;
     const inBatch=pending.some(p=>p.sn===s);
@@ -1616,7 +1616,7 @@ function BatchNoSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[itemType,setItemType]=useState("machine"),[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[qty,setQty]=useState("10"),[saving,setSaving]=useState(false),[prog,setProg]=useState(0);
   const[palletId,setPalletId]=useState("");
-  const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(null)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(null)}}/></Modal>);
+  const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-nosn"/></Modal>)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-nosn"/></Modal>)}}/></Modal>);
   const save=async()=>{
     const n=parseInt(qty);if(!n||n<1||n>1000)return;setSaving(true);
     const isHash=itemType==="hash";
