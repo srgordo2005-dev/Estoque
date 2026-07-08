@@ -1830,7 +1830,7 @@ const FIELD_LABELS={situacao:"Situação",sn:"SN",location:"Localização",model
 // quando sai do campo ou aperta Enter. Isso evita o bug de criar uma entrada
 // de histórico a cada letra digitada.
 function MachineSlotEditor({ctx,m,i,upd,setModal}){
-  const{data,mutate,user,webhookUrl}=ctx;
+  const{data,mutate,user,webhookUrl,gChips}=ctx;
   const slotField=`hashSN${i}`;
   const[localSN,setLocalSN]=useState(m[slotField]||"");
   useEffect(()=>{setLocalSN(m[slotField]||"")},[m[slotField]]);
@@ -1868,8 +1868,12 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
       </select>
     </div>
     {slotHash&&<div style={{width:"calc(100% - 58px)",marginLeft:58,marginTop:4}}>
-      <div style={{background:HST_C[slotHash.status]+"15",border:"1px solid "+HST_C[slotHash.status]+"44",borderRadius:8,padding:"5px 12px",marginBottom:4}}>
-        <span style={{fontSize:11,color:HST_C[slotHash.status],fontWeight:700}}>{"⚡ "+slotHash.model+" — "+(slotHash.sn||"").slice(0,14)}</span>
+      <div style={{background:HST_C[slotHash.status]+"15",border:"1px solid "+HST_C[slotHash.status]+"44",borderRadius:8,padding:"5px 12px",marginBottom:4,fontSize:11}}>
+        <span style={{color:HST_C[slotHash.status],fontWeight:700}}>{"⚡ "+slotHash.model+" — "+(slotHash.sn||"").slice(0,14)}</span>
+        <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+          {`${slotHash.chips || gChips(slotHash.model, slotHash.material) || 0} chips`}
+          {slotHash.repairedByName && ` · 🔧 ${slotHash.repairedByName}`}
+        </div>
       </div>
       <div style={{display:"flex",gap:6}}>
         <button onClick={()=>setModal(<Modal title={"📋 Histórico "+(slotHash.sn||"SEM SN")} onClose={()=>setModal(null)}><HashHistoryOnly ctx={ctx} hash={slotHash}/></Modal>)} style={{flex:1,background:C.card2,border:"none",color:C.text,borderRadius:8,padding:"6px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>📋 Histórico</button>
@@ -3386,7 +3390,7 @@ function TestePage({ctx}){
           <TestSlotSNInput slotRefs={slotRefs} i={i} value={slot.hashSN||""} onCommit={sn=>setSlotSN(i,sn)} listId={"hash-list-"+i}/>
           <datalist id={"hash-list-"+i}>{data.hashes.map(x=><option key={x._id} value={x.sn||""}>{x.model} — {x.status}</option>)}</datalist>
           {h&&<div style={{display:"flex",gap:8,alignItems:"center",padding:"6px 10px",background:C.card2,borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
-            <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}{h.material?` · ${h.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{gChips(h.model,h.material)?` · ${gChips(h.model,h.material)} chips`:""}</span>
+            <HP s={h.status}/><span style={{fontSize:12,fontWeight:700,color:C.blue}}>⚡ {h.model}{h.material?` · ${h.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{` · ${h.chips||gChips(h.model,h.material)||0} chips`}{h.repairedByName?` · 🔧 ${h.repairedByName}`:""}</span>
             {h.location&&<span style={{fontSize:10,color:C.muted}}>📍{h.location}</span>}
             <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{marginLeft:"auto",background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:10}}>✏️ Editar</button>
           </div>}
