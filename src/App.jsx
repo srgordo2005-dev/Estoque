@@ -2329,7 +2329,7 @@ function HashPhotoQuick({ctx,hash}){
   </div>;
 }
 
-function HashDetail({ctx,hash}){
+function HashDetail({ctx,hash,readOnly=false}){
   const{data,mutate,setModal,user,webhookUrl,allModels,gChips}=ctx;const models=allModels();const[h,setH]=useState(hash),[confirmIrrep,setConfirmIrrep]=useState(false),[editLoc,setEditLoc]=useState(false),[locVal,setLocVal]=useState(hash.location||"");
   const[retroDate,setRetroDate]=useState(TODAY());
   const[retroEmpId,setRetroEmpId]=useState("");
@@ -2374,33 +2374,44 @@ function HashDetail({ctx,hash}){
     <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}>
       <HP s={h.status}/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10,fontSize:12}}>
-        <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div><select value={h.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select>{gChips(h.model,h.material)&&<div style={{color:C.blue,fontSize:10,marginTop:2,fontWeight:700}}>{gChips(h.model,h.material)} chips</div>}</div>
-        <div><div style={{color:C.muted,fontSize:10}}>LOCALIZAÇÃO</div>
+        <div>
+          <div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div>
+          {readOnly ? (
+            <div style={{fontSize:14,fontWeight:700,color:C.blue}}>{h.model}</div>
+          ) : (
+            <select value={h.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select>
+          )}
+          {gChips(h.model,h.material)&&<div style={{color:C.blue,fontSize:10,marginTop:2,fontWeight:700}}>{gChips(h.model,h.material)} chips</div>}
+        </div>
+        <div>
+          <div style={{color:C.muted,fontSize:10}}>LOCALIZAÇÃO</div>
           {mac?<button onClick={()=>setModal(<Modal title={`🖥️ ${mac.sn}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={mac} readOnly={true}/></Modal>)} style={{background:"none",border:"none",color:C.green,fontWeight:700,fontSize:12,cursor:"pointer",padding:0,textAlign:"left"}}>🖥️ Slot{h.slot>=0?h.slot+1:"?"} → {mac.sn?.slice(0,10)} ↗</button>
-          :<div style={{color:C.muted,fontSize:11}}>
-            {editLoc?<div><PalletLocationPicker pallets={data.pallets} value={locVal} onChange={setLocVal}/><Btn v="g" onClick={async()=>{
-              await upd("location",locVal);
-              // Se o valor escolhido é o nome de um palete de verdade, vincula a
-              // HASH na lista dele também (tira de qualquer outro palete antes)
-              const picked=data.pallets.find(pl=>pl.name===locVal);
-              for(const pl of data.pallets){
-                const has=(pl.hashesSN||[]).includes(h.sn);
-                const shouldHave=picked&&pl._id===picked._id;
-                if(has&&!shouldHave){const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);const u2={...pl,hashesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u2:x));await fbSet("pallets",pl._id,u2)}
-                else if(!has&&shouldHave){const ns=[...(pl.hashesSN||[]),h.sn];const u2={...pl,hashesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u2:x));await fbSet("pallets",pl._id,u2)}
-              }
-              await markChanged("pallets");
-              setEditLoc(false)
-            }} style={{width:"100%"}}>✓ Salvar Local</Btn></div>
-            :<button onClick={()=>{setEditLoc(true);setLocVal(h.location||"")}} style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:6,color:h.location?C.text:C.muted,padding:"3px 8px",cursor:"pointer",fontSize:11,width:"100%",textAlign:"left"}}>{h.location||"⊕ Definir local..."}</button>}
-          </div>}
+          : (readOnly ? (
+            <div style={{fontSize:13,fontWeight:700,color:C.text}}>{h.location || "Sem localização"}</div>
+          ) : (
+            <div style={{color:C.muted,fontSize:11}}>
+              {editLoc?<div><PalletLocationPicker pallets={data.pallets} value={locVal} onChange={setLocVal}/><Btn v="g" onClick={async()=>{
+                await upd("location",locVal);
+                const picked=data.pallets.find(pl=>pl.name===locVal);
+                for(const pl of data.pallets){
+                  const has=(pl.hashesSN||[]).includes(h.sn);
+                  const shouldHave=picked&&pl._id===picked._id;
+                  if(has&&!shouldHave){const ns=(pl.hashesSN||[]).filter(s=>s!==h.sn);const u2={...pl,hashesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u2:x));await fbSet("pallets",pl._id,u2)}
+                  else if(!has&&shouldHave){const ns=[...(pl.hashesSN||[]),h.sn];const u2={...pl,hashesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===pl._id?u2:x));await fbSet("pallets",pl._id,u2)}
+                }
+                await markChanged("pallets");
+                setEditLoc(false)
+              }} style={{width:"100%"}}>✓ Salvar Local</Btn></div>
+              :<button onClick={()=>{setEditLoc(true);setLocVal(h.location||"")}} style={{background:"none",border:`1px dashed ${C.border}`,borderRadius:6,color:h.location?C.text:C.muted,padding:"3px 8px",cursor:"pointer",fontSize:11,width:"100%",textAlign:"left"}}>{h.location||"⊕ Definir local..."}</button>}
+            </div>
+          ))}
         </div>
       </div>
       {mac&&<div style={{marginTop:8,display:"flex",gap:6,flexWrap:"wrap"}}><SP s={mac.situacao}/><span style={{fontSize:11,color:C.muted}}>{mac.model} · {mac.th}TH</span></div>}
       {(data.pallets||[]).filter(pl=>(pl.hashesSN||[]).includes(h.sn)).map(pl=><div key={pl._id} style={{fontSize:11,color:C.blue,marginTop:4}}>📦 {pl.name}{pl.location?` — ${pl.location}`:""}</div>)}
       <By by={h._byName} at={h._at}/>
     </div>
-    {(user?.code === "ADMIN 019" || user?.name === "ADMIN 019") && (
+    {!readOnly && (user?.code === "ADMIN 019" || user?.name === "ADMIN 019") && (
       <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:14,border:`1px solid ${C.border}`}}>
         <div style={{fontWeight:800,fontSize:12,color:C.accent,marginBottom:8}}>🔧 REGISTRAR CONSERTO RETROATIVO</div>
         <div style={{display:"flex",gap:8,marginBottom:8}}>
@@ -2452,29 +2463,46 @@ function HashDetail({ctx,hash}){
       </div>
     )}
     <SL>STATUS</SL>
-    {isInsideMachine ? (
-      <div style={{background:C.card2,border:`1px solid ${C.blue}44`,color:C.blue,borderRadius:10,padding:12,marginBottom:14,fontSize:12,fontWeight:700}}>
-        ⚠️ Esta HASH está dentro da máquina ({h.machineSN || "sem SN"}) e seu status não pode ser alterado manualmente.
+    {readOnly ? (
+      <div style={{marginBottom:14}}><HP s={h.status}/></div>
+    ) : (
+      isInsideMachine ? (
+        <div style={{background:C.card2,border:`1px solid ${C.blue}44`,color:C.blue,borderRadius:10,padding:12,marginBottom:14,fontSize:12,fontWeight:700}}>
+          ⚠️ Esta HASH está dentro da máquina ({h.machineSN || "sem SN"}) e seu status não pode ser alterado manualmente.
+        </div>
+      ) : (
+        <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>
+          {["ON","OFF","TESTAR","REPARO","STOCK","NA MAQUINA"].map(s=><button key={s} onClick={()=>upd("status",s)} style={{background:h.status===s?HST_C[s]:C.bg,color:"#fff",border:`1px solid ${HST_C[s]}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}}>{s}</button>)}
+        </div>
+      )
+    )}
+    {!readOnly && <EditableSNField label="SN (editar)" value={h.sn||""} onCommit={v=>upd("sn",v)}/>}
+    {readOnly ? (
+      <div style={{marginBottom:12}}>
+        <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>MATERIAL DA PLACA</div>
+        <div style={{fontSize:13,fontWeight:700,color:C.text}}>{h.material ? (h.material === "FIBRA" ? "🔵 Fibra" : "🟠 Alumínio") : "Não especificado"}</div>
       </div>
     ) : (
-      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>
-        {["ON","OFF","TESTAR","REPARO","STOCK","NA MAQUINA"].map(s=><button key={s} onClick={()=>upd("status",s)} style={{background:h.status===s?HST_C[s]:C.bg,color:"#fff",border:`1px solid ${HST_C[s]}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}}>{s}</button>)}
-      </div>
+      <MaterialPicker value={h.material||""} onChange={v=>upd("material",v)}/>
     )}
-    <EditableSNField label="SN (editar)" value={h.sn||""} onCommit={v=>upd("sn",v)}/>
-    <MaterialPicker value={h.material||""} onChange={v=>upd("material",v)}/>
     <SL mt={8}>📷 FOTO DA HASH</SL>
     {h.photoKey?<div style={{marginBottom:14}}>
       <PhotoView photoKey={h.photoKey} style={{maxHeight:220,marginBottom:8}}/>
       <div style={{display:"flex",gap:8}}>
         <Btn v="b" onClick={()=>downloadPhoto(h.photoKey,`${h.sn||"hash"}.jpg`)} style={{flex:1}}>⬇️ Baixar</Btn>
-        <Btn v="d" onClick={()=>{deleteDrivePhoto(h.photoKey);upd("photoKey",null)}} style={{flex:1}}>🗑️ Excluir (pra colocar outra)</Btn>
+        {!readOnly && <Btn v="d" onClick={()=>{deleteDrivePhoto(h.photoKey);upd("photoKey",null)}} style={{flex:1}}>🗑️ Excluir (pra colocar outra)</Btn>}
       </div>
-    </div>:<PhotoCapture photoKey={null} onChange={k=>upd("photoKey",k)} folder="hashes" snHint={h.sn}/>}
-    {!confirmIrrep?<Btn v="d" onClick={()=>setConfirmIrrep(true)} style={{width:"100%",marginBottom:12}}>💀 Marcar como Irreparável</Btn>:<div style={{background:"#1a0a0a",border:`1px solid ${C.red}`,borderRadius:10,padding:14,marginBottom:12}}><div style={{fontWeight:800,color:C.red,marginBottom:8}}>⚠️ Confirmar Irreparável?</div><div style={{fontSize:12,color:C.text,marginBottom:12}}>Marcada para retirada de peças.</div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>setConfirmIrrep(false)} style={{flex:1}}>Cancelar</Btn><Btn v="d" onClick={async()=>{await upd("status","IRREPARAVEL");setConfirmIrrep(false)}} style={{flex:1}}>Confirmar</Btn></div></div>}
+    </div>:(readOnly ? (
+      <div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12,border:`1px dashed ${C.border}`,borderRadius:10,marginBottom:12}}>Sem foto salva</div>
+    ) : (
+      <PhotoCapture photoKey={null} onChange={k=>upd("photoKey",k)} folder="hashes" snHint={h.sn}/>
+    ))}
+    {!readOnly && (
+      !confirmIrrep?<Btn v="d" onClick={()=>setConfirmIrrep(true)} style={{width:"100%",marginBottom:12}}>💀 Marcar como Irreparável</Btn>:<div style={{background:"#1a0a0a",border:`1px solid ${C.red}`,borderRadius:10,padding:14,marginBottom:12}}><div style={{fontWeight:800,color:C.red,marginBottom:8}}>⚠️ Confirmar Irreparável?</div><div style={{fontSize:12,color:C.text,marginBottom:12}}>Marcada para retirada de peças.</div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>setConfirmIrrep(false)} style={{flex:1}}>Cancelar</Btn><Btn v="d" onClick={async()=>{await upd("status","IRREPARAVEL");setConfirmIrrep(false)}} style={{flex:1}}>Confirmar</Btn></div></div>
+    )}
     <SL mt={8}>📋 HISTÓRICO COMPLETO</SL>
     {history.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Sem histórico</div>:history.map((ev,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:12}}><div style={{display:"flex",flexDirection:"column",alignItems:"center"}}><div style={{width:24,height:24,borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,flexShrink:0}}>{ev.icon}</div>{i<history.length-1&&<div style={{width:2,flex:1,background:C.border,marginTop:4}}/>}</div><div style={{flex:1,paddingBottom:8}}><div style={{fontSize:12,fontWeight:700}}>{ev.text}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(ev.date)}</div>{ev.notes&&<div style={{fontSize:11,color:C.subtle,marginTop:2}}>{ev.notes}</div>}{ev.photoKey&&<PhotoView photoKey={ev.photoKey} style={{marginTop:6,maxHeight:100}}/>}</div></div>)}
-    <Btn v="d" onClick={async()=>{
+    {!readOnly && <Btn v="d" onClick={async()=>{
       syncSheet(webhookUrl,"deleteHashRow",{sn:h.sn||undefined,row:!h.sn?h.sheetRow:undefined});
       for(const pl of data.pallets){
         if((pl.hashesSN||[]).includes(h.sn)){
@@ -2493,7 +2521,7 @@ function HashDetail({ctx,hash}){
       }
       await markChanged("clients");
       mutate("hashes",arr=>arr.filter(x=>x._id!==h._id));await fbDel("hashes",h._id);await markChanged("hashes");setModal(null)
-    }} style={{width:"100%",marginTop:8}}>🗑 Remover</Btn>
+    }} style={{width:"100%",marginTop:8}}>🗑 Remover</Btn>}
   </div>;
 }
 
@@ -2520,7 +2548,7 @@ function HashSearchBox({ctx}){
         <div><span style={{fontWeight:800,color:C.blue}}>⚡ {found.sn}</span> <span style={{color:C.muted,fontSize:12}}>{found.model}</span></div>
         <HP s={found.status}/>
       </div>
-      <Btn v="b" onClick={()=>setModal(<Modal title={`⚡ ${found.sn}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={found}/></Modal>)} style={{width:"100%",marginTop:8}}>📋 Ver Histórico Completo</Btn>
+      <Btn v="b" onClick={()=>setModal(<Modal title={`⚡ ${found.sn}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={found} readOnly={true}/></Modal>)} style={{width:"100%",marginTop:8}}>📋 Ver Histórico Completo</Btn>
     </div>}
     {foundMachine&&<div style={{background:C.card2,borderRadius:8,padding:10}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -5336,7 +5364,7 @@ function ClientDetail({ctx,client}){
     <SL>Máquinas ({macs.length})</SL>
     {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma máquina</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div><div style={{fontSize:10,color:C.muted}}>{m.model} · {m.th}TH</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button><button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div></div>)}
     <SL mt={14}>HASHs avulsas ({hshs.length})</SL>
-    {hshs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma HASH avulsa</div>:hshs.map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"} <HP s={h.status}/></div><div style={{fontSize:10,color:C.muted}}>{h.model}</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button><button onClick={()=>remHash(h.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div></div>)}
+    {hshs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma HASH avulsa</div>:hshs.map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"} <HP s={h.status}/></div><div style={{fontSize:10,color:C.muted}}>{h.model}</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button><button onClick={()=>remHash(h.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div></div>)}
     <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Cliente</Btn>
   </div>;
 }
@@ -5395,7 +5423,7 @@ function ClientReport({ctx,client}){
       })}
     </>}
     {hshsF.length>0&&<><SL mt={14}>⚡ HASHs AVULSAS</SL>
-      {hshsF.map(h=><Card key={h._id}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontWeight:800,fontSize:13,color:C.blue}}>{h.sn} · {h.model}</div><button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div><div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {h._at?fmtTS(h._at):"—"} · <HP s={h.status}/></div></Card>)}
+      {hshsF.map(h=><Card key={h._id}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div style={{fontWeight:800,fontSize:13,color:C.blue}}>{h.sn} · {h.model}</div><button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button></div><div style={{fontSize:11,color:C.muted,marginTop:2}}>Enviada em {h._at?fmtTS(h._at):"—"} · <HP s={h.status}/></div></Card>)}
     </>}
     {macsF.length===0&&hshsF.length===0&&<div style={{textAlign:"center",color:C.muted,padding:24}}>Nada encontrado com esse filtro</div>}
     {(()=>{
