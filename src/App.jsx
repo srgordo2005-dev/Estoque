@@ -268,13 +268,13 @@ const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{cons
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
 const DEF_MODELS=[{m:"E9 Pro",th:3680},{m:"E9 Pro+",th:3880},{m:"KS5",th:21},{m:"KS5L",th:14},{m:"KS3",th:8},{m:"S19JPRO+",th:120},{m:"S19KPRO",th:77},{m:"S21XP",th:270},{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
 const SIT_OPTS=["BOA","RUIM","ENTRADA OFICINA","LIGADA","STOCK","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","REMOVIDO"];
-const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","SAIDA","IRREPARAVEL","NA MAQUINA"];
+const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","SAIDA","IRREPARAVEL","NA MAQUINA","BOA"];
 // Controladora/Fonte/Fans/Hash-slots da máquina: a planilha só aceita esses 3
 // valores (validação travada na coluna). Usar mais opções que isso faz a
 // escrita na planilha ser rejeitada silenciosamente.
 const CTR_OPTS=["ON","OFF","TESTAR"];
 const SIT_C={"BOA":"#16a34a","RUIM":"#dc2626","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","STOCK":"#d97706","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#eab308","REMOVIDO":"#78350f"};
-const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",SAIDA:"#ea580c",IRREPARAVEL:"#374151","NA MAQUINA":"#0ea5e9"};
+const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",SAIDA:"#ea580c",IRREPARAVEL:"#374151","NA MAQUINA":"#0ea5e9","BOA":"#16a34a"};
 // NUNCA usar toISOString() aqui — ela devolve a data em UTC, não no horário
 // local. Como o Brasil é UTC-3, entre 21h e 23h59 (horário local) o UTC já
 // virou o dia seguinte — TODAY() ficava adiantado em 1 dia bem nesse
@@ -1524,6 +1524,21 @@ function BatchSNForm({ctx,onClose}){
   const[dupMsg,setDupMsg]=useState("");
   const[palletId,setPalletId]=useState("");
   const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-sn"/></Modal>)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-sn"/></Modal>)}}/></Modal>);
+  const generateBatchSN = () => {
+    const allSNs = [
+      ...data.machines.map(m=>m.sn),
+      ...data.hashes.map(h=>h.sn),
+      ...pending.map(p=>p.sn)
+    ].filter(Boolean);
+    let max = 999;
+    allSNs.forEach(sn => {
+      if(/^\d{4,8}$/.test(sn)){
+        const num = parseInt(sn, 10);
+        if(num > max) max = num;
+      }
+    });
+    return String(max + 1);
+  };
   const addSN=(raw)=>{
     const s=raw.toUpperCase().trim();if(!s)return;
     const inBatch=pending.some(p=>p.sn===s);
@@ -1601,7 +1616,16 @@ function BatchSNForm({ctx,onClose}){
   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
     {[["ctr","CTR",ctr,setCtr],["fonte","FONTE",fonte,setFonte],["fans","FANS",fans,setFans]].map(([k,l,v,setV])=><Sel key={k} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}
   </div>
-  <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}><SL>BIPAR OU DIGITAR</SL><SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/>
+  <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+      <SL style={{margin:0}}>BIPAR OU DIGITAR</SL>
+      <Btn v="b" onClick={()=>{
+        const newSN = generateBatchSN();
+        alert(`📝 Escreva o SN ${newSN} na carcaça com marcador AGORA!`);
+        addSN(newSN);
+      }} style={{padding:"5px 12px",fontSize:11}}>➕ Criar SN</Btn>
+    </div>
+    <SmartScanInput onDetect={addSN} placeholder="SN..." autoFocus count={pending.length}/>
   {dupMsg&&<div style={{color:C.amber,fontSize:12,marginTop:6,fontWeight:700}}>{dupMsg}</div>}
   <div style={{maxHeight:220,overflow:"auto",marginTop:8}}>{pending.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:10}}>Nenhum SN</div>:pending.map((p,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2264,21 +2288,59 @@ function MaterialPicker({value,onChange}){
 function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
   const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[material,setMaterial]=useState(""),[status,setStatus]=useState(linkToMachine?"NA MAQUINA":"REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null),[photoBlocked,setPhotoBlocked]=useState(false);
+  const[techId,setTechId]=useState("");
+  const[techDate,setTechDate]=useState(TODAY());
+  
+  const statusOptions = techId ? ["REPARO", "BOA"] : HST_OPTS;
+  
+  useEffect(()=>{
+    if(techId){
+      if(status!=="REPARO"&&status!=="BOA"){
+        setStatus("REPARO");
+      }
+    }
+  },[techId]);
+
   const checkSN=v=>{setSN(v);const s=v.toUpperCase().trim();if(!s){setSnInfo(null);return}const ex=data.hashes.find(h=>h.sn===s);if(ex)setSnInfo({type:"exists",item:ex});else{const mac=data.machines.find(m=>m.sn===s);if(mac)setSnInfo({type:"mac",item:mac});else setSnInfo(null)}};
   const save=async()=>{
     const s=sn.toUpperCase().trim();
     if(s&&data.hashes.find(h=>h.sn===s)){alert("SN já cadastrado!");return}
     const id=uid();
+    const techName = techId ? (data.employees.find(e=>e._id===techId)?.name || "") : "";
     const d={sn:s,model,material,status,location,obs,...audit(user),addedAt:TODAY(),
       machineSN:linkToMachine?linkToMachine.sn:"",slot:linkToMachine?linkToMachine.slot:-1,
-      repairedBy:"",photoKey:photoKey||""};
+      repairedBy:techId || "",repairedByName:techName,photoKey:photoKey||""};
     await fbSet("hashes",id,d);
     mutate("hashes",h=>[...h,{...d,_id:id}]);
     await markChanged("hashes");
-    if(webhookUrl)syncSheet(webhookUrl,"addHash",{sn:s,model,status,obs,employeeName:user.name,employeeCode:user.code});
-    // Se veio de dentro do editar de uma máquina (slot que não existia
-    // ainda), já vincula ela na máquina e manda o SN pro slot certo na
-    // planilha — antes isso nunca acontecia, ficava só cadastrada solta.
+    
+    if(techId && status === "BOA") {
+      const repId = uid();
+      const techEmp = data.employees.find(e=>e._id===techId);
+      const repRec = {
+        hashSN: s,
+        model,
+        material: material || "",
+        type: "repair",
+        photoKey: photoKey || "",
+        employeeId: techId,
+        _by: techId,
+        _byName: techName,
+        _at: new Date(techDate + "T12:00:00").toISOString(),
+        date: techDate,
+        status: "BOA"
+      };
+      await fbSet("repairs", repId, repRec);
+      mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
+      await markChanged("repairs");
+      if(webhookUrl) {
+        syncSheet(webhookUrl,"addHash",{sn:s,model,status:"BOA",obs,employeeName:techName,employeeCode:techEmp?.code});
+        syncSheet(webhookUrl,"repair",{...repRec,status:"BOA",employeeCode:techEmp?.code,employeeName:techName,tecnico:techName});
+      }
+    } else {
+      if(webhookUrl)syncSheet(webhookUrl,"addHash",{sn:s,model,status,obs,employeeName:user.name,employeeCode:user.code});
+    }
+    
     if(linkToMachine&&webhookUrl){
       const defaultChips=gChips(model,material)||0;
       syncSheet(webhookUrl,"hashApproved",{sn:s,model,machineSN:linkToMachine.sn,slot:linkToMachine.slot,chips:defaultChips,employeeName:user.name,employeeCode:user.code});
@@ -2292,7 +2354,14 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
     <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
     <MaterialPicker value={material} onChange={setMaterial}/>
     {gChips(model,material)&&<div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>Padrão pra esse modelo/material: {gChips(model,material)} chips</div>}
-    <Sel label="STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
+    
+    <Sel label="VINCULAR TÉCNICO (REGISTRAR CONSERTO)" value={techId} onChange={e=>setTechId(e.target.value)}>
+      <option value="">Nenhum (Apenas cadastrar HASH)</option>
+      {data.employees.map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
+    </Sel>
+    {techId && <Inp label="DATA DO CONSERTO" type="date" value={techDate} onChange={e=>setTechDate(e.target.value)}/>}
+    
+    <Sel label="STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{statusOptions.map(s=><option key={s}>{s}</option>)}</Sel>
     <PalletLocationPicker pallets={data.pallets} value={location} onChange={setLocation}/>
     <Inp label="Observação" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: Chip U3 trocado, Chain Break corrigida..."/>
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} folder="hashes" snHint={sn} onUploadFail={setPhotoBlocked}/>

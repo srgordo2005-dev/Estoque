@@ -574,7 +574,7 @@ function addRepairRow(sheet, sheetHash, p) {
   const dateVal = p.date ? new Date(p.date + "T12:00:00") : new Date();
   const dateStr = Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "dd/MM/yyyy");
   
-  const statusVal = p.type === "rework" ? "REPARAR" : "TESTAR";
+  const statusVal = p.status || (p.type === "rework" ? "REPARAR" : "TESTAR");
   
   const chipsCount = parseInt(p.chips, 10) || 0;
   // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL (deixado vazio conforme pedido!), F=SITUACAO, G=TECNICO, H=DEFEITO
