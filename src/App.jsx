@@ -3848,7 +3848,7 @@ function ApprovalsPage({ctx}){
         const fromLabel=h.status==="SAIDA"?"Desvinculada da venda":h.machineSN?"Desvinculada de "+h.machineSN:h.status;
         const u={...h,status:"NA MAQUINA",machineSN:appr.machineSN,slot:slotIdx,location:"",changeLog:[{field:"status",label:"Status",from:fromLabel,to:"NA MAQUINA em "+appr.machineSN,by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
         newH=newH.map(x=>x._id===h._id?u:x);await fbSet("hashes",h._id,u);
-        syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,chips:u.chips||0,employeeName:user.name,employeeCode:user.code});
+        syncSheet(webhookUrl,"hashApproved",{sn:u.sn,model:u.model,machineSN:appr.machineSN,slot:slotIdx,chips:u.chips||0,employeeName:user.name,employeeCode:user.code,skipRepair:true});
       }else{
         // HASH nova — só é criada agora que foi aprovada como boa.
         const techId = test["slot" + slotIdx + "TechId"];
@@ -3874,7 +3874,6 @@ function ApprovalsPage({ctx}){
           addedAt:TODAY()
         };
         await fbSet("hashes",hid,hd);newH=[...newH,{...hd,_id:hid}];
-        syncSheet(webhookUrl,"hashApproved",{sn,model:customModel,machineSN:appr.machineSN,slot:slotIdx,chips:customChips||0,employeeName:user.name,employeeCode:user.code});
 
         if (techId) {
           const repId = uid();
@@ -3893,9 +3892,26 @@ function ApprovalsPage({ctx}){
           };
           await fbSet("repairs", repId, repRec);
           mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
-          if (webhookUrl) {
-            syncSheet(webhookUrl, "repair", { ...repRec, status: "BOA", employeeCode: techCode, employeeName: techName, tecnico: techName });
-          }
+          syncSheet(webhookUrl,"hashApproved",{
+            sn,
+            model:customModel,
+            machineSN:appr.machineSN,
+            slot:slotIdx,
+            chips:customChips||0,
+            employeeName:techName,
+            employeeCode:techCode
+          });
+        } else {
+          syncSheet(webhookUrl,"hashApproved",{
+            sn,
+            model:customModel,
+            machineSN:appr.machineSN,
+            slot:slotIdx,
+            chips:customChips||0,
+            employeeName:user.name,
+            employeeCode:user.code,
+            skipRepair:true
+          });
         }
 
         if(customChips&&!data.customModels.find(cm=>cm.m===customModel&&(cm.material||"")===customMaterial&&cm.chips)){

@@ -195,9 +195,8 @@ function doPost(e) {
       } else if (action === "test") {
         addTestRow(sheetTestes, payload);
       }
+      SpreadsheetApp.flush();
     }
-    
-    SpreadsheetApp.flush();
     return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
@@ -537,7 +536,7 @@ function hashApprovedRow(sheetMac, sheetHash, sheetReparo, p) {
   }
   
   // 3. Grava uma nova linha na aba "REPARO DE HASH" com SITUACAO = "BOA" (Imagem 2)
-  if (sheetReparo && p.sn) {
+  if (sheetReparo && p.sn && !p.skipRepair) {
     const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
     
     // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL (deixado vazio), F=SITUACAO (BOA), G=TECNICO, H=DEFEITO
