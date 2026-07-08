@@ -254,13 +254,13 @@ const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{cons
 
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
 const DEF_MODELS=[{m:"E9 Pro",th:3680},{m:"E9 Pro+",th:3880},{m:"KS5",th:21},{m:"KS5L",th:14},{m:"KS3",th:8},{m:"S19JPRO+",th:120},{m:"S19KPRO",th:77},{m:"S21XP",th:270},{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
-const SIT_OPTS=["BOA","ENTRADA OFICINA","LIGADA","STOCK","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","REMOVIDO"];
+const SIT_OPTS=["BOA","RUIM","ENTRADA OFICINA","LIGADA","STOCK","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","REMOVIDO"];
 const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","SAIDA","IRREPARAVEL","NA MAQUINA"];
 // Controladora/Fonte/Fans/Hash-slots da máquina: a planilha só aceita esses 3
 // valores (validação travada na coluna). Usar mais opções que isso faz a
 // escrita na planilha ser rejeitada silenciosamente.
 const CTR_OPTS=["ON","OFF","TESTAR"];
-const SIT_C={"BOA":"#16a34a","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","STOCK":"#d97706","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#eab308","REMOVIDO":"#78350f"};
+const SIT_C={"BOA":"#16a34a","RUIM":"#dc2626","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","STOCK":"#d97706","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#eab308","REMOVIDO":"#78350f"};
 const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",SAIDA:"#ea580c",IRREPARAVEL:"#374151","NA MAQUINA":"#0ea5e9"};
 // NUNCA usar toISOString() aqui — ela devolve a data em UTC, não no horário
 // local. Como o Brasil é UTC-3, entre 21h e 23h59 (horário local) o UTC já
@@ -2587,7 +2587,26 @@ function ConsertaPage({ctx}){
   };
 
   const failedTests=(data.feedbacks||[]).filter(f=>!f.resolved);
+  const myRepairs=(data.hashes||[]).filter(h=>h.status==="REPARO"&&h.repairedBy===user._id);
   return<div>
+    {myRepairs.length>0&&<>
+      <style>{`@keyframes myRepairsGlow{0%,100%{box-shadow:0 0 6px 1px ${C.amber}77}50%{box-shadow:0 0 14px 5px ${C.amber}cc}}`}</style>
+      <button onClick={()=>setModal(<Modal title="🔧 Minhas Placas para Reparar" onClose={()=>setModal(null)}>
+          <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Você tem {myRepairs.length} placa(s) vinculada(s) ao seu usuário aguardando reparo. Clique em uma para iniciar o conserto.</div>
+          <div style={{maxHeight:400,overflowY:"auto"}}>
+            {myRepairs.map(h=>{
+              return<Card key={h._id} onClick={()=>{set("hashSN",h.sn);set("model",h.model);if(h.material)set("material",h.material);setModal(null)}} style={{marginBottom:10,cursor:"pointer",border:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontWeight:800,fontSize:14,color:C.amber}}>⚡ {h.sn||"SEM SN"}</span>
+                  <span style={{fontSize:11,color:C.muted}}>{h.model}</span>
+                </div>
+                {h.location&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>📍 Localização: {h.location}</div>}
+                {h.photoKey&&<PhotoView photoKey={h.photoKey} style={{marginTop:8,maxHeight:140}}/>}
+              </Card>;
+            })}
+          </div>
+        </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.amber,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,width:"100%",justifyContent:"center",animation:"myRepairsGlow 1.8s ease-in-out infinite"}}>🔧 {myRepairs.length} HASH(s) para você reparar</button>
+    </>}
     {failedTests.length>0&&<>
       <style>{`@keyframes repairGlow{0%,100%{box-shadow:0 0 6px 1px ${C.red}77}50%{box-shadow:0 0 14px 5px ${C.red}cc}}`}</style>
       <button onClick={()=>setModal(<Modal title="⚠️ Placas Ruins no Teste" onClose={()=>setModal(null)}>
