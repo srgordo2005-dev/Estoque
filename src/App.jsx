@@ -208,7 +208,21 @@ let wQ=[],wT=null;
 let onSyncSheetError=null; // o App registra isso no boot pra mostrar erros de sincronização (planilha e Drive) na tela
 function syncSheet(url,action,payload){
   if(!url)return;
-  wQ.push({action,payload});
+  let p = { ...payload };
+  const mapSituacao = (v) => {
+    if (!v) return v;
+    const s = String(v).trim().toUpperCase();
+    if (s === "RUIM") return "ENTRADA OFICINA ";
+    if (s === "ENTRADA OFICINA") return "ENTRADA OFICINA ";
+    if (s === "AGUARD. REVISAO" || s === "AGUARD. REVISÃO" || s === "REVISAR" || s === "CASTANHAO") return "STOCK";
+    return v;
+  };
+  if (action === "updateMachine" && p.field === "situacao") {
+    p.to = mapSituacao(p.to);
+  } else if (action === "addMachine") {
+    p.situacao = mapSituacao(p.situacao);
+  }
+  wQ.push({action,payload:p});
   clearTimeout(wT);
   wT=setTimeout(async()=>{
     if(!wQ.length)return;
