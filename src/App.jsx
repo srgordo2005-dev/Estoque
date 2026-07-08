@@ -3160,7 +3160,6 @@ function TestePage({ctx}){
 
   const markAllGood=async()=>{
     if(!session)return;
-    if(!session.photoKey){setErr("Adicione a foto da tela primeiro!");return}
     if(unknownSlots.length>0&&!session.newHashChars){setErr("Defina as características das HASHs novas primeiro!");return}
     // Slot marcado RUIM mas sem HASH nenhuma nele (a antiga foi removida e
     // ninguém colocou uma nova pra substituir) — não bloqueia, só avisa e
@@ -3181,7 +3180,6 @@ function TestePage({ctx}){
   // final é RUIM em vez de BOA/PREPARANDO.
   const markMachineBad=async()=>{
     if(!session)return;
-    if(!session.photoKey){setErr("Adicione a foto da tela primeiro!");return}
     if(unknownSlots.length>0&&!session.newHashChars){setErr("Defina as características das HASHs novas primeiro!");return}
     const reason=window.prompt("Por que essa máquina está RUIM? (obrigatório)","");
     if(!reason||!reason.trim())return;
@@ -3421,7 +3419,7 @@ function TestePage({ctx}){
 
       {/* Foto */}
       <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
-        <PhotoCapture label="📸 Foto da Tela / App Fabricante (obrigatória)" photoKey={session.photoKey||null} onChange={k=>saveSession({...session,photoKey:k,updatedAt:stamp()})} folder="testes" snHint={session.machineSN} required/>
+        <PhotoCapture label="📸 Foto da Tela / App Fabricante (opcional)" photoKey={session.photoKey||null} onChange={k=>saveSession({...session,photoKey:k,updatedAt:stamp()})} folder="testes" snHint={session.machineSN}/>
       </div>
 
       {/* Vinculação de palete imediata */}
@@ -3439,15 +3437,14 @@ function TestePage({ctx}){
         <Btn v={needsChars?"d":"s"} onClick={()=>setModal(<Modal title="Características das HASHs novas" onClose={()=>setModal(null)}><NewHashCharsForm ctx={ctx} unknownSlots={unknownSlots} initial={session.newHashChars} templateHash={templateHash} onSave={async(chars)=>{await saveSession({...session,newHashChars:chars,model:chars.model||session.model,updatedAt:stamp()});setModal(null)}}/></Modal>)} style={{width:"100%"}}>{needsChars?"📋 Definir características (obrigatório)":"✏️ Editar características"}</Btn>
       </div>}
 
-      <Btn v="g" onClick={markAllGood} disabled={submitting||!session.photoKey||needsChars} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
+      <Btn v="g" onClick={markAllGood} disabled={submitting||needsChars} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
         {submitting?"Enviando...":session.prepShipment?"📦 Enviar Preparação para Revisão":"✅ TUDO BOA — Enviar para Revisão"}
       </Btn>
-      <Btn v="d" onClick={markMachineBad} disabled={submitting||!session.photoKey||needsChars} style={{width:"100%",padding:"12px",fontSize:13,marginBottom:8}}>💀 Máquina Ruim — Enviar para Revisão</Btn>
+      <Btn v="d" onClick={markMachineBad} disabled={submitting||needsChars} style={{width:"100%",padding:"12px",fontSize:13,marginBottom:8}}>💀 Máquina Ruim — Enviar para Revisão</Btn>
       <div style={{display:"flex",gap:8}}>
         <Btn v="s" onClick={()=>{setActiveId(null);setMacInput("")}} style={{flex:1,fontSize:12}}>👋 Deixar na fila e trocar de máquina</Btn>
         <Btn v="d" onClick={()=>closeSession(session._id)} style={{flex:1,fontSize:12}}>🗑 Cancelar esta</Btn>
       </div>
-      {!session.photoKey&&<div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Adicione a foto para enviar</div>}
       {needsChars&&<div style={{color:C.red,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Defina as características das HASHs novas pra enviar</div>}
       {hasEmptyBadSlot&&<div style={{color:C.amber,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Tem slot RUIM sem HASH substituta — pode mandar assim, mas vai pedir confirmação</div>}
     </>}
