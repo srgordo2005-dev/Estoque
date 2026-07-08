@@ -1,5 +1,5 @@
 /**
- * CÓDIGO DO GOOGLE APPS SCRIPT PARA INTEGRAÇÃO COM PLANILHA (hashstock-apps-script.js)
+ * CÓDIGO DO GOOGLE APPS SCRIPT PARA INTEGRACAO COM PLANILHA (hashstock-apps-script.js)
  * 
  * Instalação:
  * 1. Na sua planilha do Google Sheets, vá em Extensões -> Apps Script.
@@ -13,39 +13,66 @@
  */
 
 // --- CONFIGURAÇÃO DE COLUNAS DA ABA "MAQUINAS" (1-based: A=1, B=2, C=3, etc.) ---
-// Na aba MÁQUINAS: A=Data/REF, B=SN, C=Modelo, D=TH, E=Situação, F=Localização, G=Destino...
-const COL_MAC_REF = 1;         // A - Referência / Data de Entrada (Coluna A)
-const COL_MAC_SN = 2;          // B - SN (Coluna B)
-const COL_MAC_MODEL = 3;       // C - Modelo (Coluna C)
-const COL_MAC_TH = 4;          // D - T/H
-const COL_MAC_SITUACAO = 5;    // E - Situação
-const COL_MAC_LOCATION = 6;    // F - Localização
-const COL_MAC_DESTINO = 7;     // G - Destino (Cliente)
-const COL_MAC_HASHSN0 = 8;     // H - Slot 1 (SN)
-const COL_MAC_HASHSN1 = 9;     // I - Slot 2 (SN)
-const COL_MAC_HASHSN2 = 10;    // J - Slot 3 (SN)
-const COL_MAC_HASH0 = 11;      // K - Slot 1 (status)
-const COL_MAC_HASH1 = 12;      // L - Slot 2 (status)
-const COL_MAC_HASH2 = 13;      // M - Slot 3 (status)
-const COL_MAC_CTR = 14;        // N - CTR (Controladora)
-const COL_MAC_DATA_SAIDA = 15; // O - DATA DE SAÍDA (Coluna O = 15)
-const COL_MAC_FONTE = 16;      // P - FONTE
-const COL_MAC_FANS = 17;       // Q - FANS
+// Layout Real Enviado pelo Usuário:
+// A=Data, B=REF, C=MODELO, D=T/H, E=SN / MAC, F=HASH 0, G=HASH 1, H=HASH 2, I=CONTROL, J=FONTE, K=FANS, L=SITUACAO, M=DESTINO, O=Data Saida, P=SLOT01, Q=SLOT02, R=SLOT03
+const COL_MAC_DATE = 1;        // A - Data de Entrada (Coluna A)
+const COL_MAC_REF = 2;         // B - REF (Coluna B)
+const COL_MAC_MODEL = 3;       // C - MODELO (Coluna C)
+const COL_MAC_TH = 4;          // D - T/H (Coluna D)
+const COL_MAC_SN = 5;          // E - SN / MAC (Coluna E)
+const COL_MAC_HASH0 = 6;       // F - HASH 0 (Coluna F)
+const COL_MAC_HASH1 = 7;       // G - HASH 1 (Coluna G)
+const COL_MAC_HASH2 = 8;       // H - HASH 2 (Coluna H)
+const COL_MAC_CTR = 9;         // I - CONTROL (Coluna I)
+const COL_MAC_FONTE = 10;      // J - FONTE (Coluna J)
+const COL_MAC_FANS = 11;       // K - FANS (Coluna K)
+const COL_MAC_SITUACAO = 12;   // L - SITUACAO (Coluna L)
+const COL_MAC_DESTINO = 13;    // M - DESTINO (Coluna M)
+const COL_MAC_DATA_SAIDA = 15; // O - Data Saida (Coluna O)
+const COL_MAC_HASHSN0 = 16;    // P - SLOT01 (Coluna P)
+const COL_MAC_HASHSN1 = 17;    // Q - SLOT02 (Coluna Q)
+const COL_MAC_HASHSN2 = 18;    // R - SLOT03 (Coluna R)
+const COL_MAC_LOCATION = -1;   // Sem coluna de localização na aba Máquinas do usuário
 
 // --- CONFIGURAÇÃO DE COLUNAS DA ABA "HASH" (1-based) ---
-// Estrutura Real (Imagem 1): A=Data, B=SN, C=Modelo, D=Status, E=Máquina SN, F=Foto Log, G=Obs
+// Layout Real: A=Data, B=SN, C=Modelo, D=Status, E=Máquina SN, F=FotoLog, G=Obs
 const COL_HASH_SN = 2;         // B - SN (Coluna B)
 const COL_HASH_MODEL = 3;      // C - Modelo (Coluna C)
 const COL_HASH_STATUS = 4;     // D - Status (Coluna D)
-const COL_HASH_MAQUINA = 5;    // E - Máquina (SN) (Coluna E)
-const COL_HASH_FOTO = 6;       // F - Link da Foto (Coluna F)
-const COL_HASH_DEFEITO = 7;    // G - Defeito / Obs (Coluna G)
+const COL_HASH_MAQUINA = 5;    // E - Máquina SN (Coluna E)
+const COL_HASH_FOTO = 6;       // F - FotoLog (Coluna F)
+const COL_HASH_DEFEITO = 7;    // G - Obs (Coluna G)
 
 // --- LISTA DE TEXTOS DE SN INVÁLIDOS (Referências e Placeholders) ---
 const INVALID_SN_TEXTS = [
   "SEM SN","SEMSN","SEM S/N","S/N","SN","N/A","NA","-","--","NENHUM","VAZIO",
   "TJC", "BSL", "SP", "BSL/TJC", "SP/TJC", "TJC/BSL", "TJC/SP"
 ];
+
+// --- TRADUTOR DE SITUAÇÃO DA MÁQUINA PARA EVITAR ERRO DE VALIDAÇÃO NA PLANILHA ---
+function mapSituacaoToSheet(val) {
+  if (!val) return "STOCK";
+  const s = String(val).trim().toUpperCase();
+  
+  // Lista exata aceita pela validação de dados da planilha:
+  // BOA, ENTRADA OFICINA , LIGADA, STOCK, VENDIDA, PREPARANDO, SAIDA, EXPORTADA, REMOVIDO
+  const VALID_VALUES = ["BOA", "ENTRADA OFICINA ", "LIGADA", "STOCK", "VENDIDA", "PREPARANDO", "SAIDA", "EXPORTADA", "REMOVIDO"];
+  
+  // Corrige o espaço extra no final de "ENTRADA OFICINA " exigido pela planilha do usuário
+  if (s === "ENTRADA OFICINA") return "ENTRADA OFICINA ";
+  
+  if (VALID_VALUES.indexOf(s) !== -1) return s;
+  
+  // Mapeamentos de Fallback para status do App que não existem na planilha:
+  if (s === "AGUARD. REVISAO" || s === "AGUARD. REVISÃO" || s === "REVISAR" || s === "CASTANHAO") {
+    return "STOCK";
+  }
+  if (s === "RUIM") {
+    return "ENTRADA OFICINA ";
+  }
+  
+  return "STOCK"; // Fallback padrão seguro
+}
 
 // --- FUNÇÃO DE NORMALIZAÇÃO ROBUSTA DE TEXTO ---
 function normalizeString(str) {
@@ -75,11 +102,11 @@ function getSheetByNameRobust(ss, name) {
 
 // --- BUSCADOR INTELIGENTE DE ABA DE MÁQUINAS ---
 function getMachinesSheet(ss) {
-  // 1. Tenta achar pelo nome padrão robusto "MAQUINAS"
-  let sheet = getSheetByNameRobust(ss, "MAQUINAS") || getSheetByNameRobust(ss, "MAQUINA");
+  // 1. Tenta achar pelo nome exato robusto "STOCK TIJUCAS", depois "MAQUINAS", etc.
+  let sheet = getSheetByNameRobust(ss, "STOCK TIJUCAS") || getSheetByNameRobust(ss, "STOCKTIJUCAS") || getSheetByNameRobust(ss, "MAQUINAS") || getSheetByNameRobust(ss, "MAQUINA");
   if (sheet) return sheet;
   
-  // 2. Busca por uma aba cujo cabeçalho B1 seja "SN" (ignora históricos/reparos/testes/hashes)
+  // 2. Busca por uma aba cujo cabeçalho E1 seja "SN / MAC" (ignora históricos/reparos/testes/hashes)
   const sheets = ss.getSheets();
   for (let i = 0; i < sheets.length; i++) {
     const s = sheets[i];
@@ -87,8 +114,8 @@ function getMachinesSheet(ss) {
     if (name.includes("reparo") || name.includes("teste") || name.includes("envio") || name.includes("saida") || name.includes("historico") || name.includes("hash")) {
       continue;
     }
-    const hB = String(s.getRange(1, COL_MAC_SN).getValue() || "").trim().toLowerCase();
-    if (hB === "sn" || hB === "s/n" || hB === "serial") {
+    const hE = String(s.getRange(1, COL_MAC_SN).getValue() || "").trim().toLowerCase();
+    if (hE.includes("sn") || hE.includes("mac") || hE.includes("serial")) {
       return s;
     }
   }
@@ -190,7 +217,7 @@ function doGet(e) {
       return ContentService.createTextOutput(JSON.stringify({ 
         status: "ok", 
         time: new Date().toISOString(), 
-        version: "v12",
+        version: "v15",
         detectedMachinesSheet: ssMac ? ssMac.getName() : "Nenhuma",
         detectedHashesSheet: ssHash ? ssHash.getName() : "Nenhuma",
         sheetsList: ss.getSheets().map(s => ({
@@ -208,26 +235,18 @@ function doGet(e) {
       
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
-        const rawSN = row[COL_MAC_SN - 1];
+        let sn = String(row[COL_MAC_SN - 1] || "").trim();
         
         // Pula se for objeto Date legítimo (não é SN de máquina)
-        if (rawSN instanceof Date) continue;
+        if (row[COL_MAC_SN - 1] instanceof Date) continue;
         
-        const sn = String(rawSN || "").trim();
-        if (!sn) continue;
-        
-        // Pula se o SN tiver formato de data (ex: 23/03/2026 ou 2026-03-23)
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(sn) || /^\d{4}-\d{2}-\d{2}$/.test(sn)) {
-          continue;
-        }
-        
-        // Pula se for uma referência ou placeholder sem SN real
+        // Se o SN tiver formato de data ou for um placeholder de referência, trata como vazio (sem SN)
         const upperSN = sn.toUpperCase();
-        if (INVALID_SN_TEXTS.indexOf(upperSN) !== -1) {
-          continue;
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(sn) || /^\d{4}-\d{2}-\d{2}$/.test(sn) || INVALID_SN_TEXTS.indexOf(upperSN) !== -1) {
+          sn = "";
         }
         
-        // Formata a Referência se vier como Date da planilha
+        // Formata a Referência
         let refVal = row[COL_MAC_REF - 1];
         let refStr = "";
         if (refVal instanceof Date) {
@@ -236,14 +255,20 @@ function doGet(e) {
           refStr = String(refVal || "").trim();
         }
         
+        // Localização é tratada como vazia já que não tem coluna na planilha
+        let locStr = "";
+        if (COL_MAC_LOCATION !== -1) {
+          locStr = String(row[COL_MAC_LOCATION - 1] || "");
+        }
+        
         machines.push({
           sheetRow: r + 1,
           sn: sn,
           ref: refStr,
           model: String(row[COL_MAC_MODEL - 1] || ""),
           th: Number(row[COL_MAC_TH - 1] || 0),
-          situacao: String(row[COL_MAC_SITUACAO - 1] || ""),
-          location: String(row[COL_MAC_LOCATION - 1] || ""),
+          situacao: String(row[COL_MAC_SITUACAO - 1] || "").trim(), // Remove espaços extras ao ler
+          location: locStr,
           destino: String(row[COL_MAC_DESTINO - 1] || ""),
           hashSN0: String(row[COL_MAC_HASHSN0 - 1] || ""),
           hashSN1: String(row[COL_MAC_HASHSN1 - 1] || ""),
@@ -269,21 +294,16 @@ function doGet(e) {
       
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
-        const rawSN = row[COL_HASH_SN - 1];
+        let sn = String(row[COL_HASH_SN - 1] || "").trim();
         
-        if (rawSN instanceof Date) continue;
-        
-        const sn = String(rawSN || "").trim();
-        if (!sn) continue;
-        
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(sn) || /^\d{4}-\d{2}-\d{2}$/.test(sn)) {
-          continue;
-        }
+        if (row[COL_HASH_SN - 1] instanceof Date) continue;
         
         const upperSN = sn.toUpperCase();
-        if (INVALID_SN_TEXTS.indexOf(upperSN) !== -1) {
-          continue;
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(sn) || /^\d{4}-\d{2}-\d{2}$/.test(sn) || INVALID_SN_TEXTS.indexOf(upperSN) !== -1) {
+          sn = "";
         }
+        
+        if (!sn) continue; // HASHboards sem SN real não são importadas para comparação
         
         hashes.push({
           sn: sn,
@@ -350,7 +370,11 @@ function updateMachineRow(sheet, p) {
   else if (f === "fans") col = COL_MAC_FANS;
   
   if (col !== -1) {
-    sheet.getRange(row, col).setValue(p.to ?? "");
+    let val = p.to ?? "";
+    if (col === COL_MAC_SITUACAO) {
+      val = mapSituacaoToSheet(val);
+    }
+    sheet.getRange(row, col).setValue(val);
   }
 }
 
@@ -360,7 +384,7 @@ function addMachineRow(sheet, p) {
   if (existing !== -1) {
     sheet.getRange(existing, COL_MAC_MODEL).setValue(p.model || "");
     sheet.getRange(existing, COL_MAC_TH).setValue(p.th || 0);
-    sheet.getRange(existing, COL_MAC_SITUACAO).setValue(p.situacao || "STOCK");
+    sheet.getRange(existing, COL_MAC_SITUACAO).setValue(mapSituacaoToSheet(p.situacao || "STOCK"));
     sheet.getRange(existing, COL_MAC_REF).setValue(p.ref || "");
     return;
   }
@@ -369,17 +393,25 @@ function addMachineRow(sheet, p) {
   const rowData = [];
   for (let i = 0; i < 20; i++) rowData.push("");
   
+  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+  
+  rowData[COL_MAC_DATE - 1] = todayStr; // A - Data de Entrada
   rowData[COL_MAC_SN - 1] = p.sn.toUpperCase().trim();
   rowData[COL_MAC_REF - 1] = p.ref || "";
   rowData[COL_MAC_MODEL - 1] = p.model || "";
   rowData[COL_MAC_TH - 1] = p.th || 0;
-  rowData[COL_MAC_SITUACAO - 1] = p.situacao || "STOCK";
+  rowData[COL_MAC_SITUACAO - 1] = mapSituacaoToSheet(p.situacao || "STOCK");
   
   sheet.appendRow(rowData);
 }
 
 function deleteMachineRow(sheet, p) {
-  const row = findRowBySN(sheet, COL_MAC_SN, p.sn);
+  let row = -1;
+  if (p.row) {
+    row = p.row;
+  } else {
+    row = findRowBySN(sheet, COL_MAC_SN, p.sn);
+  }
   if (row !== -1) {
     sheet.deleteRow(row);
   }
@@ -418,6 +450,7 @@ function addHashRow(sheet, p) {
   sheet.appendRow(rowData);
 }
 
+// O POST de exclusão usa o row se SN estiver em branco, caso contrário busca pelo SN
 function deleteHashRow(sheet, p) {
   if (!sheet) return;
   const row = findRowBySN(sheet, COL_HASH_SN, p.sn);
@@ -427,7 +460,12 @@ function deleteHashRow(sheet, p) {
 }
 
 function machineToClientRow(sheet, p) {
-  const row = findRowBySN(sheet, COL_MAC_SN, p.sn);
+  let row = -1;
+  if (p.row) {
+    row = p.row;
+  } else {
+    row = findRowBySN(sheet, COL_MAC_SN, p.sn);
+  }
   if (row === -1) return;
   
   const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
@@ -438,7 +476,12 @@ function machineToClientRow(sheet, p) {
 }
 
 function machineFromClientRow(sheet, p) {
-  const row = findRowBySN(sheet, COL_MAC_SN, p.sn);
+  let row = -1;
+  if (p.row) {
+    row = p.row;
+  } else {
+    row = findRowBySN(sheet, COL_MAC_SN, p.sn);
+  }
   if (row === -1) return;
   
   sheet.getRange(row, COL_MAC_DESTINO).setValue(""); // Limpa cliente
@@ -483,7 +526,7 @@ function hashApprovedRow(sheetMac, sheetHash, sheetReparo, p) {
     if (mRow !== -1) {
       const idx = Number(p.slot);
       const slotSNCol = idx === 0 ? COL_MAC_HASHSN0 : idx === 1 ? COL_MAC_HASHSN1 : COL_MAC_HASHSN2;
-      const slotStCol = idx === 0 ? COL_MAC_HASH0 : idx === 1 ? COL_MAC_HASH1 : COL_MAC_HASH2;
+      const slotStCol = idx === 0 ? COL_MAC_HASH0 : idx === 1 ? COL_MAC_HASH1 : idx === 2 ? COL_MAC_HASH2 : COL_MAC_HASH0;
       
       sheetMac.getRange(mRow, slotSNCol).setValue(p.sn || "");
       sheetMac.getRange(mRow, slotStCol).setValue("ON");

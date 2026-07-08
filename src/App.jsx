@@ -254,13 +254,13 @@ const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{cons
 
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
 const DEF_MODELS=[{m:"E9 Pro",th:3680},{m:"E9 Pro+",th:3880},{m:"KS5",th:21},{m:"KS5L",th:14},{m:"KS3",th:8},{m:"S19JPRO+",th:120},{m:"S19KPRO",th:77},{m:"S21XP",th:270},{m:"M20S",th:68},{m:"M30S",th:86},{m:"M30S+",th:100},{m:"M30S++",th:104},{m:"M31S",th:74},{m:"M31S+",th:80},{m:"M50",th:114},{m:"M50S",th:126},{m:"M50S+",th:136},{m:"M50S++",th:158},{m:"M53",th:226},{m:"M53S",th:230},{m:"M56",th:185},{m:"M56S",th:212},{m:"M60",th:160},{m:"M60S",th:178},{m:"M60S+",th:200},{m:"M60S++",th:218},{m:"M63",th:372},{m:"M63S",th:408},{m:"M63S++",th:464},{m:"M66",th:276},{m:"M66S",th:288},{m:"M70S",th:300},{m:"M73S",th:380},{m:"S9",th:13},{m:"S9i",th:14},{m:"S9j",th:14},{m:"S9k",th:13},{m:"S9 SE",th:16},{m:"T17",th:40},{m:"T17+",th:64},{m:"T17e",th:53},{m:"S17 Pro",th:53},{m:"S17+",th:73},{m:"T19",th:84},{m:"S19",th:95},{m:"S19 Pro",th:110},{m:"S19j",th:90},{m:"S19j Pro",th:104},{m:"S19j Pro+",th:120},{m:"S19k Pro",th:136},{m:"S19 XP",th:140},{m:"S19 XP Hyd",th:255},{m:"T21",th:190},{m:"S21",th:200},{m:"S21 Pro",th:234},{m:"S21 XP",th:270},{m:"S21 XP Hyd",th:495},{m:"S23",th:318},{m:"S23 Hyd",th:580}];
-const SIT_OPTS=["STOCK","BOA","AGUARD. REVISÃO","REVISAR","RUIM","ENTRADA OFICINA","LIGADA","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","CASTANHAO"];
+const SIT_OPTS=["BOA","ENTRADA OFICINA","LIGADA","STOCK","VENDIDA","PREPARANDO","SAIDA","EXPORTADA","REMOVIDO"];
 const HST_OPTS=["ON","OFF","TESTAR","REPARO","STOCK","SAIDA","IRREPARAVEL","NA MAQUINA"];
 // Controladora/Fonte/Fans/Hash-slots da máquina: a planilha só aceita esses 3
 // valores (validação travada na coluna). Usar mais opções que isso faz a
 // escrita na planilha ser rejeitada silenciosamente.
 const CTR_OPTS=["ON","OFF","TESTAR"];
-const SIT_C={"STOCK":"#d97706","BOA":"#16a34a","AGUARD. REVISÃO":"#2563eb","REVISAR":"#dc2626","RUIM":"#7f1d1d","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#dc2626","CASTANHAO":"#92400e"};
+const SIT_C={"BOA":"#16a34a","ENTRADA OFICINA":"#0ea5e9","LIGADA":"#8b5cf6","STOCK":"#d97706","VENDIDA":"#dc2626","PREPARANDO":"#2563eb","SAIDA":"#dc2626","EXPORTADA":"#eab308","REMOVIDO":"#78350f"};
 const HST_C={ON:"#16a34a",OFF:"#dc2626",TESTAR:"#d97706",REPARO:"#8b5cf6",STOCK:"#64748b",SAIDA:"#ea580c",IRREPARAVEL:"#374151","NA MAQUINA":"#0ea5e9"};
 // NUNCA usar toISOString() aqui — ela devolve a data em UTC, não no horário
 // local. Como o Brasil é UTC-3, entre 21h e 23h59 (horário local) o UTC já
@@ -1270,17 +1270,56 @@ function CamModal({ctx,onClose}){
     </div>}
   </Modal>;
 }
-function QMacEdit({item,ctx,onUpdate}){const{mutate,user}=ctx;const save=async s=>{const u={...item,situacao:s,...audit(user)};mutate("machines",m=>m.map(x=>x._id===item._id?u:x));await fbSet("machines",item._id,u);await markChanged("machines");onUpdate(u)};return<div><div style={{fontWeight:800,fontSize:15,color:C.accent}}>🖥️ {item.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12,marginBottom:8}}>{item.model} · {item.type==="shell"?"Carcaça":"Completa"}</div><SP s={item.situacao}/><div style={{marginTop:10}}><SL>SITUAÇÃO</SL><div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{SIT_OPTS.map(s=><button key={s} onClick={()=>save(s)} style={{background:item.situacao===s?SIT_C[s]:C.card2,color:"#fff",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{s}</button>)}</div></div><By by={item._byName} at={item._at}/></div>}
-function QHashEdit({item,ctx,onUpdate,photoKey}){
-  const{mutate,user}=ctx;
-  const save=async s=>{const u={...item,status:s,...audit(user)};mutate("hashes",h=>h.map(x=>x._id===item._id?u:x));await fbSet("hashes",item._id,u);await markChanged("hashes");onUpdate(u)};
-  const updateSN=async()=>{if(!item._pendingSN)return;const u={...item,sn:item._pendingSN,...audit(user),_pendingSN:undefined};mutate("hashes",h=>h.map(x=>x._id===item._id?u:x));await fbSet("hashes",item._id,u);await markChanged("hashes");onUpdate(u)};
+function QMacEdit({item,ctx,onUpdate}){
+  const{mutate,user,webhookUrl}=ctx;
+  const save=async s=>{
+    const u={...item,situacao:s,...audit(user)};
+    mutate("machines",m=>m.map(x=>x._id===item._id?u:x));
+    await fbSet("machines",item._id,u);
+    await markChanged("machines");
+    syncSheet(webhookUrl,"updateMachine",{sn:u.sn||undefined,row:!u.sn?item.sheetRow:undefined,field:"situacao",to:s,employeeName:user.name,employeeCode:user.code});
+    onUpdate(u);
+  };
   return<div>
+    <div style={{fontWeight:800,fontSize:15,color:C.accent}}>🖥️ {item.sn||"SEM SN"}</div>
+    <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{item.model} · {item.type==="shell"?"Carcaça":"Completa"}</div>
+    <SP s={item.situacao}/>
+    <div style={{marginTop:10}}><SL>SITUAÇÃO</SL>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {SIT_OPTS.map(s=><button key={s} onClick={()=>save(s)} style={{background:item.situacao===s?SIT_C[s]:C.card2,color:"#fff",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{s}</button>)}
+      </div>
+    </div>
+    <By by={item._byName} at={item._at}/>
+  </div>;
+}
+function QHashEdit({item,ctx,onUpdate,photoKey}){
+  const{mutate,user,webhookUrl}=ctx;
+  const save=async s=>{
+    const u={...item,status:s,...audit(user)};
+    mutate("hashes",h=>h.map(x=>x._id===item._id?u:x));
+    await fbSet("hashes",item._id,u);
+    await markChanged("hashes");
+    syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status:u.status,location:u.location,employeeName:user.name,employeeCode:user.code});
+    onUpdate(u);
+  };
+  const updateSN=async()=>{if(!item._pendingSN)return;const u={...item,sn:item._pendingSN,...audit(user),_pendingSN:undefined};mutate("hashes",h=>h.map(x=>x._id===item._id?u:x));await fbSet("hashes",item._id,u);await markChanged("hashes");onUpdate(u)};
+  const isInsideMachine = item.status === "NA MAQUINA" || (item.machineSN && item.machineSN.trim() !== "");
+  return <div>
     <div style={{fontWeight:800,fontSize:15,color:C.blue}}>⚡ {item.sn||"SEM SN"}</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{item.model}</div>
     <HP s={item.status}/>
     {!item.sn&&<div style={{marginTop:8}}><Inp label="ADICIONAR SN" value={item._pendingSN||""} onChange={e=>onUpdate({...item,_pendingSN:e.target.value.toUpperCase()})} placeholder="Digite o SN"/><Btn v="g" onClick={updateSN} style={{width:"100%",marginBottom:8}}>✓ Vincular SN</Btn></div>}
-    <div style={{marginTop:10}}><SL>STATUS</SL><div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{HST_OPTS.map(s=><button key={s} onClick={()=>save(s)} style={{background:item.status===s?HST_C[s]:C.card2,color:"#fff",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{s}</button>)}</div></div>
+    <div style={{marginTop:10}}><SL>STATUS</SL>
+      {isInsideMachine ? (
+        <div style={{background:C.card,border:`1px solid ${C.blue}44`,color:C.blue,borderRadius:8,padding:8,fontSize:11,fontWeight:700}}>
+          ⚠️ Esta HASH está dentro da máquina ({item.machineSN || "sem SN"}) e seu status não pode ser alterado manualmente.
+        </div>
+      ) : (
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {HST_OPTS.map(s=><button key={s} onClick={()=>save(s)} style={{background:item.status===s?HST_C[s]:C.card2,color:"#fff",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{s}</button>)}
+        </div>
+      )}
+    </div>
     <By by={item._byName} at={item._at}/>
   </div>;
 }
@@ -2095,7 +2134,8 @@ function BulkHashAction({ctx,action,hashes,onDone}){
   const[status,setStatus]=useState("STOCK"),[loc,setLoc]=useState(""),[saving,setSaving]=useState(false);
   const apply=async()=>{
     setSaving(true);
-    for(const h of hashes){
+    const allowedHashes = hashes.filter(h => h.status !== "NA MAQUINA" && !(h.machineSN && h.machineSN.trim() !== ""));
+    for(const h of allowedHashes){
       const patch=action==="status"?{status}:{location:loc.toUpperCase()};
       const field=action==="status"?"status":"location";
       const to=action==="status"?status:loc.toUpperCase();
@@ -2105,11 +2145,13 @@ function BulkHashAction({ctx,action,hashes,onDone}){
     }
     await markChanged("hashes");setSaving(false);onDone();
   };
+  const skippedCount = hashes.length - hashes.filter(h => h.status !== "NA MAQUINA" && !(h.machineSN && h.machineSN.trim() !== "")).length;
   return<div>
     <div style={{color:C.muted,fontSize:12,marginBottom:14}}>{hashes.length} HASH(s) selecionada(s)</div>
+    {skippedCount > 0 && <div style={{color:C.amber,fontSize:11,marginBottom:10,fontWeight:700,background:C.amber+"11",padding:8,borderRadius:6}}>⚠️ {skippedCount} HASH(s) dentro de máquina serão ignoradas.</div>}
     {action==="status"?<Sel label="NOVO STATUS" value={status} onChange={e=>setStatus(e.target.value)}>{HST_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>
       :<Inp label="NOVA LOCALIZAÇÃO" value={loc} onChange={e=>setLoc(e.target.value)} placeholder="Ex: PRATELEIRA B3"/>}
-    <Btn v="g" onClick={apply} disabled={saving} style={{width:"100%"}}>{saving?"Aplicando...":"✓ Aplicar a "+hashes.length}</Btn>
+    <Btn v="g" onClick={apply} disabled={saving || (action==="status" && hashes.length === skippedCount)} style={{width:"100%"}}>{saving?"Aplicando...":"✓ Aplicar a "+(hashes.length - skippedCount)+" HASH(s)"}</Btn>
   </div>;
 }
 
@@ -2371,7 +2413,16 @@ function HashDetail({ctx,hash}){
         }} disabled={retroSaving} style={{width:"100%",fontSize:11,padding:"6px 0"}}>{retroSaving?"Gravando...":"💾 Gravar Conserto"}</Btn>
       </div>
     )}
-    <SL>STATUS</SL><div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>{["ON","OFF","TESTAR","REPARO","STOCK","NA MAQUINA"].map(s=><button key={s} onClick={()=>upd("status",s)} style={{background:h.status===s?HST_C[s]:C.bg,color:"#fff",border:`1px solid ${HST_C[s]}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}}>{s}</button>)}</div>
+    <SL>STATUS</SL>
+    {isInsideMachine ? (
+      <div style={{background:C.card2,border:`1px solid ${C.blue}44`,color:C.blue,borderRadius:10,padding:12,marginBottom:14,fontSize:12,fontWeight:700}}>
+        ⚠️ Esta HASH está dentro da máquina ({h.machineSN || "sem SN"}) e seu status não pode ser alterado manualmente.
+      </div>
+    ) : (
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:14}}>
+        {["ON","OFF","TESTAR","REPARO","STOCK","NA MAQUINA"].map(s=><button key={s} onClick={()=>upd("status",s)} style={{background:h.status===s?HST_C[s]:C.bg,color:"#fff",border:`1px solid ${HST_C[s]}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:800,cursor:"pointer"}}>{s}</button>)}
+      </div>
+    )}
     <EditableSNField label="SN (editar)" value={h.sn||""} onCommit={v=>upd("sn",v)}/>
     <MaterialPicker value={h.material||""} onChange={v=>upd("material",v)}/>
     <SL mt={8}>📷 FOTO DA HASH</SL>
