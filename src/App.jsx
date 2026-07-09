@@ -1165,8 +1165,8 @@ function PublicPalletView({pallet,data,onLogin}){
     </div>
   </div>;
 
-  const macs=(pallet.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
-  const hashes=(pallet.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
+  const macs=(pallet.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hashes=(pallet.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
 
   return <div style={{background:C.bg,minHeight:"100vh",color:C.text,padding:"24px 16px"}}>
     <div style={{maxWidth:600,margin:"0 auto"}}>
@@ -5175,7 +5175,7 @@ function PalletsPage({ctx}){
       </div>
       {pallets.length===0
         ?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>📦</div><div>Nenhum palete</div></div>
-        :pallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);const hshs=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
+        :pallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);const hshs=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
           <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:15}}>📦 {p.name}</div>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}</div><div style={{display:"flex",gap:4}}><Tag color={C.blue}>{p.machinesSN?.length||0} máq.</Tag><Tag color={C.purple}>{p.hashesSN?.length||0} hash</Tag></div></div>
           {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{m.sn?.slice(0,10)} <SP s={m.situacao}/></span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
           {hshs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{hshs.slice(0,4).map(h=><span key={h._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{h.sn?.slice(0,10)||"s/sn"} <HP s={h.status}/></span>)}{hshs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{hshs.length-4}</span>}</div>}
@@ -5249,12 +5249,12 @@ function PalletDetail({ctx,pallet}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
   const[p,setP]=useState(pallet),[itemType,setItemType]=useState("machine"),[mode,setMode]=useState("scan"),[log,setLog]=useState([]),[pendingAddSN,setPendingAddSN]=useState(null);
   const fileRef=useRef();
-  const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
-  const hashes=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
+  const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hashes=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
   // SNs que ficaram "fantasma" — foram removidos/apagados em outro lugar,
   // mas continuaram contando aqui (de antes dessa correção existir)
-  const ghostM=(p.machinesSN||[]).filter(sn=>!data.machines.find(m=>m.sn===sn));
-  const ghostH=(p.hashesSN||[]).filter(sn=>!data.hashes.find(h=>h.sn===sn));
+  const ghostM=(p.machinesSN||[]).filter(sn=>!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
+  const ghostH=(p.hashesSN||[]).filter(sn=>!data.hashes.find(h=>normSNField(h.sn)===normSNField(sn)));
   const limparFantasmas=async()=>{
     const upd2={...p,machinesSN:(p.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(p.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
     setP(upd2);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd2:x));await fbSet("pallets",p._id,upd2);await markChanged("pallets");
@@ -5407,7 +5407,7 @@ function ClientesPage({ctx}){
   return<div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>Clientes</div><div style={{color:C.muted,fontSize:12}}>{clients.length} clientes</div></div><Btn onClick={openAdd}>+ Cliente</Btn></div>
     {clients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente</div></div>
-      :clients.map(c=>{const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);return<Card key={c._id} onClick={()=>openDetail(c)}>
+      :clients.map(c=>{const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);return<Card key={c._id} onClick={()=>openDetail(c)}>
         <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:14}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.muted,fontSize:12}}>📱 {c.phone}</div>}</div><Tag color={C.accent}>{macs.length} máq.</Tag></div>
         {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:(SIT_C[m.situacao]||C.muted)+"22",borderRadius:6,padding:"2px 6px",fontSize:10,color:SIT_C[m.situacao]||C.muted}}>{m.sn?.slice(0,10)||"s/sn"}</span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
         <By by={c._byName} at={c._at}/>
@@ -5609,10 +5609,10 @@ function ClientLoadPhotos({ctx,client}){
 function ClientDetail({ctx,client}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
   const[c,setC]=useState(client),[itemType,setItemType]=useState("machine"),[pending,setPending]=useState([]),[removeInput,setRemoveInput]=useState(""),[saving,setSaving]=useState(false),[blockMsg,setBlockMsg]=useState("");
-  const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
-  const hshs=(c.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
-  const ghostM=(c.machinesSN||[]).filter(sn=>!data.machines.find(m=>m.sn===sn));
-  const ghostH=(c.hashesSN||[]).filter(sn=>!data.hashes.find(h=>h.sn===sn));
+  const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hshs=(c.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
+  const ghostM=(c.machinesSN||[]).filter(sn=>!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
+  const ghostH=(c.hashesSN||[]).filter(sn=>!data.hashes.find(h=>normSNField(h.sn)===normSNField(sn)));
   const limparFantasmasCliente=async()=>{
     const upd2={...c,machinesSN:(c.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(c.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
     setC(upd2);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd2:x));await fbSet("clients",c._id,upd2);await markChanged("clients");
@@ -5793,8 +5793,8 @@ function ClientDetail({ctx,client}){
 function ClientReport({ctx,client}){
   const{data,setModal,user}=ctx;
   const[modelFilter,setModelFilter]=useState(""),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[gen,setGen]=useState(false),[genProg,setGenProg]=useState("");
-  const macs=(client.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)).filter(Boolean);
-  const hshs=(client.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)).filter(Boolean);
+  const macs=(client.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hshs=(client.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
   const allModelsUsed=[...new Set([...macs.map(m=>m.model),...hshs.map(h=>h.model)].filter(Boolean))].sort();
   const inRange=at=>{
     if(!at)return!dateFrom&&!dateTo;
