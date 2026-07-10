@@ -97,8 +97,20 @@ async function fbList(c){
   const pageSize=1000;
   let all=[],from=0;
   while(true){
-    const{data,error}=await supabase.from(table).select("*").range(from,from+pageSize-1);
-    if(error)throw new Error(`fbList(${c}): ${error.message}`);
+    let retries=3;
+    let res;
+    while(retries>0){
+      try {
+        res=await supabase.from(table).select("*").range(from,from+pageSize-1);
+        if(res.error) throw new Error(res.error.message);
+        break;
+      } catch(e) {
+        retries--;
+        if(retries===0) throw new Error(`fbList(${c}): ${e.message}`);
+        await new Promise(r=>setTimeout(r,500));
+      }
+    }
+    const{data}=res;
     if(!data||data.length===0)break;
     all=all.concat(data);
     if(data.length<pageSize)break;
@@ -1181,13 +1193,27 @@ function PublicPalletView({pallet,data,onLogin}){
       </div>
 
       <SL>Máquinas ({macs.length})</SL>
-      {macs.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Nenhuma máquina.</div>:macs.map(m=><div key={m._id} style={{padding:"10px 0",borderBottom:"1px solid "+C.border}}>
+      {macs.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>
+        {pallet.machinesSN?.length > 0 && data.machines.length === 0 ? (
+          <div>
+            <div style={{color:C.red,marginBottom:8,fontSize:12}}>⚠️ Falha de conexão ao carregar estoque (internet instável).</div>
+            <Btn onClick={()=>window.location.reload()} style={{margin:"0 auto",fontSize:11,padding:"6px 12px"}}>🔄 Recarregar página</Btn>
+          </div>
+        ) : "Nenhuma máquina."}
+      </div>:macs.map(m=><div key={m._id} style={{padding:"10px 0",borderBottom:"1px solid "+C.border}}>
         <div style={{fontWeight:800,fontSize:14}}>{m.sn||"SEM SN"}</div>
         <div style={{fontSize:11,color:C.muted,marginTop:2}}>{m.model} · <SP s={m.situacao}/></div>
       </div>)}
 
       <SL mt={20}>HASHs ({hashes.length})</SL>
-      {hashes.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Nenhuma HASH.</div>:hashes.map(h=><div key={h._id} style={{padding:"10px 0",borderBottom:"1px solid "+C.border}}>
+      {hashes.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>
+        {pallet.hashesSN?.length > 0 && data.hashes.length === 0 ? (
+          <div>
+            <div style={{color:C.red,marginBottom:8,fontSize:12}}>⚠️ Falha de conexão ao carregar estoque (internet instável).</div>
+            <Btn onClick={()=>window.location.reload()} style={{margin:"0 auto",fontSize:11,padding:"6px 12px"}}>🔄 Recarregar página</Btn>
+          </div>
+        ) : "Nenhuma HASH."}
+      </div>:hashes.map(h=><div key={h._id} style={{padding:"10px 0",borderBottom:"1px solid "+C.border}}>
         <div style={{fontWeight:800,fontSize:14}}>{h.sn||"SEM SN"}</div>
         <div style={{fontSize:11,color:C.muted,marginTop:2}}>{h.model} · <HP s={h.status}/></div>
       </div>)}
