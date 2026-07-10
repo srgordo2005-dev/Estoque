@@ -5153,7 +5153,8 @@ function SheetCompareReview({ctx,onClose}){
   const pendingDiffsM=diffsM.filter(d=>!resolved.has("m:"+d.sn));
   const pendingDiffsH=diffsH.filter(d=>!resolved.has("h:"+d.sn));
   const totalDiff=newInSheetM.length+newInSheetH.length+extraInAppM.length+extraInAppH.length+pendingDiffsM.length+pendingDiffsH.length+groupDiffs.length;
-  const hasDupInfo=dupInfo.blankM.length+dupInfo.blankH.length+dupInfo.dupM.length+dupInfo.dupH.length>0;
+  const ignoredDups=JSON.parse(localStorage.getItem("hs_ignoredDupSNs")||"[]");
+  const hasDupInfo=dupInfo.blankM.length+dupInfo.blankH.length+dupInfo.dupM.length+dupInfo.dupH.length>0||ignoredDups.length>0;
   const DupInfoBox=hasDupInfo&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 CONTAGEM NÃO BATE? Achei isso no app:</div>
     {dupInfo.blankM.length>0&&<div style={{fontSize:12,marginBottom:6}}>⚠️ {dupInfo.blankM.length} máquina(s) SEM SN no app (não aparecem na comparação normal)</div>}
@@ -5174,6 +5175,11 @@ function SheetCompareReview({ctx,onClose}){
       </div>)}
     </div>}
     {dupInfo.dupH.length>0&&<div style={{fontSize:12}}>⚠️ SN duplicado em HASHs: {dupInfo.dupH.map(d=>`${d.sn} (${d.count}x)`).join(", ")}</div>}
+    {ignoredDups.length>0 && (
+      <button onClick={()=>{localStorage.removeItem("hs_ignoredDupSNs"); window.location.reload()}} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:11,textDecoration:"underline",padding:0,marginTop:8,display:"block",textAlign:"left"}}>
+        🔄 Mostrar novamente {ignoredDups.length} aviso(s) de duplicados que você ocultou
+      </button>
+    )}
   </div>;
   const GroupDiffBox=groupDiffs.length>0&&<div style={{marginBottom:20,background:"#2a0c0c",border:`1px solid ${C.red}44`,borderRadius:10,padding:12}}>
     <div style={{color:C.red,fontWeight:800,fontSize:13,marginBottom:8}}>🔍 MÁQUINAS SEM SN — QUANTIDADE NÃO BATE POR GRUPO ({groupDiffs.length})</div>
@@ -5188,6 +5194,13 @@ function SheetCompareReview({ctx,onClose}){
   const TotalsBox=totals&&<div style={{marginBottom:16,background:C.card2,borderRadius:10,padding:12,display:"flex",gap:16}}>
     <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>MÁQUINAS</div><div style={{fontWeight:800}}>App: {totals.appM} · Planilha: {totals.sheetM} {totals.appM!==totals.sheetM&&<span style={{color:C.red}}>({totals.appM>totals.sheetM?"+":""}{totals.appM-totals.sheetM})</span>}</div></div>
     <div style={{flex:1,textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>HASHs</div><div style={{fontWeight:800}}>App: {totals.appH} · Planilha: {totals.sheetH} {totals.appH!==totals.sheetH&&<span style={{color:C.red}}>({totals.appH>totals.sheetH?"+":""}{totals.appH-totals.sheetH})</span>}</div></div>
+  </div>;
+  const BreakdownBox=breakdown&&totals&&(totals.appM!==totals.sheetM||totals.appH!==totals.sheetH)&&<div style={{marginBottom:16,background:C.card2,border:`1px dashed ${C.border}`,borderRadius:10,padding:12,fontSize:12,color:C.subtle}}>
+    <div style={{fontWeight:800,color:C.accent,marginBottom:6}}>ℹ️ EXPLICAÇÃO DA DIFERENÇA DE CONTAGEM:</div>
+    {breakdown.appDupTotal>0&&<div style={{marginBottom:4}}>• O App possui <b>{breakdown.appDupTotal}</b> máquina(s) com SN duplicado (cadastradas duas ou mais vezes).</div>}
+    {breakdown.sheetDupTotal>0&&<div style={{marginBottom:4}}>• A Planilha possui <b>{breakdown.sheetDupTotal}</b> máquina(s) com SN duplicado.</div>}
+    {breakdown.appBlank!==breakdown.sheetBlank&&<div>• Máquinas sem SN: o App possui <b>{breakdown.appBlank}</b> e a Planilha possui <b>{breakdown.sheetBlank}</b>.</div>}
+    <div style={{fontSize:10,color:C.muted,marginTop:6}}>Nota: SNs duplicados e máquinas sem SN são comparados em seções separadas para evitar erros de cruzamento.</div>
   </div>;
   if(totalDiff===0)return<div>{TotalsBox}{DupInfoBox}<div style={{textAlign:"center",padding:30,color:C.green}}>✓ Nada diferente (por SN) — app e planilha estão iguais nesse quesito.</div></div>;
   return <div>
