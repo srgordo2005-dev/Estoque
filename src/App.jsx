@@ -1680,25 +1680,24 @@ function BatchSNForm({ctx,onClose}){
       }
     }
     
-    // Sincroniza todas na planilha do Google
-    for(const w of writes){
-      syncSheet(webhookUrl,"addMachine",{
-        sn:w.d.sn,
-        model:w.d.model,
-        th:w.d.th,
-        situacao:w.d.situacao,
-        ref,
-        employeeName:user.name,
-        employeeCode:user.code,
-        hash0:w.d.hash0,
-        hash1:w.d.hash1,
-        hash2:w.d.hash2,
-        controladora:w.d.controladora,
-        fonte:w.d.fonte,
-        fans:w.d.fans,
-        destino:w.d.destino||""
-      });
-    }
+    // Sincroniza todas na planilha do Google (em uma única chamada em lote)
+    const listToSend = writes.map(w => ({
+      sn: w.d.sn,
+      model: w.d.model,
+      th: w.d.th,
+      situacao: w.d.situacao,
+      ref,
+      employeeName: user.name,
+      employeeCode: user.code,
+      hash0: w.d.hash0,
+      hash1: w.d.hash1,
+      hash2: w.d.hash2,
+      controladora: w.d.controladora,
+      fonte: w.d.fonte,
+      fans: w.d.fans,
+      destino: w.d.destino||""
+    }));
+    syncSheet(webhookUrl, "syncMachinesBulk", { list: listToSend });
     
     setSaving(false);clearPending();onClose();
   };
@@ -2445,18 +2444,20 @@ function HashBatchSNForm({ctx,onClose}){
   const removeRow=sn=>setRows(r=>r.filter(x=>x.sn!==sn));
   const saveAll=async()=>{
     if(!rows.length)return;setSaving(true);
+    const listToSend=[];
     for(const row of rows){
       if(row.existing){
         const h=data.hashes.find(x=>x._id===row._id);if(!h)continue;
         const u={...h,status,location:loc.toUpperCase(),changeLog:[{field:"status",label:"Status",from:h.status,to:status,by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
         mutate("hashes",arr=>arr.map(x=>x._id===h._id?u:x));await fbSet("hashes",h._id,u);
-        syncSheet(webhookUrl,"updateHash",{sn:u.sn,model:u.model,status,location:loc,employeeName:user.name,employeeCode:user.code});
+        listToSend.push({action:"update",payload:{sn:u.sn,model:u.model,status,location:loc,employeeName:user.name,employeeCode:user.code}});
       }else{
         const id=uid();const d={sn:row.sn,model,status,location:loc.toUpperCase(),...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,repairedBy:""};
         await fbSet("hashes",id,d);mutate("hashes",h=>[...h,{...d,_id:id}]);
-        syncSheet(webhookUrl,"addHash",{sn:row.sn,model,status,location:loc,employeeName:user.name,employeeCode:user.code});
+        listToSend.push({action:"add",payload:{sn:row.sn,model,status,location:loc,employeeName:user.name,employeeCode:user.code}});
       }
     }
+    syncSheet(webhookUrl,"syncHashesBulk",{list:listToSend});
     await markChanged("hashes");setSaving(false);clearRows();onClose();
   };
   return<div>

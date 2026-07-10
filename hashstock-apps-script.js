@@ -166,6 +166,10 @@ function doPost(e) {
         updateMachineRow(sheetMac, payload);
       } else if (action === "addMachine") {
         addMachineRow(sheetMac, payload);
+      } else if (action === "syncMachinesBulk") {
+        addMachinesBulk(sheetMac, payload);
+      } else if (action === "syncHashesBulk") {
+        addHashesBulk(sheetHash, payload);
       } else if (action === "deleteMachineRow") {
         deleteMachineRow(sheetMac, payload);
       } else if (action === "updateHash") {
@@ -714,4 +718,23 @@ function addTestRow(sheet, p) {
     p.slot2Result || ""
   ];
   sheet.appendRow(rowData);
+}
+
+function addMachinesBulk(sheet, payload) {
+  const list = payload.list || [];
+  for (let i = 0; i < list.length; i++) {
+    addMachineRow(sheet, list[i]);
+  }
+}
+
+function addHashesBulk(sheet, payload) {
+  const list = payload.list || [];
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (item.action === "add") {
+      addHashRow(sheet, item.payload);
+    } else if (item.action === "update") {
+      updateHashRow(sheet, item.payload);
+    }
+  }
 }
