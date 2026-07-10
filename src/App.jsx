@@ -4918,6 +4918,7 @@ function SheetCompareReview({ctx,onClose}){
   const[dupInfo,setDupInfo]=useState({blankM:[],blankH:[],dupM:[],dupH:[]});
   const[groupDiffs,setGroupDiffs]=useState([]);
   const[totals,setTotals]=useState(null);
+  const[breakdown,setBreakdown]=useState(null);
   const[saving,setSaving]=useState(false),[err,setErr]=useState("");
   // Campos comparados campo a campo (máquina e HASH) — label é o que aparece pro Admin
   const norm=normCompare;
@@ -5002,6 +5003,16 @@ function SheetCompareReview({ctx,onClose}){
           return{model,th,ref,appCount,sheetCount,match:appCount===sheetCount};
         }).filter(g=>!g.match); // só mostra os grupos que NÃO batem
         setGroupDiffs(gd);
+        const countByApp = {}; data.machines.forEach(m => { const k = validSN(m.sn); if(k) countByApp[k] = (countByApp[k]||0)+1; });
+        const appDupTotal = Object.values(countByApp).filter(c => c > 1).reduce((sum, c) => sum + (c - 1), 0);
+        const countBySheet = {}; sheetMachines.forEach(m => { const k = validSN(m.sn); if(k) countBySheet[k] = (countBySheet[k]||0)+1; });
+        const sheetDupTotal = Object.values(countBySheet).filter(c => c > 1).reduce((sum, c) => sum + (c - 1), 0);
+        setBreakdown({
+          appBlank,
+          sheetBlank,
+          appDupTotal,
+          sheetDupTotal
+        });
         setTotals({appM:data.machines.length,sheetM:sheetMachines.length,appH:data.hashes.length,sheetH:sheetHashes.length});
       }catch(e){setErr(e.message)}
       setLoading(false);
