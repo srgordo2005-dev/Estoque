@@ -3095,7 +3095,7 @@ function ConsertaPage({ctx}){
     setSaved(type);setTimeout(()=>setSaved(null),2500);
   };
 
-  const failedTests=(data.feedbacks||[]).filter(f=>!f.resolved);
+  const failedTests=(data.feedbacks||[]).filter(f=>!f.resolved&&f.originalRepairerId===user._id);
   const myRepairs=(data.hashes||[]).filter(h=>h.status==="REPARO"&&h.repairedBy===user._id);
   return<div>
     {myRepairs.length>0&&<>
