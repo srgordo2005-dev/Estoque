@@ -1493,7 +1493,7 @@ function MacPage({ctx}){
       :filtered.map(m=><div key={m._id} style={{position:"relative"}}>
       {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(m._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(m._id):s.delete(m._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
       <Card accent={SIT_C[m.situacao]||C.border} onClick={()=>!selMode&&openDetail(m)} style={{paddingLeft:selMode?36:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:14,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{m.model} · {m.th}TH</div><By by={m._byName} at={m._at}/><LastMove log={m.changeLog}/></div><SP s={m.situacao}/></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:14,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}{m.sheetRow&&<span style={{fontSize:11,color:C.muted,fontWeight:500,marginLeft:6}}>(Linha {m.sheetRow})</span>}</div><div style={{color:C.muted,fontSize:12}}>{m.model} · {m.th}TH</div><By by={m._byName} at={m._at}/><LastMove log={m.changeLog}/></div><SP s={m.situacao}/></div>
         <div style={{display:"flex",gap:5,flexWrap:"wrap"}}><HP s={m.hash0}/><HP s={m.hash1}/><HP s={m.hash2}/>{m.controladora&&<span style={{fontSize:10,color:C.subtle}}>CTR:{m.controladora}</span>}{m.fans&&<span style={{fontSize:10,color:C.subtle}}>FAN:{m.fans}</span>}</div>
       </Card></div>)}
     {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="pallet"?"📦 Mover p/ Palete":bulkAction==="client"?"👤 Enviar p/ Cliente":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
@@ -4947,11 +4947,13 @@ function SheetCompareReview({ctx,onClose}){
         // corrupted the model of several machines before.
         const dm=[];
         const rowUpdates=[];
+        const matchedSheetRows=new Set();
         data.machines.forEach(appM=>{
           const appSN=validSN(appM.sn);
           if(!appSN)return; // sem SN (ou "SEM SN" literal) não compara
-          const sheetM=sheetMachines.find(m=>validSN(m.sn)===appSN);
+          const sheetM=sheetMachines.find(m=>validSN(m.sn)===appSN && !matchedSheetRows.has(m.sheetRow));
           if(!sheetM)return;
+          matchedSheetRows.add(sheetM.sheetRow);
           // Aproveita que já achou a máquina certa e guarda a linha dela —
           // assim, da próxima vez, já aparece na tela de editar mesmo sem
           // ter precisado corrigir nada.
@@ -5175,7 +5177,7 @@ function SheetCompareReview({ctx,onClose}){
       {dupInfo.dupM.map(d=><div key={d.sn} style={{background:"#1a0a0a",borderRadius:8,padding:8,marginBottom:8}}>
         <div style={{fontSize:12,fontWeight:700,marginBottom:6}}>{d.sn} ({d.count}x)</div>
         {d.items.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderTop:`1px solid ${C.border}`}}>
-          <div style={{fontSize:11}}>{m.model} · {m.situacao} · adicionada {m.addedAt||"?"} {m.destino?`· cliente: ${m.destino}`:""}</div>
+          <div style={{fontSize:11}}><b>Linha {m.sheetRow||"?"}</b> · {m.model} · {m.situacao} · adicionada {m.addedAt||"?"} {m.destino?`· cliente: ${m.destino}`:""}</div>
           <button onClick={async()=>{if(!confirm(`Apagar essa cópia de ${m.sn} (${m.model} · ${m.situacao})? A outra cópia continua.`))return;await fbDel("machines",m._id);mutate("machines",arr=>arr.filter(x=>x._id!==m._id));await markChanged("machines");setDupInfo(di=>({...di,dupM:di.dupM.map(x=>x.sn===d.sn?{...x,items:x.items.filter(it=>it._id!==m._id),count:x.count-1}:x).filter(x=>x.count>1)}))}} style={{background:C.red,border:"none",color:"#fff",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontSize:11,fontWeight:700,flexShrink:0,marginLeft:8}}>🗑️ Apagar essa</button>
         </div>)}
         <button onClick={()=>{
