@@ -764,21 +764,112 @@ function PhotoView({photoKey,style}){
 }
 
 /* ═══ REPORT ════════════════════════════════════════════════════ */
-function generateReport(user,repairs,tests,date){
-  const dr=repairs.filter(r=>(r.employeeId===user._id||r._by===user._id)&&r.date===date&&r.type!=="already_good");
-  const dg=repairs.filter(r=>(r.employeeId===user._id||r._by===user._id)&&r.date===date&&r.type==="already_good");
+function generateReportFiltered(user,repairs,tests,date,mode){
+  const allDr=repairs.filter(r=>(r.employeeId===user._id||r._by===user._id)&&r.date===date);
+  const dr=allDr.filter(r=>r.type!=="already_good"&&!r.type?.startsWith("remove"));
+  const dg=allDr.filter(r=>r.type==="already_good");
+  const dm=allDr.filter(r=>r.type?.startsWith("remove"));
   const dt=tests.filter(t=>(t.employeeId===user._id||t._by===user._id)&&t.date===date);
+  
   const d=new Date(date+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
   const lines=[`📋 Relatório — ${user.name} #${user.code}`,`📅 ${d}`,``];
-  if(dr.length){lines.push(`🔧 HASHs Consertadas (${dr.length}):`);dr.forEach(r=>{let obs="";if(r.boardChips)obs+=` | Chips placa:${r.boardChips}`;if(r.chips)obs+=` | Chips trocados:${r.chips}`;if(r.sensores)obs+=` | Sens:${r.sensores}`;if(r.ldos)obs+=` | LDOs:${r.ldos}`;if(r.obsManual)obs+=` | ${r.obsManual}`;const tipo=r.type==="rework"?"🔁 RETRABALHO":"🔧 Conserto";lines.push(`• [${tipo}] ${r.hashSN||"SEM SN"} — ${r.model}${obs} — ${fmtTime(r._at)}`)});lines.push("")}
-  if(dg.length){lines.push(`✅ Já Estavam Boas (${dg.length}):`);dg.forEach(r=>lines.push(`• ${r.hashSN||"SEM SN"} — ${r.model} — ${fmtTime(r._at)}`));lines.push("")}
-  if(dt.length){lines.push(`🧪 Máquinas Testadas (${dt.length}):`);dt.forEach(t=>{const st=t.status==="pending"?"Aguard. Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM";lines.push(`• ${t.machineSN||"SEM SN"} — ${t.model} — ${st} — ${fmtTime(t._at)}`)});lines.push("")}
+  
+  if(mode==="all"||mode==="repairs"){
+    if(dr.length){
+      lines.push(`🔧 HASHs Consertadas (${dr.length}):`);
+      dr.forEach(r=>{
+        let obs="";
+        if(r.boardChips)obs+=` | Chips placa:${r.boardChips}`;
+        if(r.chips)obs+=` | Chips trocados:${r.chips}`;
+        if(r.sensores)obs+=` | Sens:${r.sensores}`;
+        if(r.ldos)obs+=` | LDOs:${r.ldos}`;
+        if(r.obsManual)obs+=` | ${r.obsManual}`;
+        const tipo=r.type==="rework"?"🔁 RETRABALHO":"🔧 Conserto";
+        lines.push(`• [${tipo}] ${r.hashSN||"SEM SN"} — ${r.model}${obs} — ${fmtTime(r._at)}`);
+      });
+      lines.push("");
+    }
+    if(dg.length){
+      lines.push(`✅ Já Estavam Boas (${dg.length}):`);
+      dg.forEach(r=>lines.push(`• ${r.hashSN||"SEM SN"} — ${r.model} — ${fmtTime(r._at)}`));
+      lines.push("");
+    }
+  }
+  
+  if(mode==="all"||mode==="tests"){
+    if(dt.length){
+      lines.push(`🧪 Máquinas Testadas (${dt.length}):`);
+      dt.forEach(t=>{
+        let st=t.status==="pending"?"Aguardando aprovação":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM";
+        if(t.status==="approved"&&t.overallResult==="good"&&(t.prevSituacao==="RUIM"||t.prevSituacao==="ENTRADA OFICINA")){
+          st="BOA [estava status RUIM e agora está BOA]";
+        }
+        lines.push(`• ${t.machineSN||"SEM SN"} — ${t.model} — ${st} — ${fmtTime(t._at)}`);
+      });
+      lines.push("");
+    }
+  }
+  
+  if(mode==="all"||mode==="movements"){
+    if(dm.length){
+      lines.push(`🗑️ Exclusões/Movimentações (${dm.length}):`);
+      dm.forEach(r=>{
+        const label=r.type==="remove_machine"?"🗑️ Máquina Removida":"🗑️ HASH Removida";
+        lines.push(`• ${label}: ${r.hashSN||"SEM SN"} — ${r.model} — ${fmtTime(r._at)}`);
+      });
+      lines.push("");
+    }
+  }
+  
   const nRework=dr.filter(r=>r.type==="rework").length;
   const nRepair=dr.length-nRework;
-  lines.push(`✅ Total consertos: ${nRepair}${nRework?` + ${nRework} retrabalho(s)`:""} | Testes: ${dt.length}`);
+  
+  if(mode==="all"){
+    lines.push(`✅ Total consertos: ${nRepair}${nRework?` + ${nRework} retrabalho(s)`:""} | Testes: ${dt.length} | Remoções: ${dm.length}`);
+  }else if(mode==="repairs"){
+    lines.push(`✅ Total consertos: ${nRepair}${nRework?` + ${nRework} retrabalho(s)`:""}`);
+  }else if(mode==="tests"){
+    lines.push(`✅ Total testes: ${dt.length}`);
+  }else if(mode==="movements"){
+    lines.push(`✅ Total remoções: ${dm.length}`);
+  }
+  
   return lines.join("\n");
 }
-function copyReport(user,repairs,tests,date){const txt=generateReport(user,repairs,tests,date);navigator.clipboard.writeText(txt).then(()=>alert("✓ Relatório copiado! Cole no WhatsApp.")).catch(()=>alert(txt));}
+function generateReport(user,repairs,tests,date){
+  return generateReportFiltered(user,repairs,tests,date,"all");
+}
+function copyReport(user,repairs,tests,date,setModal){
+  if(!setModal){
+    const txt=generateReportFiltered(user,repairs,tests,date,"all");
+    navigator.clipboard.writeText(txt).then(()=>alert("✓ Relatório copiado! Cole no WhatsApp.")).catch(()=>alert(txt));
+    return;
+  }
+  const options=[
+    {label:"📋 Copiar Relatório Completo",mode:"all"},
+    {label:"🔧 Copiar Apenas Consertos",mode:"repairs"},
+    {label:"🧪 Copiar Apenas Testes",mode:"tests"},
+    {label:"🗑️ Copiar Apenas Remoções",mode:"movements"}
+  ];
+  setModal(
+    <Modal title="Escolha o que Copiar" onClose={()=>setModal(null)}>
+      <div style={{display:"flex",flexDirection:"column",gap:10,padding:4}}>
+        <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Selecione quais registros diários de <b>{user.name}</b> deseja copiar para a área de transferência:</div>
+        {options.map(opt=><Btn key={opt.mode} onClick={()=>{
+          const txt=generateReportFiltered(user,repairs,tests,date,opt.mode);
+          navigator.clipboard.writeText(txt).then(()=>{
+            alert("✓ Copiado com sucesso!");
+            setModal(null);
+          }).catch(()=>{
+            alert(txt);
+            setModal(null);
+          });
+        }} style={{width:"100%",justifyContent:"center",padding:"12px"}}>{opt.label}</Btn>)}
+        <Btn v="s" onClick={()=>setModal(null)} style={{width:"100%",justifyContent:"center",marginTop:8}}>Cancelar</Btn>
+      </div>
+    </Modal>
+  );
+}
 
 /* ═══ APP ROOT ══════════════════════════════════════════════════ */
 
@@ -1180,6 +1271,66 @@ function PublicPalletView({pallet,data,onLogin}){
   const macs=(pallet.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
   const hashes=(pallet.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
 
+  const downloadReportPDF = () => {
+    const pdf = new jsPDF();
+    pdf.setFontSize(16);
+    pdf.setFont("helvetica", "bold");
+    pdf.text(`RELATÓRIO DO PALETE: ${pallet.name.toUpperCase()}`, 14, 20);
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    pdf.text(`Gerado em: ${new Date().toLocaleString("pt-BR")}`, 14, 27);
+    
+    let y = 38;
+    pdf.setFontSize(12);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("MÁQUINAS", 14, y);
+    y += 8;
+    
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    if (macs.length === 0) {
+      pdf.text("Nenhuma máquina no palete.", 14, y);
+      y += 6;
+    } else {
+      macs.forEach(m => {
+        if (y > 275) {
+          pdf.addPage();
+          y = 20;
+        }
+        pdf.text(`${m.sn || "SEM SN"}  -  ${m.model}`, 14, y);
+        y += 6;
+      });
+    }
+    
+    y += 6;
+    if (y > 275) {
+      pdf.addPage();
+      y = 20;
+    }
+    pdf.setFontSize(12);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("HASHBOARDS", 14, y);
+    y += 8;
+    
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    if (hashes.length === 0) {
+      pdf.text("Nenhuma HASH no palete.", 14, y);
+      y += 6;
+    } else {
+      hashes.forEach(h => {
+        if (y > 275) {
+          pdf.addPage();
+          y = 20;
+        }
+        pdf.text(`${h.sn || "SEM SN"}  -  ${h.model}`, 14, y);
+        y += 6;
+      });
+    }
+    
+    pdf.save(`Relatorio-Palete-${pallet.name}.pdf`);
+  };
+
   return <div style={{background:C.bg,minHeight:"100vh",color:C.text,padding:"24px 16px"}}>
     <div style={{maxWidth:600,margin:"0 auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
@@ -1189,7 +1340,10 @@ function PublicPalletView({pallet,data,onLogin}){
       <div style={{background:C.card2,borderRadius:10,padding:16,marginBottom:20}}>
         {pallet.location&&<div style={{color:C.muted,fontSize:13,marginBottom:4}}>📍 {pallet.location}</div>}
         {pallet.notes&&<div style={{color:C.subtle,fontSize:13,marginBottom:12}}>{pallet.notes}</div>}
-        <div style={{fontWeight:800,color:C.accent,fontSize:14}}>{macs.length} máquinas · {hashes.length} HASHs</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontWeight:800,color:C.accent,fontSize:14}}>{macs.length} máquinas · {hashes.length} HASHs</div>
+          {(macs.length > 0 || hashes.length > 0) && <Btn v="p" onClick={downloadReportPDF} style={{fontSize:11,padding:"5px 10px"}}>⬇️ Baixar PDF (só SN/Mod)</Btn>}
+        </div>
       </div>
 
       <SL>Máquinas ({macs.length})</SL>
@@ -1402,15 +1556,16 @@ function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
     {user.permissions?.testing&&!isAdmin&&<TestQueuePeek data={data} setTab={setTab} showStartBtn/>}
     {isAdmin&&<TestQueuePeek data={data}/>}
     {isAdmin&&<AdminSummary data={data}/>}
-    <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
+    <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today,ctx.setModal)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
   </div>;
 }
 function AdminSummary({data}){
   const today=TODAY();const ms={};
   data.machines.forEach(m=>{if(!ms[m.model])ms[m.model]={model:m.model,boa:0,stock:0,ruim:0,shell:0,conserto:0};if(m.type==="shell")ms[m.model].shell++;else if(["BOA","LIGADA"].includes(m.situacao))ms[m.model].boa++;else if(m.situacao==="STOCK")ms[m.model].stock++;else if(m.situacao==="ENTRADA OFICINA")ms[m.model].conserto++;else ms[m.model].ruim++});
   const irrep=data.hashes.filter(h=>h.status==="IRREPARAVEL").length;
+  const totalBoas=Object.values(ms).reduce((sum,s)=>sum+s.boa,0);
   return<><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>{[{label:"Máquinas",v:data.machines.filter(m=>m.type==="complete").length,sub:`${data.machines.filter(m=>["BOA","STOCK"].includes(m.situacao)).length} ok`,c:C.accent},{label:"HASHs",v:data.hashes.length,sub:`${data.hashes.filter(h=>h.status==="TESTAR").length} p/ testar · ${irrep} irrep.`,c:C.blue},{label:"Consertos Hoje",v:data.repairs.filter(r=>r.date===today&&r.type!=="already_good").length,sub:"HASHs",c:C.green},{label:"Testes Hoje",v:data.tests.filter(t=>t.date===today).length,sub:"máquinas",c:C.purple}].map(s=><Card key={s.label} accent={s.c} style={{margin:0}}><div style={{fontSize:26,fontWeight:900,color:s.c}}>{s.v}</div><div style={{fontWeight:700,fontSize:12,marginTop:4}}>{s.label}</div><div style={{fontSize:10,color:C.muted}}>{s.sub}</div></Card>)}</div>
-  <Card><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>📊 Por Modelo</div>{Object.values(ms).sort((a,b)=>(b.boa+b.ruim+b.stock)-(a.boa+a.ruim+a.stock)).map(s=><div key={s.model} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:700,fontSize:13}}>{s.model}</div><div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{s.boa>0&&<Tag color={C.green} small>{s.boa} boas</Tag>}{s.stock>0&&<Tag color={C.amber} small>{s.stock} stock</Tag>}{s.ruim>0&&<Tag color={C.red} small>{s.ruim} ruins</Tag>}{s.shell>0&&<Tag color="#475569" small>{s.shell} carc.</Tag>}{s.conserto>0&&<Tag color={C.amber} small>{s.conserto} cons.</Tag>}</div></div>)}</Card></>;
+  <Card><div style={{fontWeight:800,fontSize:14,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📊 Por Modelo</span><Tag color={C.green}>{totalBoas} boas no total</Tag></div>{Object.values(ms).sort((a,b)=>(b.boa+b.ruim+b.stock)-(a.boa+a.ruim+a.stock)).map(s=><div key={s.model} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:700,fontSize:13}}>{s.model}</div><div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{s.boa>0&&<Tag color={C.green} small>{s.boa} boas</Tag>}{s.stock>0&&<Tag color={C.amber} small>{s.stock} stock</Tag>}{s.ruim>0&&<Tag color={C.red} small>{s.ruim} ruins</Tag>}{s.shell>0&&<Tag color="#475569" small>{s.shell} carc.</Tag>}{s.conserto>0&&<Tag color={C.amber} small>{s.conserto} cons.</Tag>}</div></div>)}</Card></>;
 }
 
 /* ═══ MACHINES ══════════════════════════════════════════════════ */
@@ -3037,7 +3192,7 @@ function ConsertaPage({ctx}){
       </div>
       <div style={{color:C.muted,fontSize:11,textAlign:"center",marginTop:8}}>Ambas vão para fila de Teste</div>
     </Card>
-    <div style={{marginTop:14}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,TODAY())} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
+    <div style={{marginTop:14}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,TODAY(),ctx.setModal)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
   </div>;
 }
 
@@ -3454,8 +3609,11 @@ function TestePage({ctx}){
       }
     }
 
+    const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
+    const prevSituacao=exMac?exMac.situacao:"";
     const id=uid();
     const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,...audit(user),date:TODAY(),status:"pending",
+      prevSituacao,
       slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
       slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
       slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
@@ -3471,7 +3629,6 @@ function TestePage({ctx}){
     await fbSet("tests",id,rec);mutate("tests",t=>[...t,{...rec,_id:id}]);
     const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,machineBad:!!sess.machineBad,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
     await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
-    const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
     // Preparar pra Envio já deixou a máquina em PREPARANDO (e já sincronizou
     // a planilha) desde que a sessão começou — aqui só garante isso e marca
     // quem testou. Teste comum vai pra AGUARD. REVISÃO (só some quando o
@@ -3807,7 +3964,7 @@ function HistPage({ctx,canSeeEmp}){
     await markChanged(col);
   };
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,dateFilter||TODAY())}>📋 Relatório</Btn></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,dateFilter||TODAY(),ctx.setModal)}>📋 Relatório</Btn></div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>{[["mine","Meus"],["all","Todos"]].map(([id,l])=><button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?C.accent:C.card,color:filter===id?"#fff":C.muted,border:"none",borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>)}</div>
     <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="📅 FILTRAR POR DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>{dateFilter&&<Btn v="s" onClick={()=>setDateFilter("")} style={{marginBottom:12}}>Limpar</Btn>}</div>
     {all.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>{dateFilter?"Sem registros nesta data":"Sem histórico ainda"}</div>}
@@ -4363,7 +4520,7 @@ function TeamPage({ctx,canSeeEmp}){
           <Btn v="s" onClick={()=>setModal(<Modal title={"📋 "+e.name} onClose={()=>setModal(null)}><EmpHistory ctx={ctx} emp={e}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>📋 Histórico</Btn>
           <Btn v="b" onClick={()=>{setSubTab("daily");setDailyEmp(e._id)}} style={{flex:1,fontSize:11,padding:"7px"}}>📅 Ver Hoje</Btn>
           {isSuper&&<Btn v="s" onClick={()=>setModal(<Modal title={"✏️ "+e.name} onClose={()=>setModal(null)}><EmpEdit ctx={ctx} emp={e} onClose={()=>setModal(null)}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>✏️ Editar</Btn>}
-          <Btn v="s" onClick={()=>copyReport(e,data.repairs,data.tests,TODAY())} style={{fontSize:11,padding:"7px"}}>📤</Btn>
+          <Btn v="s" onClick={()=>copyReport(e,data.repairs,data.tests,TODAY(),ctx.setModal)} style={{fontSize:11,padding:"7px"}}>📤</Btn>
         </div>
       </Card>
     })}
@@ -4401,18 +4558,28 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     ...hashLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
   ].sort((a,b)=>(a.at||"")<(b.at||"")?1:-1);
   const empName=empFilter?employees.find(e=>e._id===empFilter)?.name:"";
-  return<div>
-    <div style={{display:"flex",gap:8,marginBottom:10}}>
-      <div style={{flex:1}}><DateInp label="DATA" value={date} onChange={e=>setDate(e.target.value)}/></div>
-    </div>
-    <div style={{marginBottom:10}}>
-      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>FILTRAR POR FUNCIONARIO</div>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        <button onClick={()=>setEmpFilter("")} style={{background:!empFilter?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todos</button>
-        {employees.filter(e=>e.code!=="019").map(e=><button key={e._id} onClick={()=>setEmpFilter(empFilter===e._id?"":e._id)} style={{background:empFilter===e._id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{e.name}</button>)}
+    const nRepairs=dayRepairs.filter(r=>r.type!=="already_good"&&!r.type?.startsWith("remove")).length;
+    const nAlreadyGood=dayRepairs.filter(r=>r.type==="already_good").length;
+    const nTests=dayTests.length;
+    const nRemoves=dayRepairs.filter(r=>r.type?.startsWith("remove")).length;
+    return<div>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <div style={{flex:1}}><DateInp label="DATA" value={date} onChange={e=>setDate(e.target.value)}/></div>
       </div>
-    </div>
-    <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{items.length} movimentacoes {empName?"de "+empName:"de todos os funcionarios"} nesse dia</div>
+      <div style={{marginBottom:10}}>
+        <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>FILTRAR POR FUNCIONARIO</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          <button onClick={()=>setEmpFilter("")} style={{background:!empFilter?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todos</button>
+          {employees.filter(e=>e.code!=="019").map(e=><button key={e._id} onClick={()=>setEmpFilter(empFilter===e._id?"":e._id)} style={{background:empFilter===e._id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{e.name}</button>)}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        <Tag color={C.green}>{nRepairs} consertos</Tag>
+        <Tag color={C.blue}>{nTests} testes</Tag>
+        {nAlreadyGood>0&&<Tag color={C.accent}>{nAlreadyGood} já boas</Tag>}
+        {nRemoves>0&&<Tag color={C.red}>{nRemoves} remoções</Tag>}
+      </div>
+      <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{items.length} movimentações {empName?"de "+empName:"de todos os funcionários"} nesse dia</div>
     {items.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24}}>Nada registrado nesta data{empName?" para "+empName:""}</div>
       :items.map((it,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
         <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
@@ -4469,7 +4636,7 @@ function EmpProfile({ctx,emp}){
     </div>
     <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"flex-end"}}>
       <div style={{flex:1}}><DateInp label="FILTRAR DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>
-      <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📋</Btn>
+      <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📋</Btn>
     </div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
       {dayR.map(r=>{
@@ -5423,7 +5590,16 @@ function PalletDetail({ctx,pallet}){
     for(const sn of sns)await addSN(sn);
     alert("✓ "+sns.length+" SNs processados");
   };
-  const remSN=async(sn,isHash)=>{const listKey=isHash?"hashesSN":"machinesSN";const newSNs=(p[listKey]||[]).filter(s=>s!==sn);const upd={...p,[listKey]:newSNs,...audit(user)};setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));await fbSet("pallets",p._id,upd);await markChanged("pallets")};
+  const remSN=async(sn,isHash)=>{
+    if(!confirm(`Confirma que deseja retirar a ${isHash?"HASH":"máquina"} "${sn}" deste palete?`))return;
+    const listKey=isHash?"hashesSN":"machinesSN";
+    const newSNs=(p[listKey]||[]).filter(s=>s!==sn);
+    const upd={...p,[listKey]:newSNs,...audit(user)};
+    setP(upd);
+    mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
+    await fbSet("pallets",p._id,upd);
+    await markChanged("pallets");
+  };
   const del=async()=>{if(!confirm("Remover palete "+p.name+"?"))return;mutate("pallets",arr=>arr.filter(x=>x._id!==p._id));await fbDel("pallets",p._id);await markChanged("pallets");setModal(null)};
   return<div>
     <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:12}}>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}<div style={{fontWeight:700,marginTop:4,color:C.accent}}>{macs.length} máquinas · {hashes.length} HASHs</div></div>
@@ -5502,9 +5678,72 @@ function PalletQRCode({pallet,macs,hashes}){
     }
   };
 
-  if(!showQR)return<div style={{display:"flex",gap:8}}>
-    <Btn v="b" onClick={()=>setShowQR(true)} style={{flex:1}}>QR Code</Btn>
-    <Btn v="s" onClick={copyReport} style={{flex:1}}>Copiar Lista</Btn>
+  const downloadReportPDF = () => {
+    const pdf = new jsPDF();
+    pdf.setFontSize(16);
+    pdf.setFont("helvetica", "bold");
+    pdf.text(`RELATÓRIO DO PALETE: ${pallet.name.toUpperCase()}`, 14, 20);
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    pdf.text(`Gerado em: ${new Date().toLocaleString("pt-BR")}`, 14, 27);
+    
+    let y = 38;
+    pdf.setFontSize(12);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("MÁQUINAS", 14, y);
+    y += 8;
+    
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    if (macs.length === 0) {
+      pdf.text("Nenhuma máquina no palete.", 14, y);
+      y += 6;
+    } else {
+      macs.forEach(m => {
+        if (y > 275) {
+          pdf.addPage();
+          y = 20;
+        }
+        pdf.text(`${m.sn || "SEM SN"}  -  ${m.model}`, 14, y);
+        y += 6;
+      });
+    }
+    
+    y += 6;
+    if (y > 275) {
+      pdf.addPage();
+      y = 20;
+    }
+    pdf.setFontSize(12);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("HASHBOARDS", 14, y);
+    y += 8;
+    
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    if (hashes.length === 0) {
+      pdf.text("Nenhuma HASH no palete.", 14, y);
+      y += 6;
+    } else {
+      hashes.forEach(h => {
+        if (y > 275) {
+          pdf.addPage();
+          y = 20;
+        }
+        pdf.text(`${h.sn || "SEM SN"}  -  ${h.model}`, 14, y);
+        y += 6;
+      });
+    }
+    
+    pdf.save(`Relatorio-Palete-${pallet.name}.pdf`);
+  };
+
+  if(!showQR)return<div style={{display:"flex",flexDirection:"column",gap:8,width:"100%"}}>
+    <div style={{display:"flex",gap:8}}>
+      <Btn v="b" onClick={()=>setShowQR(true)} style={{flex:1}}>QR Code</Btn>
+      <Btn v="s" onClick={copyReport} style={{flex:1}}>Copiar Lista</Btn>
+    </div>
+    <Btn v="p" onClick={downloadReportPDF} style={{width:"100%",justifyContent:"center"}}>⬇️ Baixar Relatório (só SN/Mod)</Btn>
   </div>;
   return<div style={{textAlign:"center",padding:12}}>
     <div style={{background:"#fff",borderRadius:12,padding:12,display:"inline-block",marginBottom:10}}>
@@ -5514,6 +5753,7 @@ function PalletQRCode({pallet,macs,hashes}){
     <div style={{color:C.muted,fontSize:11,marginBottom:8}}>{macs.length} maquinas . {hashes.length} HASHs</div>
     <div style={{color:C.subtle,fontSize:10,marginBottom:10,wordBreak:"break-all"}}>{palletUrl}</div>
     <Btn v="g" onClick={downloadPDF} style={{width:"100%",marginBottom:8,justifyContent:"center"}}>Baixar PDF do QR Code</Btn>
+    <Btn v="p" onClick={downloadReportPDF} style={{width:"100%",marginBottom:8,justifyContent:"center"}}>⬇️ Baixar Relatório (só SN/Mod)</Btn>
     <div style={{display:"flex",gap:8}}>
       <Btn v="s" onClick={()=>setShowQR(false)} style={{flex:1}}>Fechar QR</Btn>
       <Btn v="b" onClick={copyReport} style={{flex:1}}>Copiar Lista</Btn>
@@ -6016,7 +6256,7 @@ function EmpHistory({ctx,emp}){
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
       {[[allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent],[allT.length,"Testes",C.blue],[data.feedbacks?.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length||0,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
     </div>
-    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter)} style={{marginBottom:12}}>📤</Btn></div>
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📤</Btn></div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
       {dayR.map(r=>{
         const isRemove = r.type?.startsWith("remove");
