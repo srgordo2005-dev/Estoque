@@ -1580,7 +1580,8 @@ function BatchSNForm({ctx,onClose}){
   const[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[type,setType]=useState("complete"),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[ctr,setCtr]=useState("OFF"),[fonte,setFonte]=useState("OFF"),[fans,setFans]=useState("OFF"),[hash0,setHash0]=useState("OFF"),[hash1,setHash1]=useState("OFF"),[hash2,setHash2]=useState("OFF"),[pending,setPending,clearPending]=usePersistedBatch(user._id+"-machines-lote",[]),[saving,setSaving]=useState(false);
   const[dupMsg,setDupMsg]=useState("");
   const[palletId,setPalletId]=useState("");
-  const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-sn"/></Modal>)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-sn"/></Modal>)}}/></Modal>);
+  const[showNewPallet,setShowNewPallet]=useState(false);
+  const openNewPallet=()=>setShowNewPallet(true);
   const generateBatchSN = () => {
     const allSNs = [
       ...data.machines.map(m=>m.sn),
@@ -1610,17 +1611,50 @@ function BatchSNForm({ctx,onClose}){
   const saveAll=async()=>{
     if(!pending.length)return;setSaving(true);
     
-    // Apenas as máquinas NOVAS são gravadas/criadas no banco de dados.
-    const newMachinesPending=pending.filter(p=>!p.existing);
-    const writes=newMachinesPending.map(p=>{
-      const id=uid();
-      return{c:"machines",id,d:{sn:p.sn,model,th:Number(th),type,situacao:sit,hash0,hash1,hash2,controladora:ctr,fonte,fans,ref,location:"",...audit(user),addedAt:TODAY(),destino:""}};
+    const writes=pending.map(p=>{
+      const isUpdate=!!p.existing;
+      const id=isUpdate?p.existing._id:uid();
+      const existingMac=isUpdate?p.existing:{};
+      
+      const d={
+        ...existingMac,
+        sn:p.sn,
+        model,
+        th:Number(th),
+        type,
+        situacao:sit,
+        hash0,
+        hash1,
+        hash2,
+        controladora:ctr,
+        fonte,
+        fans,
+        ref,
+        ...audit(user),
+        ...(!isUpdate?{location:"",addedAt:TODAY(),destino:""}:{})
+      };
+      
+      return{c:"machines",id,d,isUpdate};
     });
     
-    if(writes.length>0){
-      await fbBatch(writes);
-    }
+    // Grava as alterações/inserções no Firebase
+    await fbBatch(writes.map(w=>({c:w.c,id:w.id,d:w.d})));
     
+    // Atualiza o SWR local
+    mutate("machines",prevArr=>{
+      let arr=[...prevArr];
+      writes.forEach(w=>{
+        if(w.isUpdate){
+          arr=arr.map(x=>x._id===w.id?{...w.d,_id:w.id}:x);
+        }else{
+          arr.push({...w.d,_id:w.id});
+        }
+      });
+      return arr;
+    });
+    await markChanged("machines");
+    
+    // Vincula ao palete destino (remove de outros)
     if(palletId){
       const pallet=data.pallets.find(p=>p._id===palletId);
       if(pallet){
@@ -1645,28 +1679,24 @@ function BatchSNForm({ctx,onClose}){
         await markChanged("pallets");
       }
     }
-
-    if(writes.length>0){
-      mutate("machines",m=>[...m,...writes.map(w=>({...w.d,_id:w.id}))]);
-      await markChanged("machines");
-      
-      writes.forEach(w=>{
-        syncSheet(webhookUrl,"addMachine",{
-          sn:w.d.sn,
-          model:w.d.model,
-          th:w.d.th,
-          situacao:w.d.situacao,
-          ref,
-          employeeName:user.name,
-          employeeCode:user.code,
-          hash0:w.d.hash0,
-          hash1:w.d.hash1,
-          hash2:w.d.hash2,
-          controladora:w.d.controladora,
-          fonte:w.d.fonte,
-          fans:w.d.fans,
-          destino:""
-        });
+    
+    // Sincroniza todas na planilha do Google
+    for(const w of writes){
+      syncSheet(webhookUrl,"addMachine",{
+        sn:w.d.sn,
+        model:w.d.model,
+        th:w.d.th,
+        situacao:w.d.situacao,
+        ref,
+        employeeName:user.name,
+        employeeCode:user.code,
+        hash0:w.d.hash0,
+        hash1:w.d.hash1,
+        hash2:w.d.hash2,
+        controladora:w.d.controladora,
+        fonte:w.d.fonte,
+        fans:w.d.fans,
+        destino:w.d.destino||""
       });
     }
     
@@ -1706,14 +1736,24 @@ function BatchSNForm({ctx,onClose}){
       <button onClick={()=>setPending(pending.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer"}}>X</button>
     </div>
     {p.existing&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>Ja existe ({p.existing.model} - {p.existing.situacao}){p.existing.destino?<> - foi pro cliente <b>{p.existing.destino}</b></>:""} - vai atualizar essa maquina</div>}
-  </div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>{clearPending();onClose()}} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"Salvar "+pending.length}</Btn></div></div>;
+  </div>)}</div></div><div style={{display:"flex",gap:8}}><Btn v="s" onClick={()=>{clearPending();onClose()}} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={saveAll} disabled={saving||!pending.length} style={{flex:1}}>{saving?"...":"Salvar "+pending.length}</Btn></div>
+  {showNewPallet && (
+    <Modal title="Novo Palete" onClose={()=>setShowNewPallet(false)}>
+      <AddPalletForm ctx={ctx} onClose={(newId)=>{
+        if(newId) setPalletId(newId);
+        setShowNewPallet(false);
+      }}/>
+    </Modal>
+  )}
+  </div>;
 }
 
 function BatchNoSNForm({ctx,onClose}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
   const[itemType,setItemType]=useState("machine"),[model,setModel]=useState(models[0]?.m||"M30S"),[th,setTh]=useState(gTH(models[0]?.m||"M30S")),[sit,setSit]=useState("STOCK"),[ref,setRef]=useState(user.code),[qty,setQty]=useState("10"),[saving,setSaving]=useState(false),[prog,setProg]=useState(0);
   const[palletId,setPalletId]=useState("");
-  const openNewPallet=()=>ctx.setModal(<Modal title="Novo Palete" onClose={()=>ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-nosn"/></Modal>)}><AddPalletForm ctx={ctx} onClose={(newId)=>{if(newId)setPalletId(newId);ctx.setModal(<Modal title="Adicionar" onClose={()=>ctx.setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>ctx.setModal(null)} initialMode="batch-nosn"/></Modal>)}}/></Modal>);
+  const[showNewPallet,setShowNewPallet]=useState(false);
+  const openNewPallet=()=>setShowNewPallet(true);
   const save=async()=>{
     const n=parseInt(qty);if(!n||n<1||n>1000)return;setSaving(true);
     const isHash=itemType==="hash";
@@ -1758,7 +1798,16 @@ function BatchNoSNForm({ctx,onClose}){
     </div>
     <Btn v="b" onClick={openNewPallet} style={{marginBottom:0}}>+ Novo</Btn>
   </div>
-  {saving&&<div style={{background:"#0c2a0f",borderRadius:8,padding:10,marginBottom:12}}><div style={{color:C.green,fontWeight:700,marginBottom:4}}>Salvando {prog}/{qty}...</div><div style={{background:C.card2,borderRadius:4,height:6}}><div style={{background:C.green,borderRadius:4,height:6,width:`${(prog/parseInt(qty||1))*100}%`,transition:"width .3s"}}/></div></div>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"📦 Criar "+qty}</Btn></div></div>;
+  {saving&&<div style={{background:"#0c2a0f",borderRadius:8,padding:10,marginBottom:12}}><div style={{color:C.green,fontWeight:700,marginBottom:4}}>Salvando {prog}/{qty}...</div><div style={{background:C.card2,borderRadius:4,height:6}}><div style={{background:C.green,borderRadius:4,height:6,width:`${(prog/parseInt(qty||1))*100}%`,transition:"width .3s"}}/></div></div>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn v="g" onClick={save} disabled={saving} style={{flex:1}}>{saving?"...":"📦 Criar "+qty}</Btn></div>
+  {showNewPallet && (
+    <Modal title="Novo Palete" onClose={()=>setShowNewPallet(false)}>
+      <AddPalletForm ctx={ctx} onClose={(newId)=>{
+        if(newId) setPalletId(newId);
+        setShowNewPallet(false);
+      }}/>
+    </Modal>
+  )}
+  </div>;
 }
 
 function GenerateSNModal({ctx, onClose, testMode}){
@@ -5023,8 +5072,29 @@ function SheetCompareReview({ctx,onClose}){
     setSaving(true);
     const mToSend=extraInAppM.filter((_,i)=>selAppM.has(i));
     const hToSend=extraInAppH.filter((_,i)=>selAppH.has(i));
-    mToSend.forEach(m=>syncSheet(webhookUrl,"addMachine",{sn:m.sn,model:m.model,th:m.th,situacao:m.situacao,employeeName:user.name,employeeCode:user.code}));
-    hToSend.forEach(h=>syncSheet(webhookUrl,"addHash",{sn:h.sn,model:h.model,status:h.status,employeeName:user.name,employeeCode:user.code}));
+    mToSend.forEach(m=>syncSheet(webhookUrl,"addMachine",{
+      sn:m.sn,
+      model:m.model,
+      th:m.th,
+      situacao:m.situacao,
+      ref:m.ref||"",
+      employeeName:user.name,
+      employeeCode:user.code,
+      hash0:m.hash0,
+      hash1:m.hash1,
+      hash2:m.hash2,
+      controladora:m.controladora,
+      fonte:m.fonte,
+      fans:m.fans,
+      destino:m.destino||""
+    }));
+    hToSend.forEach(h=>syncSheet(webhookUrl,"addHash",{
+      sn:h.sn,
+      model:h.model,
+      status:h.status,
+      employeeName:user.name,
+      employeeCode:user.code
+    }));
     setSaving(false);onClose();
   };
   // Exclui do app os itens marcados (útil pra limpar lixo/duplicado que não deveria ter sido criado)
@@ -5523,6 +5593,7 @@ function AddOrderForm({ctx,onClose}){
   const[clientId,setClientId]=useState("");
   const[date,setDate]=useState(TODAY());
   const[items,setItems]=useState([{model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),qty:1}]);
+  const[showNewClient,setShowNewClient]=useState(false);
   // Se o usuário criar um cliente novo pelo botão "+ Novo" (modal aninhado),
   // seleciona ele sozinho assim que a lista de clientes crescer.
   const prevClientsCountRef=useRef(data.clients.length);
@@ -5536,7 +5607,7 @@ function AddOrderForm({ctx,onClose}){
   const setItem=(i,k,v)=>setItems(arr=>arr.map((it,idx)=>idx===i?{...it,[k]:v}:it));
   const addItem=()=>setItems(arr=>[...arr,{model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),qty:1}]);
   const removeItem=i=>setItems(arr=>arr.filter((_,idx)=>idx!==i));
-  const openNewClient=()=>setModal(<Modal title="Novo Cliente" onClose={()=>setModal(null)}><AddClientForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+  const openNewClient=()=>setShowNewClient(true);
   const client=data.clients.find(c=>c._id===clientId);
   const valid=clientId&&items.length>0&&items.every(it=>it.model&&Number(it.qty)>0);
   const save=async()=>{
@@ -5578,6 +5649,11 @@ function AddOrderForm({ctx,onClose}){
     </div>)}
     <Btn v="s" onClick={addItem} style={{width:"100%",marginBottom:14}}>+ Adicionar Item</Btn>
     <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!valid} style={{flex:1}}>Criar Pedido</Btn></div>
+    {showNewClient && (
+      <Modal title="Novo Cliente" onClose={()=>setShowNewClient(false)}>
+        <AddClientForm ctx={ctx} onClose={()=>setShowNewClient(false)}/>
+      </Modal>
+    )}
   </div>;
 }
 // Fotos da carga do envio — pode adicionar VÁRIAS, cada uma soma na lista
