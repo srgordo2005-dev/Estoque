@@ -14,7 +14,8 @@
     "@zxing/library": "^0.21.3",
     "jspdf": "^2.5.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
