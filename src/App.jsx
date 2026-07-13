@@ -1204,37 +1204,79 @@ export default function App(){
     ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
-  return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:960,margin:"0 auto"}}>
-    <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:10}}>
-      <span style={{fontSize:20}}>⛏️</span>
-      <div style={{flex:1}}><div style={{fontWeight:900,fontSize:14,color:C.accent}}>HashStock</div><div style={{fontSize:10,color:C.muted}}>{user.name} #{user.code}{syncing?" · 🔄":""}</div></div>
-      <div style={{display:"flex",gap:6}}>
-        {myFdbs.length>0&&<Tag color={C.red}>⚠️{myFdbs.length}</Tag>}
-        {myRevisit.length>0&&<Tag color={C.red}>🔁{myRevisit.length}</Tag>}
-        {canApprove&&pendingApprs.length>0&&<Tag color={C.blue}>✅{pendingApprs.length}</Tag>}
-        {isSuperAdmin&&dataWarnings.length>0&&<Tag color={C.red} title="Avisos de integridade de dados">🛡️{dataWarnings.length}</Tag>}
+  return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:1240,margin:"0 auto",position:"relative",overflowX:"hidden"}}>
+    {/* Floating Animated Background Blobs for PC */}
+    <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
+      <style>{`
+        @keyframes float-blob-1 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(60px, -40px) scale(1.15); }
+        }
+        @keyframes float-blob-2 {
+          0%, 100% { transform: translate(0, 0) scale(1.1); }
+          50% { transform: translate(-80px, 50px) scale(0.9); }
+        }
+        .bg-blob-1 {
+          position: absolute;
+          top: 15%; left: 8%;
+          width: 320px; height: 320px;
+          background: radial-gradient(circle, rgba(247,147,26,0.05) 0%, transparent 70%);
+          filter: blur(50px);
+          animation: float-blob-1 25s infinite alternate ease-in-out;
+        }
+        .bg-blob-2 {
+          position: absolute;
+          bottom: 25%; right: 8%;
+          width: 400px; height: 400px;
+          background: radial-gradient(circle, rgba(14,165,233,0.05) 0%, transparent 70%);
+          filter: blur(65px);
+          animation: float-blob-2 30s infinite alternate ease-in-out;
+        }
+        .bg-grid-lines {
+          position: absolute;
+          inset: 0;
+          background-image: linear-gradient(rgba(255, 255, 255, 0.005) 1px, transparent 1px),
+                            linear-gradient(90deg, rgba(255, 255, 255, 0.005) 1px, transparent 1px);
+          background-size: 60px 60px;
+        }
+      `}</style>
+      <div className="bg-grid-lines" />
+      <div className="bg-blob-1" />
+      <div className="bg-blob-2" />
+    </div>
+
+    <div style={{position:"relative",zIndex:1}}>
+      <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:20}}>⛏️</span>
+        <div style={{flex:1}}><div style={{fontWeight:900,fontSize:14,color:C.accent}}>HashStock</div><div style={{fontSize:10,color:C.muted}}>{user.name} #{user.code}{syncing?" · 🔄":""}</div></div>
+        <div style={{display:"flex",gap:6}}>
+          {myFdbs.length>0&&<Tag color={C.red}>⚠️{myFdbs.length}</Tag>}
+          {myRevisit.length>0&&<Tag color={C.red}>🔁{myRevisit.length}</Tag>}
+          {canApprove&&pendingApprs.length>0&&<Tag color={C.blue}>✅{pendingApprs.length}</Tag>}
+          {isSuperAdmin&&dataWarnings.length>0&&<Tag color={C.red} title="Avisos de integridade de dados">🛡️{dataWarnings.length}</Tag>}
+        </div>
+        <button onClick={toggleTheme} title="Trocar tema" style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:14,marginRight:6}}>{theme==="dark"?"☀️":"🌙"}</button>
+        <button onClick={()=>{if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;setUser(null);setTab("home")}} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Sair</button>
       </div>
-      <button onClick={toggleTheme} title="Trocar tema" style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:14,marginRight:6}}>{theme==="dark"?"☀️":"🌙"}</button>
-      <button onClick={()=>{if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;setUser(null);setTab("home")}} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12}}>Sair</button>
+      {isSuperAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
+      {isSuperAdmin&&dailyDiff&&<div onClick={()=>{setDailyDiff(null);setModal(<Modal title="🔄 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}} style={{background:"#2a1a0c",borderBottom:`1px solid ${C.amber}`,padding:"8px 16px",fontSize:11,color:C.amber,cursor:"pointer"}}>🔄 Checagem diária: {dailyDiff.total} diferença(s) entre o app e a planilha — toque pra ver e resolver</div>}
+      <div style={{padding:"14px 12px 100px"}}>
+        {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} canApprove={canApprove} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
+        {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
+        {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
+        {tab==="conserto"&&p.repairs&&<ConsertaPage ctx={ctx}/>}
+        {tab==="teste"&&p.testing&&<TestePage ctx={ctx}/>}
+        {tab==="guia"&&(p.repairs||p.testing||isAdmin)&&<GuiaTecnicoPage ctx={ctx} C={C} Tag={Tag}/>}
+        {tab==="pedidos"&&(p.orders||isAdmin)&&<SafeTab><OrdersPage ctx={ctx}/></SafeTab>}
+        {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+        {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&canSeeClients&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&canApprove&&<ApprovalsPage ctx={ctx}/>}
+        {tab==="team"&&canSeeTeam&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+        {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
+      </div>
+      <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:1240,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
+        {TABS.map(t=><button key={t.id} onClick={()=>changeTab(t.id)} style={{flex:1,background:"none",border:"none",padding:"8px 2px 12px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:tab===t.id?C.accent:C.muted}}><span style={{fontSize:17}}>{t.icon}</span><span style={{fontSize:8,fontWeight:800}}>{t.label}</span></button>)}
+      </nav>
     </div>
-    {isSuperAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
-    {isSuperAdmin&&dailyDiff&&<div onClick={()=>{setDailyDiff(null);setModal(<Modal title="🔄 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}} style={{background:"#2a1a0c",borderBottom:`1px solid ${C.amber}`,padding:"8px 16px",fontSize:11,color:C.amber,cursor:"pointer"}}>🔄 Checagem diária: {dailyDiff.total} diferença(s) entre o app e a planilha — toque pra ver e resolver</div>}
-    <div style={{padding:"14px 12px 100px"}}>
-      {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} canApprove={canApprove} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
-      {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
-      {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
-      {tab==="conserto"&&p.repairs&&<ConsertaPage ctx={ctx}/>}
-      {tab==="teste"&&p.testing&&<TestePage ctx={ctx}/>}
-      {tab==="guia"&&(p.repairs||p.testing||isAdmin)&&<GuiaTecnicoPage ctx={ctx} C={C} Tag={Tag}/>}
-      {tab==="pedidos"&&(p.orders||isAdmin)&&<SafeTab><OrdersPage ctx={ctx}/></SafeTab>}
-      {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
-      {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&canSeeClients&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&canApprove&&<ApprovalsPage ctx={ctx}/>}
-      {tab==="team"&&canSeeTeam&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
-      {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
-    </div>
-    <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:960,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
-      {TABS.map(t=><button key={t.id} onClick={()=>changeTab(t.id)} style={{flex:1,background:"none",border:"none",padding:"8px 2px 12px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:tab===t.id?C.accent:C.muted}}><span style={{fontSize:17}}>{t.icon}</span><span style={{fontSize:8,fontWeight:800}}>{t.label}</span></button>)}
-    </nav>
     <button onClick={()=>setCamOpen(true)} style={{position:"fixed",right:16,bottom:72,width:52,height:52,borderRadius:"50%",background:C.accent,border:"none",cursor:"pointer",fontSize:22,zIndex:99,boxShadow:"0 4px 16px rgba(249,115,22,.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>
     {camOpen&&<CamModal ctx={ctx} onClose={()=>setCamOpen(false)}/>}
     {modal&&injectFreshCtx(modal,ctx)}

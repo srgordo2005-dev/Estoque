@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { VIDEOS_DATA } from './VideosData';
 
 export default function GuiaTecnicoPage({ ctx, C, Tag }) {
   const [activeTab, setActiveTab] = useState('busca'); // 'busca' or 'manual'
@@ -63,6 +64,10 @@ export default function GuiaTecnicoPage({ ctx, C, Tag }) {
   // Modals state for admin edits
   const [editingModel, setEditingModel] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  const [videoSearchQuery, setVideoSearchQuery] = useState('');
+  const [videoSelectedCategory, setVideoSelectedCategory] = useState('TODOS');
+  const [videoLimit, setVideoLimit] = useState(15);
 
   const filterList = (list) => {
     if (!searchQuery) return list;
@@ -873,51 +878,212 @@ Causas Principais:
           )}
         </div>
 
-        {/* MODULO 8: DRIVE DE DOCUMENTAÇÕES */}
+        {/* MODULO 8: CURSOS E VÍDEOS DE REPARO */}
         <div style={accordionStyle(expandedAccordion === 'mod8')}>
           <div style={accordionHeaderStyle} onClick={() => setExpandedAccordion(expandedAccordion === 'mod8' ? null : 'mod8')}>
-            <span>🔗 MÓDULO 7: Documentos de Apoio & Links Úteis</span>
+            <span>🔗 MÓDULO 7: Cursos & Vídeos de Reparo</span>
             <span>{expandedAccordion === 'mod8' ? '▼' : '►'}</span>
           </div>
           {expandedAccordion === 'mod8' && (
             <div style={accordionBodyStyle}>
-              <div className="card green">
-                <div className="card-title">📁 Documentos no Drive "MINING ISH"</div>
-                <div className="ftree">
-                  <div><span className="ft-folder">📁 MIning ish/</span></div>
-                  <div className="ft-indent">
-                    <div><span className="ft-folder">📁 ANTMINER guides/</span></div>
-                    <div className="ft-indent">
-                      <div><span className="ft-file star">★ S21 XP User Guide-V1.1.0.pdf</span><span className="ft-desc">(Inglês com esquemáticos de sinais)</span></div>
-                      <div><span className="ft-file pdf">S21&T21维修指导V1.2.pdf</span><span className="ft-desc">(Manual de conserto do chip BM1368)</span></div>
-                      <div><span className="ft-file pdf">S19J-PRO维修指导.pdf</span><span className="ft-desc">(Manual do chip BM1362 - S19j Pro)</span></div>
-                      <div><span className="ft-file star">★ PIC programming tools.zip</span><span className="ft-desc">(HEX para gravação do PIC U6)</span></div>
-                    </div>
-                  </div>
-                </div>
+              {/* Category Filter Pills */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                {['TODOS', 'S19', 'S19j Pro', 'S19k Pro', 'S19 XP', 'S19 Hydro Series', 'S21 / T21', 'S21 XP', 'Whatsminer', 'L7', 'Avalon', 'S9 / T9 (Série Clássica)', 'Diagnóstico de Logs / Geral', 'Geral / Outros Modelos'].map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => {
+                      setVideoSelectedCategory(cat);
+                      setVideoLimit(15);
+                    }}
+                    style={{
+                      background: videoSelectedCategory === cat ? '#f97316' : '#1e293b',
+                      border: `1px solid ${videoSelectedCategory === cat ? '#f97316' : '#334155'}`,
+                      borderRadius: 20,
+                      padding: '6px 12px',
+                      color: '#ffffff',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      fontWeight: videoSelectedCategory === cat ? 'bold' : 'normal',
+                      boxShadow: videoSelectedCategory === cat ? '0 2px 8px rgba(249,115,22,0.3)' : 'none'
+                    }}
+                  >
+                    {cat}
+                  </button>
+                ))}
               </div>
 
-              <div className="card">
-                <div className="card-title">🔗 Links Recomendados de Manuais</div>
-                <div className="link-list">
-                  <div className="link-item">
-                    <div className="lbadge lb-orange">ZEUSBTC</div>
-                    <div className="linfo">
-                      <div className="ltitle">S19j Pro Hash Board Repair Guide — BM1362</div>
-                      <div className="ldesc">Guia de diagnóstico passo a passo oficial de ZeusBTC para placas S19j Pro.</div>
-                      <a className="lurl" href="https://www.zeusbtc.com/articles/information/3530-antminer-s19j-pro-hash-board-repair-guide" target="_blank" rel="noreferrer">zeusbtc.com/articles/information/3530-antminer-s19j-pro-hash-board-repair-guide</a>
-                    </div>
-                  </div>
-                  <div className="link-item">
-                    <div className="lbadge lb-green">D-CENTRAL</div>
-                    <div className="linfo">
-                      <div className="ltitle">Antminer S19 Complete Maintenance Guide</div>
-                      <div className="ldesc">Manual completo com foco em integridade térmica, fontes inteligentes APW12 e troca de chips.</div>
-                      <a className="lurl" href="https://d-central.tech/manuals/antminer-s19-maintenance-repair-guide/" target="_blank" rel="noreferrer">d-central.tech/manuals/antminer-s19-maintenance-repair-guide/</a>
-                    </div>
-                  </div>
-                </div>
+              {/* Search Bar */}
+              <div style={{ position: 'relative', marginBottom: 14 }}>
+                <input
+                  type="text"
+                  placeholder="🔍 Buscar vídeo por título ou palavra-chave (ex: 'sensor', '0 chip', 'power')..."
+                  value={videoSearchQuery}
+                  onChange={(e) => {
+                    setVideoSearchQuery(e.target.value);
+                    setVideoLimit(15);
+                  }}
+                  style={{
+                    width: '100%',
+                    background: '#0f172a',
+                    border: '1px solid #334155',
+                    borderRadius: 8,
+                    padding: '10px 36px 10px 12px',
+                    color: '#ffffff',
+                    fontSize: '13px',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                {videoSearchQuery && (
+                  <button 
+                    onClick={() => {
+                      setVideoSearchQuery('');
+                      setVideoLimit(15);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: 12,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      fontSize: '14px'
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
+
+              {/* Results info */}
+              {(() => {
+                const filtered = VIDEOS_DATA.filter(video => {
+                  if (videoSelectedCategory !== 'TODOS' && video.category !== videoSelectedCategory) {
+                    return false;
+                  }
+                  if (videoSearchQuery) {
+                    const q = videoSearchQuery.toLowerCase();
+                    return (
+                      video.title.toLowerCase().includes(q) ||
+                      video.category.toLowerCase().includes(q) ||
+                      video.curso.toLowerCase().includes(q)
+                    );
+                  }
+                  return true;
+                });
+
+                return (
+                  <>
+                    <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: 12, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Encontrados: <strong>{filtered.length}</strong> vídeo(s)</span>
+                      <span>Mostrando até {Math.min(filtered.length, videoLimit)}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {filtered.slice(0, videoLimit).map((vid, idx) => (
+                        <div 
+                          key={idx} 
+                          style={{
+                            background: '#1e293b',
+                            border: '1px solid #334155',
+                            borderRadius: 8,
+                            padding: '14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8,
+                            position: 'relative'
+                          }}
+                        >
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span style={{ background: '#f97316', color: '#fff', fontSize: '9px', fontWeight: 'bold', padding: '2px 6px', borderRadius: 4 }}>
+                              {vid.category}
+                            </span>
+                            <span style={{ background: '#475569', color: '#fff', fontSize: '9px', fontWeight: 'bold', padding: '2px 6px', borderRadius: 4 }}>
+                              {vid.curso}
+                            </span>
+                          </div>
+                          <div style={{ fontWeight: 'bold', fontSize: '13px', color: '#f8fafc', lineHeight: '1.4' }}>
+                            {vid.title}
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                            <a 
+                              href={vid.youtubeLink} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              style={{
+                                background: '#ef4444', 
+                                color: '#fff', 
+                                textDecoration: 'none', 
+                                borderRadius: 6, 
+                                padding: '6px 12px', 
+                                fontSize: '11px', 
+                                fontWeight: 'bold',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              🎥 Assistir no YouTube
+                            </a>
+                            {vid.courseLink && (
+                              <a 
+                                href={vid.courseLink} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                style={{
+                                  background: '#334155', 
+                                  color: '#f8fafc', 
+                                  textDecoration: 'none', 
+                                  borderRadius: 6, 
+                                  padding: '6px 12px', 
+                                  fontSize: '11px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                📖 Aula ZeusBTC
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {filtered.length > videoLimit && (
+                      <button
+                        onClick={() => setVideoLimit(prev => prev + 20)}
+                        style={{
+                          width: '100%',
+                          background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                          border: 'none',
+                          color: '#fff',
+                          borderRadius: 8,
+                          padding: '12px',
+                          marginTop: 14,
+                          cursor: 'pointer',
+                          fontWeight: 'bold',
+                          fontSize: '13px',
+                          boxShadow: '0 4px 12px rgba(249,115,22,0.2)'
+                        }}
+                      >
+                        Carregar Mais Vídeos (+20)
+                      </button>
+                    )}
+
+                    {filtered.length === 0 && (
+                      <div style={{ textAlign: 'center', color: '#94a3b8', padding: '30px 0', fontSize: '13px' }}>
+                        Nenhum vídeo encontrado para a busca ou filtro selecionado.
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>
