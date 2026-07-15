@@ -125,41 +125,69 @@ async function fbGet(c,id){
   if(error||!data)return null;
   return fromDBRow(data);
 }
+
+let activeWrites = 0;
+const incrementWrites = () => { activeWrites++; };
+const decrementWrites = () => { activeWrites = Math.max(0, activeWrites - 1); };
+
+window.addEventListener("beforeunload", (e) => {
+  if (activeWrites > 0 || (typeof wQ !== 'undefined' && wQ.length > 0)) {
+    e.preventDefault();
+    e.returnValue = "Ainda salvando dados no banco ou planilha. Se fechar a página agora, os dados podem não ser gravados.";
+    return e.returnValue;
+  }
+});
+
 async function fbSet(c,id,obj){
-  const table=tableName(c);
-  const{_id,...cleanObj}=obj; // nunca manda o _id junto — o "id" já vai separado
-  const row={id,...toDBRow(cleanObj)};
-  const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
-  if(error){console.error(`fbSet(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui salvar em "${c}": ${error.message}`);return{ok:false,error:error.message}}
-  return{ok:true};
+  incrementWrites();
+  try {
+    const table=tableName(c);
+    const{_id,...cleanObj}=obj; // nunca manda o _id junto — o "id" já vai separado
+    const row={id,...toDBRow(cleanObj)};
+    const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
+    if(error){console.error(`fbSet(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui salvar em "${c}": ${error.message}`);return{ok:false,error:error.message}}
+    return{ok:true};
+  } finally {
+    decrementWrites();
+  }
 }
 async function fbDel(c,id){
-  const table=tableName(c);
-  const{error}=await supabase.from(table).delete().eq("id",id);
-  if(error){console.warn(`fbDel(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui apagar de "${c}": ${error.message}`);return{ok:false,error:error.message}}
-  // Quem apaga de propósito (lixo/duplicado) precisa que o "teto máximo" de
-  // segurança (guardCount) desça junto — senão fica avisando pra sempre que
-  // a contagem "diminuiu" mesmo sendo exatamente o que se pediu pra fazer.
-  if(c==="machines"||c==="hashes"){
-    const key="hs_maxcount_"+c;
-    const cur=Number(localStorage.getItem(key)||0);
-    if(cur>0)localStorage.setItem(key,String(cur-1));
+  incrementWrites();
+  try {
+    const table=tableName(c);
+    const{error}=await supabase.from(table).delete().eq("id",id);
+    if(error){console.warn(`fbDel(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui apagar de "${c}": ${error.message}`);return{ok:false,error:error.message}}
+    // Quem apaga de propósito (lixo/duplicado) precisa que o "teto máximo" de
+    // segurança (guardCount) desça junto — senão fica avisando pra sempre que
+    // a contagem "diminuiu" mesmo sendo exatamente o que se pediu pra fazer.
+    if(c==="machines"||c==="hashes"){
+      const key="hs_maxcount_"+c;
+      const cur=Number(localStorage.getItem(key)||0);
+      if(cur>0)localStorage.setItem(key,String(cur-1));
+    }
+    return{ok:true};
+  } finally {
+    decrementWrites();
   }
-  return{ok:true};
 }
 async function fbBatch(writes){
-  const byCol={};
-  for(const w of writes){const{_id,...cleanD}=w.d||{};(byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD)})}
-  const errors=[];
-  for(const[c,rows]of Object.entries(byCol)){
-    const table=tableName(c);
-    for(let i=0;i<rows.length;i+=500){
-      const{error}=await supabase.from(table).upsert(rows.slice(i,i+500),{onConflict:"id"});
-      if(error){console.error(`fbBatch(${c}):`,error.message);errors.push(`${c}: ${error.message}`)}
+  incrementWrites();
+  try {
+    const byCol={};
+    for(const w of writes){const{_id,...cleanD}=w.d||{};(byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD)})}
+    const errors=[];
+    for(const[c,rows]of Object.entries(byCol)){
+      const table=tableName(c);
+      for(let i=0;i<rows.length;i+=500){
+        const{error}=await supabase.from(table).upsert(rows.slice(i,i+500),{onConflict:"id"});
+        if(error){console.error(`fbBatch(${c}):`,error.message);errors.push(`${c}: ${error.message}`)}
+      }
     }
+    if(errors.length){onSyncSheetError?.("Lote não salvou tudo: "+errors.join(" | "));return{ok:false,errors}}
+    return{ok:true,errors:[]};
+  } finally {
+    decrementWrites();
   }
-  if(errors.length){onSyncSheetError?.("Lote não salvou tudo: "+errors.join(" | "));return{ok:false,errors}}
-  return{ok:true,errors:[]};
 }
 // Supabase Realtime substitui o sistema de polling + carimbo de tempo (_meta)
 // que existia no Firebase — não precisa mais "marcar" nada manualmente.
@@ -217,10 +245,59 @@ async function deleteDrivePhoto(url){
     if(d.error)console.warn("Não consegui apagar a foto do Drive:",d.error);
   }catch(e){console.warn("deleteDrivePhoto:",e)}
 }
-let wQ=[],wT=null;
+
+let wQ = [];
+try {
+  wQ = JSON.parse(localStorage.getItem("hs_sheet_queue") || "[]");
+} catch(e) {
+  wQ = [];
+}
+let wT=null;
 let onSyncSheetError=null; // o App registra isso no boot pra mostrar erros de sincronização (planilha e Drive) na tela
+
+const saveSheetQueue = () => {
+  try {
+    localStorage.setItem("hs_sheet_queue", JSON.stringify(wQ));
+  } catch(e) {
+    console.error("Erro ao salvar fila de sincronização local:", e);
+  }
+};
+
+async function triggerSheetSync(url) {
+  const currentUrl = url || localStorage.getItem("hs_webhook_url");
+  if (!currentUrl || !wQ.length) return;
+  
+  const b = [...wQ];
+  wQ = [];
+  saveSheetQueue();
+  
+  incrementWrites();
+  try {
+    const r=await fetch(currentUrl,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({batch:b})});
+    const d=await r.json().catch(()=>({}));
+    if(d.error){
+      console.error("syncSheet erro:",d.error);
+      onSyncSheetError?.(`Planilha não salvou "${b[0]?.action}": ${d.error}`);
+      // Re-queue
+      wQ = [...b, ...wQ];
+      saveSheetQueue();
+    } else {
+      console.log(`✓ syncSheet: ${b.length} ação(ões) enviada(s) pra planilha`,b.map(x=>x.action));
+    }
+  }catch(e){
+    console.error("syncSheet falhou:",e);
+    onSyncSheetError?.(`Planilha não respondeu pra "${b[0]?.action}": ${e.message}`);
+    // Re-queue
+    wQ = [...b, ...wQ];
+    saveSheetQueue();
+  } finally {
+    decrementWrites();
+  }
+}
+
 function syncSheet(url,action,payload){
   if(!url)return;
+  localStorage.setItem("hs_webhook_url", url);
   let p = { ...payload };
   const mapSituacao = (v) => {
     if (!v) return v;
@@ -235,28 +312,20 @@ function syncSheet(url,action,payload){
     p.situacao = mapSituacao(p.situacao);
   }
   wQ.push({action,payload:p});
+  saveSheetQueue();
   clearTimeout(wT);
-  wT=setTimeout(async()=>{
-    if(!wQ.length)return;
-    const b=[...wQ];wQ=[];
-    try{
-      // Sem mode:"no-cors" — assim conseguimos LER a resposta e saber se
-      // realmente funcionou, em vez de disparar às cegas e nunca saber.
-      const r=await fetch(url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({batch:b})});
-      const d=await r.json().catch(()=>({}));
-      if(d.error){console.error("syncSheet erro:",d.error);onSyncSheetError?.(`Planilha não salvou "${b[0]?.action}": ${d.error}`)}
-      else console.log(`✓ syncSheet: ${b.length} ação(ões) enviada(s) pra planilha`,b.map(x=>x.action));
-    }catch(e){
-      console.error("syncSheet falhou:",e);
-      onSyncSheetError?.(`Planilha não respondeu pra "${b[0]?.action}": ${e.message}`);
-    }
-  },1200);
+  wT=setTimeout(()=>triggerSheetSync(url),1200);
 }
-// A planilha guarda o SN como texto solto — pode vir com espaço sobrando ou
-// minúsculo. Todo SN criado direto pelo app é sempre maiúsculo/sem espaço, e
-// se o importado da planilha não seguir a mesma regra, ele nunca "casa" com
-// o resto do app (fila de teste, histórico, comparação BOA etc trata como
-// máquina/HASH diferente mesmo sendo o mesmo SN).
+
+// Resgata e executa o sync pendente ao carregar o app, depois que ele estiver montado
+setTimeout(() => {
+  const url = localStorage.getItem("hs_webhook_url");
+  if(url && wQ.length > 0) {
+    console.log(`Resumindo sincronização de planilha pendente: ${wQ.length} itens.`);
+    triggerSheetSync(url);
+  }
+}, 3000);
+
 const normSNField=s=>(s||"").toString().trim().toUpperCase();
 async function importMachinesFromSheet(url,onProgress){
   if(onProgress)onProgress(0,0);
@@ -1712,7 +1781,7 @@ function AdminSummary({data}){
   data.machines.forEach(m=>{if(!ms[m.model])ms[m.model]={model:m.model,boa:0,stock:0,ruim:0,shell:0,conserto:0};if(m.type==="shell")ms[m.model].shell++;else if(["BOA","LIGADA"].includes(m.situacao))ms[m.model].boa++;else if(m.situacao==="STOCK")ms[m.model].stock++;else if(m.situacao==="ENTRADA OFICINA")ms[m.model].conserto++;else ms[m.model].ruim++});
   const irrep=data.hashes.filter(h=>h.status==="IRREPARAVEL").length;
   const totalBoas=Object.values(ms).reduce((sum,s)=>sum+s.boa,0);
-  return<><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>{[{label:"Máquinas",v:data.machines.filter(m=>m.type==="complete").length,sub:`${data.machines.filter(m=>["BOA","STOCK"].includes(m.situacao)).length} ok`,c:C.accent},{label:"HASHs",v:data.hashes.length,sub:`${data.hashes.filter(h=>h.status==="TESTAR").length} p/ testar · ${irrep} irrep.`,c:C.blue},{label:"Consertos Hoje",v:data.repairs.filter(r=>r.date===today&&r.type!=="already_good").length,sub:"HASHs",c:C.green},{label:"Testes Hoje",v:data.tests.filter(t=>t.date===today).length,sub:"máquinas",c:C.purple}].map(s=><Card key={s.label} accent={s.c} style={{margin:0}}><div style={{fontSize:26,fontWeight:900,color:s.c}}>{s.v}</div><div style={{fontWeight:700,fontSize:12,marginTop:4}}>{s.label}</div><div style={{fontSize:10,color:C.muted}}>{s.sub}</div></Card>)}</div>
+  return<><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>{[{label:"Máquinas",v:data.machines.length,sub:`${data.machines.filter(m=>["BOA","STOCK"].includes(m.situacao)).length} ok`,c:C.accent},{label:"HASHs",v:data.hashes.length,sub:`${data.hashes.filter(h=>h.status==="TESTAR").length} p/ testar · ${irrep} irrep.`,c:C.blue},{label:"Consertos Hoje",v:data.repairs.filter(r=>r.date===today&&r.type!=="already_good").length,sub:"HASHs",c:C.green},{label:"Testes Hoje",v:data.tests.filter(t=>t.date===today).length,sub:"máquinas",c:C.purple}].map(s=><Card key={s.label} accent={s.c} style={{margin:0}}><div style={{fontSize:26,fontWeight:900,color:s.c}}>{s.v}</div><div style={{fontWeight:700,fontSize:12,marginTop:4}}>{s.label}</div><div style={{fontSize:10,color:C.muted}}>{s.sub}</div></Card>)}</div>
   <Card><div style={{fontWeight:800,fontSize:14,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📊 Por Modelo</span><Tag color={C.green}>{totalBoas} boas no total</Tag></div>{Object.values(ms).sort((a,b)=>(b.boa+b.ruim+b.stock)-(a.boa+a.ruim+a.stock)).map(s=><div key={s.model} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:700,fontSize:13}}>{s.model}</div><div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{s.boa>0&&<Tag color={C.green} small>{s.boa} boas</Tag>}{s.stock>0&&<Tag color={C.amber} small>{s.stock} stock</Tag>}{s.ruim>0&&<Tag color={C.red} small>{s.ruim} ruins</Tag>}{s.shell>0&&<Tag color="#475569" small>{s.shell} carc.</Tag>}{s.conserto>0&&<Tag color={C.amber} small>{s.conserto} cons.</Tag>}</div></div>)}</Card></>;
 }
 
@@ -2332,24 +2401,26 @@ function BatchSNForm({ctx,onClose}){
       }
     }
     
-    // Sincroniza todas na planilha do Google (em uma única chamada em lote)
-    const listToSend = writes.map(w => ({
-      sn: w.d.sn,
-      model: w.d.model,
-      th: w.d.th,
-      situacao: w.d.situacao,
-      ref,
-      employeeName: user.name,
-      employeeCode: user.code,
-      hash0: w.d.hash0,
-      hash1: w.d.hash1,
-      hash2: w.d.hash2,
-      controladora: w.d.controladora,
-      fonte: w.d.fonte,
-      fans: w.d.fans,
-      destino: w.d.destino||""
-    }));
-    syncSheet(webhookUrl, "syncMachinesBulk", { list: listToSend });
+        // Sincroniza todas na planilha do Google (serão empacotadas juntas em lote na fila)
+    writes.forEach(w => {
+      syncSheet(webhookUrl, "addMachine", {
+        id: w.id, // Envia o ID para vincular à linha correta ao inserir/cruzar
+        sn: w.d.sn,
+        model: w.d.model,
+        th: w.d.th,
+        situacao: w.d.situacao,
+        ref,
+        employeeName: user.name,
+        employeeCode: user.code,
+        hash0: w.d.hash0,
+        hash1: w.d.hash1,
+        hash2: w.d.hash2,
+        controladora: w.d.controladora,
+        fonte: w.d.fonte,
+        fans: w.d.fans,
+        destino: w.d.destino||""
+      });
+    });
     
     setSaving(false);clearPending();onClose();
   };
