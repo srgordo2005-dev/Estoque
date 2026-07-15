@@ -43,7 +43,7 @@ const SUPABASE_KEY=import.meta.env.VITE_SUPABASE_KEY||"";
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 
 // Nome da coleção (usado no resto do app, igual antes) → nome da tabela real no Postgres
-const TABLE_MAP={pendingApprovals:"pending_approvals",customModels:"custom_models",loadPhotos:"load_photos"};
+const TABLE_MAP={pendingApprovals:"pending_approvals",customModels:"custom_models",loadPhotos:"load_photos",farmMachines:"farm_machines"};
 const tableName=c=>TABLE_MAP[c]||c;
 
 // Mapa de campos: nome usado no app (camelCase/Firestore) → coluna no Postgres (snake_case).
@@ -885,8 +885,19 @@ class SafeTab extends React.Component{
 
 export default function App(){
   const[user,setUser]=usePersistedField("session-user",null);
-  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[],orders:[]});
+  const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[],orders:[],farmMachines:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
+  const[bridgeStatus,setBridgeStatus]=useState(false);
+  
+  useEffect(() => {
+     let interval = setInterval(() => {
+        fetch('http://localhost:3001/api/ping')
+          .then(res => setBridgeStatus(res.ok))
+          .catch(() => setBridgeStatus(false));
+     }, 5000);
+     return () => clearInterval(interval);
+  }, []);
+
   useEffect(()=>{
     if(user&&data.employees.length){
       const fresh=data.employees.find(e=>e._id===user._id||e.code===user.code);
@@ -948,10 +959,10 @@ export default function App(){
   // de verdade e acabar restaurando eles na tela.
   const resetMaxCount=(col,newCount)=>{localStorage.setItem("hs_maxcount_"+col,String(newCount))};
 
-  // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore
-  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders"};
+  // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore/Supabase
+  const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders",farmMachines:"farmMachines"};
   const fetchAllCollections=async(onlyKeys)=>{
-    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments","loadPhotos","orders"];
+    const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments","loadPhotos","orders","farmMachines"];
     const cols=onlyKeys?onlyKeys.map(k=>META_TO_COL[k]).filter(Boolean):allCols;
     // Espaça o INÍCIO de cada leitura em 120ms — evita disparar tudo junto
     // de uma vez (rajada), o que ajuda a não estourar limites por minuto
@@ -986,11 +997,13 @@ export default function App(){
         shipments:out.shipments!==undefined?out.shipments:prev.shipments,
         loadPhotos:out.loadPhotos!==undefined?(out.loadPhotos.length?out.loadPhotos:prev.loadPhotos):prev.loadPhotos,
         orders:out.orders!==undefined?out.orders:prev.orders,
+        farmMachines:merge("farmMachines",out.farmMachines),
       };
       if(next.machines.length)localStorage.setItem("hs_machines",JSON.stringify(next.machines));
       if(next.hashes.length)localStorage.setItem("hs_hashes",JSON.stringify(next.hashes));
       if(next.pallets.length)localStorage.setItem("hs_pallets",JSON.stringify(next.pallets));
       if(next.clients.length)localStorage.setItem("hs_clients",JSON.stringify(next.clients));
+      if(next.farmMachines.length)localStorage.setItem("hs_farmMachines",JSON.stringify(next.farmMachines));
       if(warnings.length)setDataWarnings(w=>[...warnings.map(m=>({msg:m,at:stamp()})),...w].slice(0,20));
       return next;
     });
@@ -1016,6 +1029,7 @@ export default function App(){
         clients:JSON.parse(localStorage.getItem("hs_clients")||"[]"),
         orders:JSON.parse(localStorage.getItem("hs_orders")||"[]"),
         shipments:JSON.parse(localStorage.getItem("hs_shipments")||"[]"),
+        farmMachines:JSON.parse(localStorage.getItem("hs_farmMachines")||"[]"),
       }));
       setLoading(false);
       return;
@@ -1050,13 +1064,15 @@ export default function App(){
       const cachedC=JSON.parse(localStorage.getItem("hs_clients")||"[]");
       const cachedO=JSON.parse(localStorage.getItem("hs_orders")||"[]");
       const cachedS=JSON.parse(localStorage.getItem("hs_shipments")||"[]");
+      const cachedFM=JSON.parse(localStorage.getItem("hs_farmMachines")||"[]");
       const gM=guardCount("machines",out.machines,cachedM);
       const gH=guardCount("hashes",out.hashes,cachedH);
       const gP=guardCount("pallets",out.pallets,cachedP);
       const gC=guardCount("clients",out.clients,cachedC);
       const gO=guardCount("orders",out.orders,cachedO);
       const gS=guardCount("shipments",out.shipments,cachedS);
-      const warnings=[...errs,gM.warn,gH.warn,gP.warn,gC.warn,gO.warn,gS.warn].filter(Boolean);
+      const gFM=guardCount("farmMachines",out.farmMachines,cachedFM);
+      const warnings=[...errs,gM.warn,gH.warn,gP.warn,gC.warn,gO.warn,gS.warn,gFM.warn].filter(Boolean);
       setData(d=>({
         ...d,
         machines:gM.use.length?gM.use:cachedM,
@@ -1070,6 +1086,7 @@ export default function App(){
         clients:gC.use.length?gC.use:cachedC,
         orders:gO.use.length?gO.use:cachedO,
         shipments:gS.use.length?gS.use:cachedS,
+        farmMachines:gFM.use.length?gFM.use:cachedFM,
         loadPhotos:out.loadPhotos.length?out.loadPhotos:d.loadPhotos,
       }));
       if(gM.use.length)localStorage.setItem("hs_machines",JSON.stringify(gM.use));
@@ -1078,6 +1095,7 @@ export default function App(){
       if(gC.use.length)localStorage.setItem("hs_clients",JSON.stringify(gC.use));
       if(gO.use.length)localStorage.setItem("hs_orders",JSON.stringify(gO.use));
       if(gS.use.length)localStorage.setItem("hs_shipments",JSON.stringify(gS.use));
+      if(gFM.use.length)localStorage.setItem("hs_farmMachines",JSON.stringify(gFM.use));
       localStorage.setItem("hs_lastFullFetch",String(Date.now()));
       if(warnings.length)setDataWarnings(w=>[...warnings.map(m=>({msg:m,at:stamp()})),...w].slice(0,20));
     }catch(e){
@@ -1102,23 +1120,34 @@ export default function App(){
   // Supabase não cobra por leitura, não tem problema reler a coleção inteira
   // sempre que algo mudar.
   useEffect(()=>{
-    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",load_photos:"loadPhotos",orders:"orders"};
-    const debounceTimers={};
+    const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",load_photos:"loadPhotos",orders:"orders",farm_machines:"farmMachines"};
     const channel=supabase.channel("hashstock-realtime");
     Object.keys(TABLE_TO_META).forEach(table=>{
-      channel.on("postgres_changes",{event:"*",schema:"public",table},()=>{
+      channel.on("postgres_changes",{event:"*",schema:"public",table},(payload)=>{
         const metaKey=TABLE_TO_META[table];
-        clearTimeout(debounceTimers[table]);
-        debounceTimers[table]=setTimeout(async()=>{
-          setSyncing(true);
-          try{await loadAll([metaKey])}catch(e){console.error("Realtime refresh falhou:",e)}
-          setSyncing(false);
-        },500);
+        if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+           const newObj = fromDBRow(payload.new);
+           setData(prev => {
+              const list = prev[metaKey] || [];
+              const exists = list.some(x => x._id === newObj._id);
+              if (exists) {
+                 return { ...prev, [metaKey]: list.map(x => x._id === newObj._id ? newObj : x) };
+              } else {
+                 return { ...prev, [metaKey]: [...list, newObj] };
+              }
+           });
+        } else if (payload.eventType === "DELETE") {
+           const deletedId = payload.old.id;
+           setData(prev => {
+              const list = prev[metaKey] || [];
+              return { ...prev, [metaKey]: list.filter(x => x._id !== deletedId) };
+           });
+        }
       });
     });
     channel.subscribe();
     return()=>{supabase.removeChannel(channel)};
-  },[loadAll]);
+  },[]);
 
   useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
@@ -1201,7 +1230,7 @@ export default function App(){
     ...((p.repairs||p.testing||isAdmin)?[{id:"guia",icon:"📚",label:"Ajuda"}]:[]),
     ...(p.orders||isAdmin?[{id:"pedidos",icon:"📝",label:"Pedidos"}]:[]),
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
-    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
+    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(user?.code==="019"?[{id:"datacenter",icon:"🌐",label:"Fazenda"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:1240,margin:"0 auto",position:"relative",overflowX:"hidden"}}>
@@ -1248,7 +1277,10 @@ export default function App(){
     <div style={{position:"relative",zIndex:1}}>
       <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:10}}>
         <span style={{fontSize:20}}>⛏️</span>
-        <div style={{flex:1}}><div style={{fontWeight:900,fontSize:14,color:C.accent}}>HashStock</div><div style={{fontSize:10,color:C.muted}}>{user.name} #{user.code}{syncing?" · 🔄":""}</div></div>
+        <div style={{flex:1, display:'flex', alignItems:'center', gap:8}}>
+           <div><div style={{fontWeight:900,fontSize:14,color:C.accent}}>HashStock</div><div style={{fontSize:10,color:C.muted}}>{user.name} #{user.code}{syncing?" · 🔄":""}</div></div>
+           <div title={bridgeStatus ? "Bridge Local Conectada" : "Bridge Desconectada (Offline)"} style={{width:8,height:8,borderRadius:'50%',background: bridgeStatus ? C.green : C.red, boxShadow: `0 0 8px ${bridgeStatus ? C.green : C.red}`, transition:'background 0.5s'}}></div>
+        </div>
         <div style={{display:"flex",gap:6}}>
           {myFdbs.length>0&&<Tag color={C.red}>⚠️{myFdbs.length}</Tag>}
           {myRevisit.length>0&&<Tag color={C.red}>🔁{myRevisit.length}</Tag>}
@@ -1271,6 +1303,7 @@ export default function App(){
         {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
         {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&canSeeClients&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&canApprove&&<ApprovalsPage ctx={ctx}/>}
         {tab==="team"&&canSeeTeam&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+        {tab==="datacenter"&&user?.code==="019"&&<DataCenterPage ctx={ctx}/>}
         {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
       </div>
       <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:1240,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
@@ -1674,7 +1707,7 @@ function MacPage({ctx}){
   const openDetail=m=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>);
   const selMachines=filtered.filter(m=>selected.has(m._id));
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>Máquinas</div><div style={{color:C.muted,fontSize:12}}>{data.machines.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div></div>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>Máquinas</div><div style={{color:C.muted,fontSize:12}}>{data.machines.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={()=>setModal(<Modal title="Mapeamento de Prateleira" onClose={()=>setModal(null)}><MapeamentoPrateleira ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.blue}}>📍 Mapear Prateleira</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div></div>
     <div style={{background:C.card,borderRadius:10,padding:"8px 12px",display:"flex",gap:8,marginBottom:10}}>🔍<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="SN, modelo, local, destino, ref..." style={{background:"none",border:"none",color:C.text,fontSize:13,flex:1,outline:"none"}}/></div>
     <FilterBar filters={macFilters} active={activeFilters} onToggle={toggleFilter} counts={macCounts} label={"Situação/Tipo ("+filtered.length+"/"+data.machines.length+")"}/>
     {allModelsUsed.length>0&&<div style={{marginBottom:10}}>
@@ -1791,6 +1824,322 @@ function BulkMachineAction({ctx,action,machines,onDone}){
     {action==="client"&&<><Sel label="CLIENTE DESTINO" value={clientId} onChange={e=>setClientId(e.target.value)}><option value="">Selecionar...</option>{(data.clients||[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}</Sel><div style={{color:C.amber,fontSize:11,marginBottom:10}}>⚠️ Máquinas e HASHs internas vão para SAIDA</div></>}
     <Btn v={action==="remove"?"d":"g"} onClick={apply} disabled={saving||(action==="pallet"&&!palletId)||(action==="client"&&!clientId)} style={{width:"100%"}}>{saving?"Processando...":action==="remove"?"🗑️ Remover "+machines.length+" máquina(s)":"✓ Aplicar a "+machines.length}</Btn>
   </div>;
+}
+
+function MapeamentoPrateleira({ctx, onClose}){
+  const {data, mutate, user, setModal} = ctx;
+  const [setup, setSetup] = useState({ name: "Prateleira A", rows: 4, cols: 5, model: "" });
+  const [started, setStarted] = useState(false);
+  const [grid, setGrid] = useState([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [scanningSN, setScanningSN] = useState("");
+  const [ipLog, setIpLog] = useState([]);
+  const [autoIP, setAutoIP] = useState(true);
+
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (started && grid[currentIdx] && grid[currentIdx].status === "scanning") {
+       setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [started, currentIdx, grid]);
+
+  useEffect(() => {
+    let interval;
+    if (started && grid[currentIdx] && grid[currentIdx].status === "waiting_ip") {
+      fetch('http://localhost:3001/api/ipreport').catch(()=>null); 
+      let startWait = Date.now();
+      interval = setInterval(async () => {
+         try {
+           const res = await fetch('http://localhost:3001/api/ipreport');
+           const reports = await res.json();
+           const valid = reports.find(r => r.timestamp >= startWait);
+           if (valid) {
+              clearInterval(interval);
+              handleIPFound(valid.ip);
+           }
+         } catch(e){}
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [started, currentIdx, grid]);
+
+  const handleStart = () => {
+     if(!setup.name || !setup.rows || !setup.cols) return alert("Preencha todos os campos");
+     let g = [];
+     for(let r=1; r<=setup.rows; r++) {
+       for(let c=1; c<=setup.cols; c++) {
+          g.push({ r, c, sn: "", ip: "", status: "pending" });
+       }
+     }
+     g[0].status = "scanning";
+     setGrid(g);
+     setStarted(true);
+  };
+
+  const handleSNDone = (e) => {
+    if (e.key === 'Enter' && scanningSN.trim().length > 0) {
+      let ng = [...grid];
+      ng[currentIdx].sn = scanningSN.trim().toUpperCase();
+      if (autoIP) {
+        ng[currentIdx].status = "waiting_ip";
+      } else {
+        ng[currentIdx].status = "done";
+        saveToSupabase(ng[currentIdx]);
+      }
+      setGrid(ng);
+      setScanningSN("");
+      if(!autoIP) advanceNext();
+    }
+  };
+
+  const handleIPFound = (ip) => {
+      setIpLog(prev => [`[${new Date().toLocaleTimeString()}] IP ${ip} vinculado ao SN ${grid[currentIdx].sn}`, ...prev].slice(0, 5));
+      let ng = [...grid];
+      ng[currentIdx].ip = ip;
+      ng[currentIdx].status = "done";
+      setGrid(ng);
+      saveToSupabase(ng[currentIdx]);
+      advanceNext();
+  };
+
+  const skipIP = () => {
+      let ng = [...grid];
+      ng[currentIdx].status = "skipped_ip";
+      setGrid(ng);
+      saveToSupabase(ng[currentIdx]);
+      advanceNext();
+  };
+
+  const advanceNext = () => {
+      setGrid(g => {
+         let ng = [...g];
+         if (currentIdx + 1 < ng.length) {
+            ng[currentIdx+1].status = "scanning";
+            setCurrentIdx(currentIdx + 1);
+         } else {
+            alert("Mapeamento Finalizado!");
+         }
+         return ng;
+      });
+  };
+
+  const saveToSupabase = async (cell) => {
+     const existing = data.machines.find(m => m.sn === cell.sn);
+     const loc = `${setup.name.toUpperCase()} - VÃO ${cell.c} - ANDAR ${cell.r}`;
+     const obj = {
+        situacao: "ESTOQUE",
+        location: loc,
+        model: setup.model || (existing ? existing.model : ""),
+        type: "complete"
+     };
+     if (cell.ip) obj.ip = cell.ip;
+     
+     if (existing) {
+         await fbSet("machines", existing._id, obj);
+         await fbSet("audit", crypto.randomUUID(), { coll:"machines", docId: existing._id, by: user.email, at: Date.now(), from: existing.location, to: loc, label: "Mapeamento Lote" });
+     } else {
+         const _id = "M-"+crypto.randomUUID();
+         await fbSet("machines", _id, { sn: cell.sn, _id, ...obj });
+         await fbSet("audit", crypto.randomUUID(), { coll:"machines", docId: _id, by: user.email, at: Date.now(), from: "", to: loc, label: "Criada Mapeamento Lote" });
+     }
+     mutate();
+  };
+
+  if (!started) {
+     return <div style={{padding:20}}>
+        <Inp label="Nome da Prateleira" value={setup.name} onChange={e=>setSetup({...setup, name: e.target.value})} placeholder="Ex: Prateleira B1"/>
+        <Inp label="Modelo (Opcional)" value={setup.model} onChange={e=>setSetup({...setup, model: e.target.value})} placeholder="Ex: Antminer S19"/>
+        <div style={{display:'flex', gap:10}}>
+           <Inp label="Máquinas por Vão (Largura)" type="number" value={setup.cols} onChange={e=>setSetup({...setup, cols: Number(e.target.value)})}/>
+           <Inp label="Vãos de Altura (Andares)" type="number" value={setup.rows} onChange={e=>setSetup({...setup, rows: Number(e.target.value)})}/>
+        </div>
+        <div style={{marginTop:10}}>
+           <label style={{fontSize:12, display:'flex', alignItems:'center', gap:5, cursor:'pointer'}}>
+              <input type="checkbox" checked={autoIP} onChange={e=>setAutoIP(e.target.checked)}/> 
+              Vincular IP Automaticamente (via botão IP Report)
+           </label>
+        </div>
+        <Btn style={{marginTop:20, width:'100%', padding:12}} onClick={handleStart}>Começar Mapeamento ({setup.rows * setup.cols} posições)</Btn>
+     </div>
+  }
+
+  return <div style={{padding:10, display:'flex', flexDirection:'column', height:'70vh'}}>
+     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
+         <div style={{fontSize:16}}><b>{setup.name}</b> · Andar {grid[currentIdx]?.r} · Vão {grid[currentIdx]?.c}</div>
+         <div style={{color:C.muted}}>Progresso: {currentIdx+1} / {grid.length}</div>
+     </div>
+
+     <div style={{background:C.card, padding:20, borderRadius:10, marginBottom:15, textAlign:'center', minHeight:130, display:'flex', flexDirection:'column', justifyContent:'center', alignItems:'center'}}>
+        {grid[currentIdx]?.status === "scanning" && <>
+           <div style={{fontSize:16, marginBottom:10, color:C.text}}>Bipe o SN da máquina na posição atual:</div>
+           <input ref={inputRef} value={scanningSN} onChange={e=>setScanningSN(e.target.value)} onKeyDown={handleSNDone} placeholder="Ler Código de Barras" style={{padding:12, fontSize:18, width:'80%', textAlign:'center', borderRadius:8, border:`1px solid ${C.subtle}`, background:C.bg, color:C.text}} />
+        </>}
+        
+        {grid[currentIdx]?.status === "waiting_ip" && <>
+           <div style={{fontSize:18, marginBottom:15, color:C.blue}}>Aperte o botão <b>IP Report</b> na máquina</div>
+           <div style={{color:C.muted, marginBottom:15}}>SN: {grid[currentIdx]?.sn}</div>
+           <Btn onClick={skipIP} style={{background:C.amber, color:'#000', padding:'8px 20px'}}>Pular IP (Deixar sem IP)</Btn>
+        </>}
+     </div>
+
+     <div style={{display:'grid', gridTemplateColumns:`repeat(${setup.cols}, 1fr)`, gap:6, flex:1, overflowY:'auto'}}>
+        {grid.map((cell, i) => {
+           let bg = C.card;
+           if (cell.status === "done") bg = C.green + "40";
+           if (cell.status === "skipped_ip") bg = C.amber + "40";
+           if (i === currentIdx) bg = C.blue + "60"; 
+           return <div key={i} style={{background:bg, padding:8, borderRadius:6, fontSize:11, border: i === currentIdx ? `2px solid ${C.blue}` : `1px solid ${C.border}`, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center'}}>
+              <div style={{fontWeight:900, marginBottom:4}}>A{cell.r} - V{cell.c}</div>
+              <div style={{color:C.text}}>{cell.sn ? cell.sn.slice(-6) : "---"}</div>
+              <div style={{color:C.subtle, fontSize:9, marginTop:2}}>{cell.ip || "---"}</div>
+           </div>
+        })}
+     </div>
+
+     {ipLog.length > 0 && <div style={{marginTop:10, fontSize:11, color:C.subtle, background:C.card, padding:10, borderRadius:8}}>
+        {ipLog.map((l,i) => <div key={i}>{l}</div>)}
+     </div>}
+  </div>
+}
+
+function DataCenterPage({ctx}) {
+    const {data, setModal} = ctx;
+    
+    // Agora usa a tabela isolada farmMachines em vez do Estoque
+    const farmMachines = data.farmMachines || [];
+
+    useEffect(() => {
+        // Envia a lista para a Bridge monitorar e alertar no Telegram
+        if(farmMachines.length > 0) {
+           fetch('http://localhost:3001/api/set-farm', {
+               method: 'POST',
+               headers: {'Content-Type': 'application/json'},
+               body: JSON.stringify({machines: farmMachines.map(m => ({sn: m.sn, ip: m.ip, location: m.shelf}))})
+           }).catch(()=>null);
+        }
+    }, [farmMachines]);
+
+    const toggleBlink = async (m) => {
+        if(!m.ip) return alert("Máquina sem IP");
+        // Firmware default vnish
+        const firmware = m.firmware || "vnish";
+        fetch('http://localhost:3001/api/blink', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ip: m.ip, firmware, on: !m._blinking})
+        }).then(() => {
+           // local state only
+        });
+    };
+
+    return <div style={{padding: 20}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
+           <h2>🌐 Data Center / Monitor de Fazenda</h2>
+           <div style={{display:'flex', gap:10}}>
+              <Btn v="b" onClick={() => setModal(<Modal title="Nova Prateleira" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
+              <Btn v="s" onClick={() => alert("Gerador PDF sendo implementado (necessita lib jsPDF)")}>📄 Exportar PDF</Btn>
+           </div>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20}}>
+           <div style={{background:C.card, padding:20, borderRadius:8, textAlign:'center'}}>
+              <div style={{fontSize:28, color:C.blue, fontWeight:'bold'}}>{farmMachines.length}</div>
+              <div style={{color:C.subtle, fontSize:12}}>Máquinas Mapeadas na Fazenda</div>
+           </div>
+           <div style={{background:C.card, padding:20, borderRadius:8, textAlign:'center'}}>
+              <div style={{fontSize:28, color:C.green, fontWeight:'bold'}}>{farmMachines.filter(m=>m.ip).length}</div>
+              <div style={{color:C.subtle, fontSize:12}}>IPs Vinculados</div>
+           </div>
+           <div style={{background:C.card, padding:20, borderRadius:8, textAlign:'center'}}>
+              <div style={{fontSize:28, color:C.amber, fontWeight:'bold'}}>{farmMachines.filter(m=>!m.ip).length}</div>
+              <div style={{color:C.subtle, fontSize:12}}>Faltando IP</div>
+           </div>
+        </div>
+
+        <div style={{display:'flex', flexWrap:'wrap', gap:10}}>
+           {farmMachines.map(m => {
+              const isDummy = m.sn && m.sn.startsWith("FARM-");
+              const [showSn, setShowSn] = useState(false);
+              return <div key={m._id} style={{background:C.card, padding:12, borderRadius:8, width: 220, borderLeft: m.ip ? `4px solid ${C.green}` : `4px solid ${C.amber}`}}>
+                  <div style={{fontWeight:900, marginBottom:4, fontSize:12}}>{m.shelf || "Sem Local"}</div>
+                  <div style={{fontSize:11, color:C.text, cursor:'pointer'}} onClick={()=>setShowSn(!showSn)}>
+                      {isDummy ? (showSn ? m.sn : "Máquina não bipada (vazio)") : m.sn}
+                  </div>
+                  <div style={{fontSize:10, color:C.muted, marginTop:4}}>
+                     IP: {m.ip ? <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{color:C.blue, textDecoration:'none'}}>{m.ip}</a> : "Não vinculado"}
+                  </div>
+                  {m.ip && <div style={{marginTop:10}}>
+                     <Btn v="s" onClick={()=>toggleBlink(m)} style={{width:'100%', fontSize:10, padding:4}}>🔦 Piscar LED</Btn>
+                  </div>}
+              </div>
+           })}
+        </div>
+    </div>;
+}
+
+function AddFarmForm({ctx, onClose}) {
+    const {mutate, user} = ctx;
+    const [name, setName] = useState("");
+    const [ipBase, setIpBase] = useState("192.168.1.");
+    const [startIp, setStartIp] = useState(10);
+    const [endIp, setEndIp] = useState(45);
+    const [saving, setSaving] = useState(false);
+
+    const handleSave = async () => {
+        if(!name) return alert("Digite o nome da prateleira");
+        if(startIp > endIp) return alert("IP inicial maior que final");
+        setSaving(true);
+        const machines = [];
+        let currentIp = startIp;
+        let v = 1;
+        let a = 1;
+
+        while(currentIp <= endIp) {
+            const m = {
+                sn: `FARM-${Date.now()}-${currentIp}`, // Placeholder SN
+                model: "M30S", 
+                shelf: `${name} - AutoSlot ${currentIp-startIp+1}`,
+                ip: `${ipBase}${currentIp}`,
+                status: "MAPPED",
+                ...audit(user)
+            };
+            machines.push(m);
+            currentIp++;
+        }
+        
+        // Save to farm_machines
+        const res = await fbBatch(machines.map(m => ({c:"farmMachines", id: m._id || uid(), d: m})));
+        if(res.ok) {
+            mutate("farmMachines", prev => [...prev, ...machines]);
+            onClose();
+        } else {
+            alert("Erro ao salvar farm: " + (res.errors||[]).join(", "));
+        }
+        setSaving(false);
+    };
+
+    return <div style={{display:'flex', flexDirection:'column', gap:12}}>
+        <Inp label="Nome da Prateleira" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Prateleira A"/>
+
+        <div style={{display:'flex', gap:8}}>
+            <Inp label="IP Base (ex: 192.168.1.)" value={ipBase} onChange={e=>setIpBase(e.target.value)}/>
+        </div>
+        
+        <div style={{display:'flex', gap:8}}>
+            <Inp label="IP Inicial" type="number" value={startIp} onChange={e=>setStartIp(Number(e.target.value))}/>
+            <Inp label="IP Final" type="number" value={endIp} onChange={e=>setEndIp(Number(e.target.value))}/>
+        </div>
+        
+        <div style={{fontSize:11, color:C.subtle, background:C.card, padding:8, borderRadius:6}}>
+            Isso vai pré-mapear {(endIp - startIp) + 1} posições (sem limite físico exato de andares), associando os IPs de {ipBase}{startIp} até {ipBase}{endIp}.
+        </div>
+
+        <div style={{display:'flex', gap:10, marginTop:10}}>
+            <Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
+            <Btn onClick={handleSave} disabled={saving} style={{flex:1}}>{saving ? "Salvando..." : "Salvar Prateleira"}</Btn>
+        </div>
+    </div>;
 }
 
 function AddModeSelect({ctx,onClose,initialMode=null}){
@@ -2406,7 +2755,7 @@ function MachineDetail({ctx,machine,readOnly}){
         <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}><SP s={m.situacao}/>{m.type==="shell"&&<Tag color={C.muted}>CARCAÇA</Tag>}</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,fontSize:12}}>
           <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>MODELO</div><select value={m.model} onChange={e=>upd("model",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}>{models.map(mo=><option key={mo.m}>{mo.m}</option>)}</select></div>
-          <div><div style={{color:C.muted,fontSize:10}}>T/H</div><div style={{fontWeight:700}}>{m.th}</div></div>
+          <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>T/H</div><input type="number" value={m.th||""} onChange={e=>upd("th",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700,width:"100%",boxSizing:"border-box"}}/></div>
           <div><div style={{color:C.muted,fontSize:10,marginBottom:2}}>TIPO</div><select value={m.type||"complete"} onChange={e=>upd("type",e.target.value)} style={{...inp,padding:"4px 6px",fontSize:12,fontWeight:700}}><option value="complete">Completa</option><option value="shell">Carcaça</option></select></div>
         </div>
         {m.sheetRow&&<div style={{color:C.muted,fontSize:10,marginTop:8}}>📍 Linha {m.sheetRow} na planilha (referência, não atualiza sozinho)</div>}
@@ -3318,6 +3667,68 @@ function LinkNewHashTechForm({ctx, sn, initialModel, onSave, onClose}){
   </div>;
 }
 
+function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession}) {
+    const [listening, setListening] = useState(false);
+    const [blinkOn, setBlinkOn] = useState(false);
+    
+    useEffect(() => {
+        if (!listening) return;
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch('http://localhost:3001/api/ipreport');
+                const reports = await res.json();
+                if (reports && reports.length > 0) {
+                    const latest = reports[0];
+                    setListening(false);
+                    // Fetch full data
+                    const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${latest.ip}`);
+                    const info = await infoRes.json();
+                    
+                    if (info.sn) {
+                        setMacInput(info.sn);
+                        // Start session first, then we update it
+                        // (loadMachine does not return the session directly, it updates state, 
+                        // so in reality we should hook into the session state).
+                        alert(`IP ${latest.ip} capturado! Carregando a máquina ${info.sn}... Clique em piscar após carregar.`);
+                        loadMachine(info.sn);
+                    }
+                }
+            } catch(e) {}
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [listening, loadMachine, setMacInput]);
+
+    const toggleBlink = async () => {
+        const ip = session?.ip || prompt("Digite o IP da máquina na bancada para piscar:");
+        if (!ip) return;
+        fetch('http://localhost:3001/api/blink', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ip, firmware: "vnish", on: !blinkOn})
+        });
+        setBlinkOn(!blinkOn);
+        if(session && !session.ip) {
+            saveSession({...session, ip}); // link IP to session
+        }
+    };
+
+    return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px dashed ${listening?C.green:C.border}`}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+           <div style={{fontWeight:800, color: listening ? C.green : C.subtle}}>
+              {listening ? "📡 Aguardando Botão IP Report..." : "🔌 Automação de Bancada"}
+           </div>
+           <div style={{display:'flex', gap:8}}>
+              {!listening && <Btn v="b" onClick={()=>setListening(true)}>Capturar IP Report</Btn>}
+              {listening && <Btn v="s" onClick={()=>setListening(false)}>Cancelar</Btn>}
+              <Btn v="s" onClick={toggleBlink}>🔦 {blinkOn ? "Parar de Piscar" : "Piscar Máquina"}</Btn>
+           </div>
+        </div>
+        {session?.ip && <div style={{fontSize:11, color:C.green, marginTop:8}}>
+            IP Vinculado a esta sessão: {session.ip}
+        </div>}
+    </div>;
+}
+
 function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH,gChips,setModal}=ctx;const models=allModels();
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
@@ -3789,6 +4200,8 @@ function TestePage({ctx}){
     {session?.orderRef&&!session.rejected?
       <Alrt type="ok">📋 Vinculada ao Pedido #{session.orderRef.orderNumber} — {session.orderRef.clientName}. Status já está PREPARANDO. Quando o Admin aprovar, a máquina vai direto pra esse cliente (SAIDA). Se cancelar essa sessão, volta pro status de antes e devolve a vaga do pedido.</Alrt>
       :session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — status já está PREPARANDO (planilha atualizada). Quando o Admin aprovar, permanece PREPARANDO. Se cancelar essa sessão, volta pro status de antes.</Alrt>}
+
+    <BenchConnectionPanel ctx={ctx} session={session} setMacInput={setMacInput} loadMachine={loadMachine} saveSession={saveSession} />
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
