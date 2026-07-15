@@ -430,6 +430,76 @@ const SP=({s})=><span style={{background:SIT_C[s]||C.muted,color:"#fff",borderRa
 const By=({by,at})=>by?<div style={{fontSize:10,color:C.muted,marginTop:3}}>✏️ {by} · {fmtTS(at)}</div>:null;
 const Alrt=({type,children})=>{const m={ok:{bg:"#0c2a0f",b:C.green,c:C.green},err:{bg:"#2a0c0c",b:C.red,c:C.red},warn:{bg:"#2a1a00",b:C.amber,c:C.amber}};const s=m[type]||m.warn;return<div style={{background:s.bg,border:`1px solid ${s.b}`,borderRadius:10,padding:12,marginBottom:12,color:s.c,fontWeight:700,fontSize:13}}>{children}</div>};
 
+const resolveSNDuplicates = (snRaw, type, ctx, onSelect) => {
+  const sn = snRaw.toUpperCase().trim();
+  const list = type === "hash" ? ctx.data.hashes : ctx.data.machines;
+  const matches = list.filter(x => (x.sn || "").toUpperCase().trim() === sn);
+  
+  if (matches.length > 1) {
+    ctx.setModal(
+      <Modal title={`⚠️ SN Duplicado: ${snRaw}`} onClose={() => ctx.setModal(null)}>
+        <div style={{padding: 4}}>
+          <div style={{fontSize: 12, color: C.subtle, marginBottom: 12}}>
+            Encontramos mais de um item cadastrado com o SN <b>{snRaw}</b> (diferentes maiúsculas/minúsculas ou duplicados). 
+            Por favor, selecione qual item você deseja usar:
+          </div>
+          <div style={{display: "flex", flexDirection: "column", gap: 10, maxHeight: "60vh", overflow: "auto"}}>
+            {matches.map(m => {
+              const sit = type === "hash" ? m.status : m.situacao;
+              const loc = m.location || m.shelf || "Sem local";
+              return (
+                <div 
+                  key={m._id} 
+                  onClick={() => {
+                    ctx.setModal(null);
+                    onSelect(m);
+                  }}
+                  style={{
+                    background: C.card2,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 8,
+                    padding: 12,
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 4
+                  }}
+                >
+                  <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+                    <span style={{fontWeight: "bold", fontSize: 13, color: C.text}}>{m.model}</span>
+                    <span style={{
+                      background: (type === "hash" ? HST_C[sit] : SIT_C[sit]) || C.card2,
+                      color: "#fff",
+                      borderRadius: 6,
+                      padding: "2px 8px",
+                      fontSize: 10,
+                      fontWeight: "bold"
+                    }}>{sit}</span>
+                  </div>
+                  <div style={{fontSize: 11, color: C.subtle}}>
+                    📍 {loc} {m.ref ? `· Ref: ${m.ref}` : ""}
+                  </div>
+                  <div style={{fontSize: 10, color: C.muted, display: "flex", justifyContent: "space-between", marginTop: 4}}>
+                    <span>ID: {m._id?.slice(0, 8)}</span>
+                    {m._byName && <span>Por: {m._byName}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{marginTop: 15, display: "flex", justifyContent: "flex-end"}}>
+            <Btn v="s" onClick={() => { ctx.setModal(null); onSelect(null); }}>Cancelar</Btn>
+          </div>
+        </div>
+      </Modal>
+    );
+  } else if (matches.length === 1) {
+    onSelect(matches[0]);
+  } else {
+    onSelect(null);
+  }
+};
+
 /* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
 function BarcodeScanner({onScan,onClose,continuous}){
   const vRef=useRef(),streamRef=useRef(),trackRef=useRef();
@@ -2578,23 +2648,25 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
     const upper=localSN.toUpperCase().trim();
     setLocalSN(upper);
     if(upper===normSNField(slotSN))return;
-    await upd(slotField,upper);
-    // Se já tinha outra HASH nesse slot, desvincula ela (volta pra fila de teste)
-    const oldHash=slotSN?data.hashes.find(h=>normSNField(h.sn)===normSNField(slotSN)):null;
-    if(oldHash&&normSNField(oldHash.machineSN)===normSNField(m.sn)){
-      const ou={...oldHash,machineSN:"",slot:-1,status:oldHash.status==="NA MAQUINA"?"TESTAR":oldHash.status,...audit(user)};
-      mutate("hashes",arr=>arr.map(x=>x._id===oldHash._id?ou:x));await fbSet("hashes",oldHash._id,ou);
-    }
-    // A HASH nova colocada aqui passa a estar NA MAQUINA — reflete isso nela
-    const found=upper?data.hashes.find(h=>normSNField(h.sn)===upper):null;
-    if(found){
-      // Nunca deixa a carcaça com um modelo e a HASH com outro — corrige sozinho
-      if(found.model&&found.model!==m.model)await upd("model",found.model);
-      const fu={...found,status:"NA MAQUINA",machineSN:m.sn,slot:i,...audit(user)};
-      mutate("hashes",arr=>arr.map(x=>x._id===found._id?fu:x));await fbSet("hashes",found._id,fu);
-      syncSheet(webhookUrl,"hashApproved",{sn:found.sn,model:found.model,machineSN:m.sn,slot:i,chips:found.chips||0,employeeName:user.name,employeeCode:user.code});
-    }
-    await markChanged("hashes");
+    resolveSNDuplicates(localSN, "hash", ctx, async (found) => {
+      const actualSN = found ? found.sn : upper;
+      await upd(slotField, actualSN);
+      // Se já tinha outra HASH nesse slot, desvincula ela (volta pra fila de teste)
+      const oldHash=slotSN?data.hashes.find(h=>normSNField(h.sn)===normSNField(slotSN)):null;
+      if(oldHash&&normSNField(oldHash.machineSN)===normSNField(m.sn)){
+        const ou={...oldHash,machineSN:"",slot:-1,status:oldHash.status==="NA MAQUINA"?"TESTAR":oldHash.status,...audit(user)};
+        mutate("hashes",arr=>arr.map(x=>x._id===oldHash._id?ou:x));await fbSet("hashes",oldHash._id,ou);
+      }
+      // A HASH nova colocada aqui passa a estar NA MAQUINA — reflete isso nela
+      if(found){
+        // Nunca deixa a carcaça com um modelo e a HASH com outro — corrige sozinho
+        if(found.model&&found.model!==m.model)await upd("model",found.model);
+        const fu={...found,status:"NA MAQUINA",machineSN:m.sn,slot:i,...audit(user)};
+        mutate("hashes",arr=>arr.map(x=>x._id===found._id?fu:x));await fbSet("hashes",found._id,fu);
+        syncSheet(webhookUrl,"hashApproved",{sn:found.sn,model:found.model,machineSN:m.sn,slot:i,chips:found.chips||0,employeeName:user.name,employeeCode:user.code});
+      }
+      await markChanged("hashes");
+    });
   };
   const notFound=localSN.trim()&&!data.hashes.find(h=>normSNField(h.sn)===localSN.toUpperCase().trim());
   return<div style={{marginBottom:8}}>
@@ -3866,13 +3938,15 @@ function TestePage({ctx}){
 
   const loadMachine=async(snParam)=>{
     const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;
-    if(!await checkSessionConflicts(sn))return;
-    const ex=data.machines.find(m=>normSNField(m.sn)===sn);
-    if(ex&&ex.situacao==="BOA"&&!window.confirm(`Essa máquina já está marcada como BOA na planilha/estoque.\nQuer mesmo testar de novo?`))return;
-    // Guarda a situação de origem (mesmo fora do fluxo Preparar pra Envio) só
-    // pra poder mostrar um aviso fixo durante todo o teste — não é usado
-    // pra reverter nada aqui (isso só acontece com prepShipment).
-    await startSession(sn,ex,false,ex?.situacao||"",null);
+    resolveSNDuplicates(sn, "machine", ctx, async (ex) => {
+      const actualSN = ex ? ex.sn : sn;
+      if(!await checkSessionConflicts(actualSN))return;
+      if(ex&&ex.situacao==="BOA"&&!window.confirm(`Essa máquina já está marcada como BOA na planilha/estoque.\nQuer mesmo testar de novo?`))return;
+      // Guarda a situação de origem (mesmo fora do fluxo Preparar pra Envio) só
+      // pra poder mostrar um aviso fixo durante todo o teste — não é usado
+      // pra reverter nada aqui (isso só acontece com prepShipment).
+      await startSession(actualSN,ex,false,ex?.situacao||"",null);
+    });
   };
 
   // Itens de pedidos em aberto que ainda têm vaga (fulfilled < qty) —
@@ -3895,30 +3969,32 @@ function TestePage({ctx}){
     const sn=macInput.toUpperCase().trim();
     if(!sn){setErr("Digite ou bipe o SN da máquina primeiro.");return}
     setErr("");
-    if(!await checkSessionConflicts(sn))return;
-    const ex=data.machines.find(m=>normSNField(m.sn)===sn);
-    const prevSituacao=ex?ex.situacao:"";
-    const avail=availableOrderItems();
-    if(avail.length===0){await applyPrepareShipment(sn,ex,prevSituacao,null);return}
-    setModal(<Modal title="📦 Vincular a um Pedido?" onClose={()=>setModal(null)}>
-      <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essa máquina vai ajudar a completar algum pedido em aberto?</div>
-      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
-        {avail.map((a,i)=>{
-          // Se essa máquina já está cadastrada com outro modelo, avisa — mas
-          // não bloqueia (o testador decide se quer mesmo assim ou escolhe
-          // outro item/máquina).
-          const mismatch=ex&&ex.model&&ex.model!==a.item.model;
-          return<div key={i}>
-            <Btn v="b" onClick={async()=>{setModal(null);await applyPrepareShipment(sn,ex,prevSituacao,a)}} style={{justifyContent:"space-between",width:"100%"}}>
-              <span>📋 #{a.order.number} — {a.order.clientName}</span>
-              <span>{a.item.model}{a.item.th?` ${a.item.th}TH`:""} ({a.item.fulfilled||0}/{a.item.qty})</span>
-            </Btn>
-            {mismatch&&<div style={{color:C.amber,fontSize:11,marginTop:4}}>⚠️ Essa máquina já está cadastrada como <b>{ex.model}</b> (o pedido pede {a.item.model})</div>}
-          </div>;
-        })}
-      </div>
-      <Btn v="s" onClick={async()=>{setModal(null);await applyPrepareShipment(sn,ex,prevSituacao,null)}} style={{width:"100%"}}>Nenhum pedido (fluxo padrão)</Btn>
-    </Modal>);
+    resolveSNDuplicates(sn, "machine", ctx, async (ex) => {
+      const actualSN = ex ? ex.sn : sn;
+      if(!await checkSessionConflicts(actualSN))return;
+      const prevSituacao=ex?ex.situacao:"";
+      const avail=availableOrderItems();
+      if(avail.length===0){await applyPrepareShipment(actualSN,ex,prevSituacao,null);return}
+      setModal(<Modal title="📦 Vincular a um Pedido?" onClose={()=>setModal(null)}>
+        <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essa máquina vai ajudar a completar algum pedido em aberto?</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
+          {avail.map((a,i)=>{
+            // Se essa máquina já está cadastrada com outro modelo, avisa — mas
+            // não bloqueia (o testador decide se quer mesmo assim ou escolhe
+            // outro item/máquina).
+            const mismatch=ex&&ex.model&&ex.model!==a.item.model;
+            return<div key={i}>
+              <Btn v="b" onClick={async()=>{setModal(null);await applyPrepareShipment(actualSN,ex,prevSituacao,a)}} style={{justifyContent:"space-between",width:"100%"}}>
+                <span>📋 #{a.order.number} — {a.order.clientName}</span>
+                <span>{a.item.model}{a.item.th?` ${a.item.th}TH`:""} ({a.item.fulfilled||0}/{a.item.qty})</span>
+              </Btn>
+              {mismatch&&<div style={{color:C.amber,fontSize:11,marginTop:4}}>⚠️ Essa máquina já está cadastrada como <b>{ex.model}</b> (o pedido pede {a.item.model})</div>}
+            </div>;
+          })}
+        </div>
+        <Btn v="s" onClick={async()=>{setModal(null);await applyPrepareShipment(actualSN,ex,prevSituacao,null)}} style={{width:"100%"}}>Nenhum pedido (fluxo padrão)</Btn>
+      </Modal>);
+    });
   };
 
   const applyPrepareShipment=async(sn,ex,prevSituacao,orderChoice)=>{
@@ -5988,7 +6064,7 @@ function PalletsPage({ctx}){
         const sortedPallets = [...pallets].sort((a,b)=>(b._at||b.createdAt||"").localeCompare(a._at||a.createdAt||""));
         return sortedPallets.length===0
           ?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>📦</div><div>Nenhum palete</div></div>
-          :sortedPallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);const hshs=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
+          :sortedPallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>m.sn===sn)||data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);const hshs=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>h.sn===sn)||data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
             <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:15}}>📦 {p.name}</div>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}</div><div style={{display:"flex",gap:4}}><Tag color={C.blue}>{p.machinesSN?.length||0} máq.</Tag><Tag color={C.purple}>{p.hashesSN?.length||0} hash</Tag></div></div>
             {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{m.sn?.slice(0,10)} <SP s={m.situacao}/></span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
             {hshs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{hshs.slice(0,4).map(h=><span key={h._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{h.sn?.slice(0,10)||"s/sn"} <HP s={h.status}/></span>)}{hshs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{hshs.length-4}</span>}</div>}
@@ -6064,12 +6140,12 @@ function PalletDetail({ctx,pallet}){
   const[p,setP]=useState(pallet),[itemType,setItemType]=useState("machine"),[mode,setMode]=useState("scan"),[log,setLog]=useState([]),[pendingAddSN,setPendingAddSN]=useState(null);
   const[selMode,setSelMode]=useState(false),[selected,setSelected]=useState(new Set());
   const fileRef=useRef();
-  const macs=[...(p.machinesSN||[])].reverse().map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
-  const hashes=[...(p.hashesSN||[])].reverse().map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
+  const macs=[...(p.machinesSN||[])].reverse().map(sn=>data.machines.find(m=>m.sn===sn)||data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hashes=[...(p.hashesSN||[])].reverse().map(sn=>data.hashes.find(h=>h.sn===sn)||data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
   // SNs que ficaram "fantasma" — foram removidos/apagados em outro lugar,
   // mas continuaram contando aqui (de antes dessa correção existir)
-  const ghostM=(p.machinesSN||[]).filter(sn=>!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
-  const ghostH=(p.hashesSN||[]).filter(sn=>!data.hashes.find(h=>normSNField(h.sn)===normSNField(sn)));
+  const ghostM=(p.machinesSN||[]).filter(sn=>!data.machines.find(m=>m.sn===sn)&&!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
+  const ghostH=(p.hashesSN||[]).filter(sn=>!data.hashes.find(h=>h.sn===sn)&&!data.hashes.find(h=>normSNField(h.sn)===normSNField(sn)));
   const limparFantasmas=async()=>{
     const upd2={...p,machinesSN:(p.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(p.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
     setP(upd2);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd2:x));await fbSet("pallets",p._id,upd2);await markChanged("pallets");
@@ -6114,19 +6190,25 @@ function PalletDetail({ctx,pallet}){
     const sn=snRaw.toUpperCase().trim();if(!sn)return;
     const isHash=itemType==="hash";
     const listKey=isHash?"hashesSN":"machinesSN";
-    if((p[listKey]||[]).includes(sn)){setLog(l=>[{sn,status:"dup",msg:"Já no palete"},...l]);return}
-    const ex=isHash?data.hashes.find(h=>h.sn===sn):data.machines.find(m=>m.sn===sn);
-    if(!ex){
-      // Não existe — não cria mais com dados genéricos. Mostra aviso e deixa
-      // o usuário escolher cadastrar de verdade (modelo, status, etc.)
-      setLog(l=>[{sn,status:"missing",msg:"❌ Não existe no estoque"},...l]);
-      return;
-    }
-    const newSNs=[...(p[listKey]||[]),sn];
-    const upd={...p,[listKey]:newSNs,...audit(user)};
-    setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
-    await fbSet("pallets",p._id,upd);await markChanged("pallets");
-    setLog(l=>[{sn,status:"ok",msg:isHash?ex.model+" · "+ex.status:ex.model+" · "+ex.situacao},...l]);
+    resolveSNDuplicates(snRaw, itemType, ctx, async (ex) => {
+      if(!ex){
+        setLog(l=>[{sn,status:"missing",msg:"❌ Não existe no estoque"},...l]);
+        return;
+      }
+      const actualSN = ex.sn;
+      if((p[listKey]||[]).includes(actualSN)){setLog(l=>[{sn:actualSN,status:"dup",msg:"Já no palete"},...l]);return}
+      
+      const newSNs=[...(p[listKey]||[]),actualSN];
+      const upd={...p,[listKey]:newSNs,...audit(user)};
+      setP(upd);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
+      const res = await fbSet("pallets",p._id,upd);
+      if (res.ok) {
+        await markChanged("pallets");
+        setLog(l=>[{sn:actualSN,status:"ok",msg:isHash?ex.model+" · "+ex.status:ex.model+" · "+ex.situacao},...l]);
+      } else {
+        alert("❌ Erro ao adicionar no palete: " + res.error);
+      }
+    });
   };
   // Depois de cadastrar a HASH/máquina que faltava, adiciona ela no palete automaticamente
   useEffect(()=>{
@@ -6200,9 +6282,9 @@ function PalletDetail({ctx,pallet}){
       {l.status==="missing"&&<button onClick={()=>{setPendingAddSN({sn:l.sn,isHash:itemType==="hash"});setModal(<Modal title={itemType==="hash"?"Nova HASH":"Nova Máquina"} onClose={()=>setModal(null)}>{itemType==="hash"?<AddHashForm ctx={ctx} initSN={l.sn} onClose={()=>setModal(null)}/>:<AddMachineForm ctx={ctx} initSN={l.sn} onClose={()=>setModal(null)}/>}</Modal>)}} style={{marginTop:4,background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>➕ Cadastrar {l.sn}</button>}
     </div>)}</div>}
     <SL>Maquinas ({macs.length})</SL>
-    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:macs.map(m=>{const isSelected=selected.has(m.sn);return<div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div style={{display:"flex",alignItems:"center",gap:8}}>{selMode&&<input type="checkbox" checked={isSelected} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(m.sn):s.delete(m.sn);setSelected(s)}} style={{width:16,height:16,cursor:"pointer"}}/><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"}<div style={{fontSize:10,color:C.muted,fontWeight:500}}>{m.model} . <SP s={m.situacao}/></div></div></div>{!selMode&&<button onClick={()=>remSN(m.sn||"",false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>X</button>}</div>})}
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:macs.map(m=>{const isSelected=selected.has(m.sn);return<div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div style={{display:"flex",alignItems:"center",gap:8}}>{selMode&&<input type="checkbox" checked={isSelected} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(m.sn):s.delete(m.sn);setSelected(s)}} style={{width:16,height:16,cursor:"pointer"}}/>}<div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"}<div style={{fontSize:10,color:C.muted,fontWeight:500}}>{m.model} · <SP s={m.situacao}/></div></div></div>{!selMode&&<button onClick={()=>remSN(m.sn||"",false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div>})}
     <SL mt={14}>HASHs ({hashes.length})</SL>
-    {hashes.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:hashes.map(h=>{const isSelected=selected.has(h.sn);return<div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div style={{display:"flex",alignItems:"center",gap:8}}>{selMode&&<input type="checkbox" checked={isSelected} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(h.sn):s.delete(h.sn);setSelected(s)}} style={{width:16,height:16,cursor:"pointer"}}/><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"}<div style={{fontSize:10,color:C.muted,fontWeight:500}}>{h.model} . <HP s={h.status}/></div></div></div>{!selMode&&<button onClick={()=>remSN(h.sn||"",true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>X</button>}</div>})}
+    {hashes.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:hashes.map(h=>{const isSelected=selected.has(h.sn);return<div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div style={{display:"flex",alignItems:"center",gap:8}}>{selMode&&<input type="checkbox" checked={isSelected} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(h.sn):s.delete(h.sn);setSelected(s)}} style={{width:16,height:16,cursor:"pointer"}}/>}<div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"}<div style={{fontSize:10,color:C.muted,fontWeight:500}}>{h.model} · <HP s={h.status}/></div></div></div>{!selMode&&<button onClick={()=>remSN(h.sn||"",true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div>})}
     <SL mt={14}>QR CODE DO PALETE</SL>
     <PalletQRCode pallet={p} macs={macs} hashes={hashes}/>
     <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>Remover Palete</Btn>
@@ -6558,10 +6640,10 @@ function ClientLoadPhotos({ctx,client}){
 function ClientDetail({ctx,client}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
   const[c,setC]=useState(client),[itemType,setItemType]=useState("machine"),[pending,setPending]=useState([]),[removeInput,setRemoveInput]=useState(""),[saving,setSaving]=useState(false),[blockMsg,setBlockMsg]=useState("");
-  const macs=[...(c.machinesSN||[])].reverse().map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
-  const hshs=[...(c.hashesSN||[])].reverse().map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
-  const ghostM=(c.machinesSN||[]).filter(sn=>!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
-  const ghostH=(c.hashesSN||[]).filter(sn=>!data.hashes.find(h=>normSNField(h.sn)===normSNField(sn)));
+  const macs=[...(c.machinesSN||[])].reverse().map(sn=>data.machines.find(m=>m.sn===sn)||data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hshs=[...(c.hashesSN||[])].reverse().map(sn=>data.hashes.find(h=>h.sn===sn)||data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
+  const ghostM=(c.machinesSN||[]).filter(sn=>!data.machines.find(m=>m.sn===sn)&&!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
+  const ghostH=(c.hashesSN||[]).filter(sn=>!data.hashes.find(h=>h.sn===sn)&&!data.hashes.find(h=>normSNField(h.sn)===normSNField(sn)));
   const limparFantasmasCliente=async()=>{
     const upd2={...c,machinesSN:(c.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(c.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
     setC(upd2);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd2:x));await fbSet("clients",c._id,upd2);await markChanged("clients");
@@ -6573,16 +6655,16 @@ function ClientDetail({ctx,client}){
     setBlockMsg("");
     const already=itemType==="machine"?(c.machinesSN||[]).includes(sn):(c.hashesSN||[]).includes(sn);
     if(already||pending.some(p=>p.sn===sn))return;
-    if(itemType==="machine"){
-      const ex=data.machines.find(m=>m.sn===sn);
-      setPending(p=>[...p,ex?{sn,type:"machine",existing:true,model:ex.model,situacao:ex.situacao,_id:ex._id}:{sn,type:"machine",existing:false}]);
-    }else{
-      const ex=data.hashes.find(h=>h.sn===sn);
-      // Uma HASH que está dentro de uma máquina (NA MAQUINA) não pode ir
-      // avulsa pro cliente — ela sai junto quando a máquina for vendida.
-      if(ex&&ex.status==="NA MAQUINA"){setBlockMsg(`⚠️ Essa HASH está dentro da máquina ${ex.machineSN} — ela sai vendendo a máquina, não avulsa.`);return}
-      setPending(p=>[...p,ex?{sn,type:"hash",existing:true,model:ex.model,status:ex.status,_id:ex._id}:{sn,type:"hash",existing:false}]);
-    }
+    resolveSNDuplicates(raw, itemType, ctx, (ex) => {
+      if(itemType==="machine"){
+        const actualSN = ex ? ex.sn : sn;
+        setPending(p=>[...p,ex?{sn:actualSN,type:"machine",existing:true,model:ex.model,situacao:ex.situacao,_id:ex._id}:{sn:actualSN,type:"machine",existing:false}]);
+      }else{
+        if(ex&&ex.status==="NA MAQUINA"){setBlockMsg(`⚠️ Essa HASH está dentro da máquina ${ex.machineSN} — ela sai vendendo a máquina, não avulsa.`);return}
+        const actualSN = ex ? ex.sn : sn;
+        setPending(p=>[...p,ex?{sn:actualSN,type:"hash",existing:true,model:ex.model,status:ex.status,_id:ex._id}:{sn:actualSN,type:"hash",existing:false}]);
+      }
+    });
   };
   const removeFromPending=sn=>setPending(p=>p.filter(x=>x.sn!==sn));
   // Ao vender, tira automaticamente de qualquer palete que a máquina/HASH estava
@@ -6610,7 +6692,7 @@ function ClientDetail({ctx,client}){
       if(p.type==="machine"){
         newMacsSN.push(p.sn);
         await removeFromAllPallets(p.sn,false);
-        const ex=data.machines.find(m=>m.sn===p.sn);
+        const ex=p._id ? data.machines.find(m=>m._id===p._id) : data.machines.find(m=>m.sn===p.sn);
         if(ex){
           const u={...ex,situacao:"SAIDA",destino:c.name,...audit(user)};
           newMData=newMData.map(x=>x._id===ex._id?u:x);
@@ -6631,7 +6713,7 @@ function ClientDetail({ctx,client}){
       }else{
         newHashesSN.push(p.sn);
         await removeFromAllPallets(p.sn,true);
-        const ex=data.hashes.find(h=>h.sn===p.sn);
+        const ex=p._id ? data.hashes.find(h=>h._id===p._id) : data.hashes.find(h=>h.sn===p.sn);
         if(ex){
           const u={...ex,status:"SAIDA",location:"Cliente: "+c.name,...audit(user)};
           newHData=newHData.map(x=>x._id===ex._id?u:x);
@@ -6657,7 +6739,7 @@ function ClientDetail({ctx,client}){
   };
   const remMac=async(sn)=>{
     if(!confirm(`Desvincular a máquina ${sn} deste cliente e devolvê-la ao estoque?`))return;
-    const ex=data.machines.find(m=>m.sn===sn);
+    const ex=data.machines.find(m=>m.sn===sn && m.destino===c.name) || data.machines.find(m=>m.sn===sn);
     if(ex){
       const u={...ex,situacao:"BOA",destino:"",changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"BOA (desvinculada de "+c.name+")",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
       mutate("machines",arr=>arr.map(x=>x._id===ex._id?u:x));
@@ -6686,7 +6768,7 @@ function ClientDetail({ctx,client}){
   };
   const remHash=async(sn)=>{
     if(!confirm(`Desvincular a HASH ${sn} deste cliente e devolvê-la ao estoque?`))return;
-    const ex=data.hashes.find(h=>h.sn===sn);
+    const ex=data.hashes.find(h=>h.sn===sn && h.location.includes(c.name)) || data.hashes.find(h=>h.sn===sn);
     if(ex){
       const hu={...ex,status:"STOCK",location:"",changeLog:[{field:"status",label:"Status",from:ex.status,to:"STOCK (desvinculada do cliente)",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
       mutate("hashes",arr=>arr.map(x=>x._id===ex._id?hu:x));
