@@ -1690,6 +1690,7 @@ function MacPage({ctx}){
     const modelOk=modelFilters.size===0||modelFilters.has(m.model);
     return ms&&sitOk&&typOk&&modelOk;
   });
+  const sorted = [...filtered].sort((a,b)=>(b._at||b.createdAt||"").localeCompare(a._at||a.createdAt||""));
   const macFilters=[
     ...SIT_OPTS.map(s=>({id:s,label:s,color:SIT_C[s]})),
     {id:"complete",label:"Completas",color:C.blue},
@@ -1722,8 +1723,15 @@ function MacPage({ctx}){
       <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>👤 Enviar p/ Cliente</Btn>
       <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn></> }
     </div>}
-    {filtered.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>🖥️</div>Nenhuma máquina</div>
-      :filtered.map(m=><div key={m._id} style={{position:"relative"}}>
+    {sorted.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}>
+        <div style={{fontSize:40}}>🖥️</div>
+        <div>Nenhuma máquina</div>
+        {search.trim().length > 0 && <div style={{marginTop:16}}>
+          <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Deseja cadastrar "{search.trim()}" como nova máquina?</div>
+          <Btn onClick={()=>setModal(<Modal title="Adicionar" onClose={()=>setModal(null)}><AddMachineForm ctx={ctx} initSN={search.trim().toUpperCase()} onClose={()=>setModal(null)}/></Modal>)}>➕ Cadastrar {search.trim().toUpperCase()}</Btn>
+        </div>}
+      </div>
+      :sorted.map(m=><div key={m._id} style={{position:"relative"}}>
       {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(m._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(m._id):s.delete(m._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
       <Card accent={SIT_C[m.situacao]||C.border} onClick={()=>!selMode&&openDetail(m)} style={{paddingLeft:selMode?36:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:14,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}{m.sheetRow&&<span style={{fontSize:11,color:C.muted,fontWeight:500,marginLeft:6}}>(Linha {m.sheetRow})</span>}</div><div style={{color:C.muted,fontSize:12}}>{m.model} · {m.th}TH</div><By by={m._byName} at={m._at}/><LastMove log={m.changeLog}/></div><SP s={m.situacao}/></div>
@@ -2411,10 +2419,28 @@ function GenerateSNModal({ctx, onClose, testMode}){
     </div>;
   }
 
+  const totalGenerated = useMemo(() => {
+    const allSNs = [...data.machines.map(m=>m.sn), ...data.hashes.map(h=>h.sn)].filter(Boolean);
+    return allSNs.filter(sn => /^\d{4,8}$/.test(sn)).length;
+  }, [data.machines, data.hashes]);
+
+  const todayGenerated = useMemo(() => {
+    const today = TODAY();
+    const macsToday = data.machines.filter(m => (m.addedAt === today || m._at?.startsWith(today)) && m.sn && /^\d{4,8}$/.test(m.sn)).length;
+    const hashesToday = data.hashes.filter(h => (h.addedAt === today || h._at?.startsWith(today)) && h.sn && /^\d{4,8}$/.test(h.sn)).length;
+    return macsToday + hashesToday;
+  }, [data.machines, data.hashes]);
+
   return <div>
-    <div style={{background:C.bg, padding:14, borderRadius:8, marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-      <span style={{color:C.muted, fontSize:12}}>SN Gerado:</span>
-      <span style={{fontSize:22, fontWeight:800, color:C.accent, fontFamily:"monospace"}}>{nextSN}</span>
+    <div style={{background:C.bg, padding:14, borderRadius:8, marginBottom:12, display:"flex", flexDirection:"column", gap:6}}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+        <span style={{color:C.muted, fontSize:12}}>SN Gerado:</span>
+        <span style={{fontSize:22, fontWeight:800, color:C.accent, fontFamily:"monospace"}}>{nextSN}</span>
+      </div>
+      <div style={{display:"flex", justifyContent:"space-between", borderTop:`1px solid ${C.border}`, paddingTop:6, fontSize:11, color:C.subtle}}>
+        <span>Total de SNs criados: <b>{totalGenerated}</b></span>
+        <span>Criados hoje: <b>{todayGenerated}</b></span>
+      </div>
     </div>
     <div style={{color:C.amber, fontSize:12, marginBottom:14, fontWeight:700, textAlign:"center"}}>⚠️ Escreva este SN na carcaça com um marcador AGORA!</div>
     
@@ -2877,6 +2903,7 @@ function HashPage({ctx}){
   const filtered=data.hashes.filter(h=>(!q||(h.sn||"").toLowerCase().includes(q)||h.model?.toLowerCase().includes(q)||h.location?.toLowerCase().includes(q)))
     .filter(h=>fS==="all"||h.status===fS)
     .filter(h=>modelFilters.size===0||modelFilters.has(h.model));
+  const sorted = [...filtered].sort((a,b)=>(b._at||b.createdAt||"").localeCompare(a._at||a.createdAt||""));
   const openAdd=()=>setModal(<Modal title="Adicionar HASH" onClose={()=>setModal(null)}><HashAddMode ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openDetail=h=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>);
   const counts=Object.fromEntries(HST_OPTS.map(s=>[s,data.hashes.filter(h=>h.status===s).length]));
@@ -2897,8 +2924,15 @@ function HashPage({ctx}){
       <Btn v="p" onClick={()=>setBulkAction("location")} style={{fontSize:11,padding:"6px 10px"}}>📍 Mudar Local</Btn>
       <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn>
     </div>}
-    {filtered.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>⚡</div>Nenhuma HASH</div>
-      :filtered.map(h=>{const mac=data.machines.find(m=>m.sn===h.machineSN);const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{position:"relative"}}>
+    {sorted.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}>
+        <div style={{fontSize:40}}>⚡</div>
+        <div>Nenhuma HASH</div>
+        {search.trim().length > 0 && <div style={{marginTop:16}}>
+          <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Deseja cadastrar "{search.trim()}" como nova HASH?</div>
+          <Btn onClick={()=>setModal(<Modal title="Nova HASH" onClose={()=>setModal(null)}><AddHashForm ctx={ctx} initSN={search.trim().toUpperCase()} onClose={()=>setModal(null)}/></Modal>)}>➕ Cadastrar {search.trim().toUpperCase()}</Btn>
+        </div>}
+      </div>
+      :sorted.map(h=>{const mac=data.machines.find(m=>m.sn===h.machineSN);const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{position:"relative"}}>
       {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(h._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(h._id):s.delete(h._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
       <Card accent={HST_C[h.status]||C.border} onClick={()=>!selMode&&openDetail(h)} style={{paddingLeft:selMode?36:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:800,fontSize:14,color:h.status==="IRREPARAVEL"?"#9ca3af":C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{h.model}{h.material?` · ${h.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{(h.chips||gChips(h.model,h.material))?` · ${h.chips||gChips(h.model,h.material)} chips`:""}</div></div><HP s={h.status}/></div>
@@ -5922,13 +5956,16 @@ function PalletsPage({ctx}){
         <div><div style={{fontWeight:900,fontSize:18}}>Paletes</div><div style={{color:C.muted,fontSize:12}}>{pallets.length} paletes · {pallets.reduce((s,p)=>(p.machinesSN?.length||0)+s,0)} máquinas · {pallets.reduce((s,p)=>(p.hashesSN?.length||0)+s,0)} HASHs</div></div>
         <Btn onClick={openAdd}>+ Palete</Btn>
       </div>
-      {pallets.length===0
-        ?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>📦</div><div>Nenhum palete</div></div>
-        :pallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);const hshs=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
-          <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:15}}>📦 {p.name}</div>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}</div><div style={{display:"flex",gap:4}}><Tag color={C.blue}>{p.machinesSN?.length||0} máq.</Tag><Tag color={C.purple}>{p.hashesSN?.length||0} hash</Tag></div></div>
-          {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{m.sn?.slice(0,10)} <SP s={m.situacao}/></span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
-          {hshs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{hshs.slice(0,4).map(h=><span key={h._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{h.sn?.slice(0,10)||"s/sn"} <HP s={h.status}/></span>)}{hshs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{hshs.length-4}</span>}</div>}
-        </Card>;})}
+      {(() => {
+        const sortedPallets = [...pallets].sort((a,b)=>(b._at||b.createdAt||"").localeCompare(a._at||a.createdAt||""));
+        return sortedPallets.length===0
+          ?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>📦</div><div>Nenhum palete</div></div>
+          :sortedPallets.map(p=>{const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);const hshs=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);return<Card key={p._id} onClick={()=>openDetail(p)}>
+            <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:15}}>📦 {p.name}</div>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}</div><div style={{display:"flex",gap:4}}><Tag color={C.blue}>{p.machinesSN?.length||0} máq.</Tag><Tag color={C.purple}>{p.hashesSN?.length||0} hash</Tag></div></div>
+            {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{m.sn?.slice(0,10)} <SP s={m.situacao}/></span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
+            {hshs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{hshs.slice(0,4).map(h=><span key={h._id} style={{background:C.card2,borderRadius:6,padding:"2px 6px",fontSize:10}}>{h.sn?.slice(0,10)||"s/sn"} <HP s={h.status}/></span>)}{hshs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{hshs.length-4}</span>}</div>}
+          </Card>;});
+      })()}
     </>}
   </div>;
 }
@@ -5997,9 +6034,10 @@ function AddPalletForm({ctx,onClose}){
 function PalletDetail({ctx,pallet}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
   const[p,setP]=useState(pallet),[itemType,setItemType]=useState("machine"),[mode,setMode]=useState("scan"),[log,setLog]=useState([]),[pendingAddSN,setPendingAddSN]=useState(null);
+  const[selMode,setSelMode]=useState(false),[selected,setSelected]=useState(new Set());
   const fileRef=useRef();
-  const macs=(p.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
-  const hashes=(p.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
+  const macs=[...(p.machinesSN||[])].reverse().map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hashes=[...(p.hashesSN||[])].reverse().map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
   // SNs que ficaram "fantasma" — foram removidos/apagados em outro lugar,
   // mas continuaram contando aqui (de antes dessa correção existir)
   const ghostM=(p.machinesSN||[]).filter(sn=>!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
@@ -6007,6 +6045,42 @@ function PalletDetail({ctx,pallet}){
   const limparFantasmas=async()=>{
     const upd2={...p,machinesSN:(p.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(p.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
     setP(upd2);mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd2:x));await fbSet("pallets",p._id,upd2);await markChanged("pallets");
+  };
+  const bulkMoveToPallet=async(targetPalletId)=>{
+    if(!targetPalletId)return;
+    const targetPallet=data.pallets.find(pl=>pl._id===targetPalletId);
+    if(!targetPallet)return;
+    const selectedSns=Array.from(selected);
+    const selectedM=selectedSns.filter(sn=>p.machinesSN?.includes(sn));
+    const selectedH=selectedSns.filter(sn=>p.hashesSN?.includes(sn));
+    const srcNewM=(p.machinesSN||[]).filter(sn=>!selectedM.includes(sn));
+    const srcNewH=(p.hashesSN||[]).filter(sn=>!selectedH.includes(sn));
+    const dstNewM=[...(targetPallet.machinesSN||[]),...selectedM.filter(sn=>!(targetPallet.machinesSN||[]).includes(sn))];
+    const dstNewH=[...(targetPallet.hashesSN||[]),...selectedH.filter(sn=>!(targetPallet.hashesSN||[]).includes(sn))];
+    const srcUpd={...p,machinesSN:srcNewM,hashesSN:srcNewH,...audit(user)};
+    const dstUpd={...targetPallet,machinesSN:dstNewM,hashesSN:dstNewH,...audit(user)};
+    setP(srcUpd);
+    mutate("pallets",arr=>arr.map(x=>x._id===p._id?srcUpd:x._id===targetPalletId?dstUpd:x));
+    await fbSet("pallets",p._id,srcUpd);
+    await fbSet("pallets",targetPalletId,dstUpd);
+    await markChanged("pallets");
+    setSelected(new Set());setSelMode(false);
+    alert(`✓ Movido ${selectedM.length} máquinas e ${selectedH.length} HASHs para ${targetPallet.name}`);
+  };
+  const bulkRemove=async()=>{
+    if(!confirm(`Confirma que deseja retirar as ${selected.size} itens deste palete?`))return;
+    const selectedSns=Array.from(selected);
+    const selectedM=selectedSns.filter(sn=>p.machinesSN?.includes(sn));
+    const selectedH=selectedSns.filter(sn=>p.hashesSN?.includes(sn));
+    const newM=(p.machinesSN||[]).filter(sn=>!selectedM.includes(sn));
+    const newH=(p.hashesSN||[]).filter(sn=>!selectedH.includes(sn));
+    const upd={...p,machinesSN:newM,hashesSN:newH,...audit(user)};
+    setP(upd);
+    mutate("pallets",arr=>arr.map(x=>x._id===p._id?upd:x));
+    await fbSet("pallets",p._id,upd);
+    await markChanged("pallets");
+    setSelected(new Set());setSelMode(false);
+    alert(`✓ Retirados ${selectedM.length} máquinas e ${selectedH.length} HASHs do palete`);
   };
   const addSN=async(snRaw)=>{
     const sn=snRaw.toUpperCase().trim();if(!sn)return;
@@ -6061,11 +6135,30 @@ function PalletDetail({ctx,pallet}){
   };
   const del=async()=>{if(!confirm("Remover palete "+p.name+"?"))return;mutate("pallets",arr=>arr.filter(x=>x._id!==p._id));await fbDel("pallets",p._id);await markChanged("pallets");setModal(null)};
   return<div>
-    <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:12}}>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}<div style={{fontWeight:700,marginTop:4,color:C.accent}}>{macs.length} máquinas · {hashes.length} HASHs</div></div>
+    <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:12}}>{p.location&&<div style={{color:C.muted,fontSize:12}}>📍 {p.location}</div>}{p.notes&&<div style={{color:C.subtle,fontSize:12}}>{p.notes}</div>}<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}><div style={{fontWeight:700,color:C.accent}}>{macs.length} máquinas · {hashes.length} HASHs</div><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:11,padding:"5px 8px"}}>{selMode?"Cancelar Seleção":"☑️ Selecionar em Lote"}</Btn></div></div>
     {(ghostM.length>0||ghostH.length>0)&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:12}}>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:6}}>⚠️ {ghostM.length+ghostH.length} SN(s) "fantasma" nesse palete</div>
       <div style={{fontSize:12,color:C.muted,marginBottom:8}}>Foram removidos/apagados em outro lugar, mas continuavam contando aqui: {[...ghostM,...ghostH].join(", ")}</div>
       <Btn v="b" onClick={limparFantasmas} style={{width:"100%"}}>🧹 Limpar esses do palete</Btn>
+    </div>}
+    {selMode && <div style={{background:C.card,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,marginBottom:12,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <button onClick={()=>{
+        const allSns = [...macs.map(m=>m.sn), ...hashes.map(h=>h.sn)].filter(Boolean);
+        setSelected(prev=>prev.size===allSns.length?new Set():new Set(allSns))
+      }} style={{background:selected.size===(macs.length+hashes.length)&&(macs.length+hashes.length)>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+        {selected.size===(macs.length+hashes.length)&&(macs.length+hashes.length)>0?"✓ Todos selecionados":"Selecionar tudo ("+(macs.length+hashes.length)+")"}
+      </button>
+      {selected.size>0&&<>
+        <Tag color={C.accent}>{selected.size} selecionados</Tag>
+        <Btn v="d" onClick={bulkRemove} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Retirar</Btn>
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <span style={{fontSize:11,color:C.muted}}>Mover para:</span>
+          <select onChange={e=>{bulkMoveToPallet(e.target.value);e.target.value=""}} style={{...inp,width:"auto",padding:"4px 6px",fontSize:12,fontWeight:700}}>
+            <option value="">Escolher...</option>
+            {data.pallets.filter(pl=>pl._id!==p._id).map(pl=><option key={pl._id} value={pl._id}>{pl.name}</option>)}
+          </select>
+        </div>
+      </>}
     </div>}
     <SL>O QUE VOCÊ VAI ADICIONAR?</SL>
     <div style={{display:"flex",gap:8,marginBottom:12}}>{[["machine","🖥️ Máquina"],["hash","⚡ HASH"]].map(([v,l])=><button key={v} onClick={()=>setItemType(v)} style={{flex:1,background:itemType===v?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"10px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}</div>
@@ -6079,9 +6172,9 @@ function PalletDetail({ctx,pallet}){
       {l.status==="missing"&&<button onClick={()=>{setPendingAddSN({sn:l.sn,isHash:itemType==="hash"});setModal(<Modal title={itemType==="hash"?"Nova HASH":"Nova Máquina"} onClose={()=>setModal(null)}>{itemType==="hash"?<AddHashForm ctx={ctx} initSN={l.sn} onClose={()=>setModal(null)}/>:<AddMachineForm ctx={ctx} initSN={l.sn} onClose={()=>setModal(null)}/>}</Modal>)}} style={{marginTop:4,background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>➕ Cadastrar {l.sn}</button>}
     </div>)}</div>}
     <SL>Maquinas ({macs.length})</SL>
-    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"}</div><div style={{fontSize:10,color:C.muted}}>{m.model} . <SP s={m.situacao}/></div></div><button onClick={()=>remSN(m.sn||"",false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>X</button></div>)}
+    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:macs.map(m=>{const isSelected=selected.has(m.sn);return<div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div style={{display:"flex",alignItems:"center",gap:8}}>{selMode&&<input type="checkbox" checked={isSelected} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(m.sn):s.delete(m.sn);setSelected(s)}} style={{width:16,height:16,cursor:"pointer"}}/><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"}<div style={{fontSize:10,color:C.muted,fontWeight:500}}>{m.model} . <SP s={m.situacao}/></div></div></div>{!selMode&&<button onClick={()=>remSN(m.sn||"",false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>X</button>}</div>})}
     <SL mt={14}>HASHs ({hashes.length})</SL>
-    {hashes.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:hashes.map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"}</div><div style={{fontSize:10,color:C.muted}}>{h.model} . <HP s={h.status}/></div></div><button onClick={()=>remSN(h.sn||"",true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>X</button></div>)}
+    {hashes.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma. Adicione acima.</div>:hashes.map(h=>{const isSelected=selected.has(h.sn);return<div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid "+C.border}}><div style={{display:"flex",alignItems:"center",gap:8}}>{selMode&&<input type="checkbox" checked={isSelected} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(h.sn):s.delete(h.sn);setSelected(s)}} style={{width:16,height:16,cursor:"pointer"}}/><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"}<div style={{fontSize:10,color:C.muted,fontWeight:500}}>{h.model} . <HP s={h.status}/></div></div></div>{!selMode&&<button onClick={()=>remSN(h.sn||"",true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>X</button>}</div>})}
     <SL mt={14}>QR CODE DO PALETE</SL>
     <PalletQRCode pallet={p} macs={macs} hashes={hashes}/>
     <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>Remover Palete</Btn>
@@ -6437,8 +6530,8 @@ function ClientLoadPhotos({ctx,client}){
 function ClientDetail({ctx,client}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
   const[c,setC]=useState(client),[itemType,setItemType]=useState("machine"),[pending,setPending]=useState([]),[removeInput,setRemoveInput]=useState(""),[saving,setSaving]=useState(false),[blockMsg,setBlockMsg]=useState("");
-  const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
-  const hshs=(c.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
+  const macs=[...(c.machinesSN||[])].reverse().map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hshs=[...(c.hashesSN||[])].reverse().map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
   const ghostM=(c.machinesSN||[]).filter(sn=>!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
   const ghostH=(c.hashesSN||[]).filter(sn=>!data.hashes.find(h=>normSNField(h.sn)===normSNField(sn)));
   const limparFantasmasCliente=async()=>{
@@ -6621,8 +6714,8 @@ function ClientDetail({ctx,client}){
 function ClientReport({ctx,client}){
   const{data,setModal,user}=ctx;
   const[modelFilter,setModelFilter]=useState(""),[dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[gen,setGen]=useState(false),[genProg,setGenProg]=useState("");
-  const macs=(client.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
-  const hshs=(client.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
+  const macs=[...(client.machinesSN||[])].reverse().map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+  const hshs=[...(client.hashesSN||[])].reverse().map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
   const allModelsUsed=[...new Set([...macs.map(m=>m.model),...hshs.map(h=>h.model)].filter(Boolean))].sort();
   const inRange=at=>{
     if(!at)return!dateFrom&&!dateTo;
