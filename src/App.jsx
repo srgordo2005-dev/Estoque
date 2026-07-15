@@ -2109,8 +2109,7 @@ function AddFarmForm({ctx, onClose}) {
                 model: "M30S", 
                 shelf: `${name} - AutoSlot ${currentIp-startIp+1}`,
                 ip: `${ipBase}${currentIp}`,
-                status: "MAPPED",
-                ...audit(user)
+                status: "MAPPED"
             };
             machines.push(m);
             currentIp++;
@@ -2463,12 +2462,18 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     const forceOn=f.situacao==="BOA";
     const finalSN=asNewSN?asNewSN:f.sn.toUpperCase().trim();
     const d={...f,th:Number(f.th),sn:finalSN,...(forceOn?{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"}:{}),...audit(user),addedAt:TODAY(),photoKey:photoKey||""};
-    await fbSet("machines",id,d);
+    const saveRes = await fbSet("machines",id,d);
+    if (!saveRes.ok) {
+      alert("❌ Erro ao salvar máquina no banco de dados (Supabase):\n" + saveRes.error);
+      setSaving(false);
+      return;
+    }
     if(isUpdate)mutate("machines",m=>m.map(x=>x._id===id?{...d,_id:id}:x));
     else mutate("machines",m=>[...m,{...d,_id:id}]);
     await markChanged("machines");
     syncSheet(webhookUrl,"addMachine",{
-      sn:d.sn,
+      id: id,
+      sn:d.sn || "SEM SN",
       model:d.model,
       th:d.th,
       situacao:d.situacao,
@@ -2492,13 +2497,17 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
       const existingHash=data.hashes.find(h=>h.sn===slotSN);
       if(existingHash){
         const hu={...existingHash,machineSN:d.sn,slot:i,status:slotOn?"NA MAQUINA":existingHash.status,...audit(user)};
-        mutate("hashes",arr=>arr.map(x=>x._id===existingHash._id?hu:x));await fbSet("hashes",existingHash._id,hu);
+        mutate("hashes",arr=>arr.map(x=>x._id===existingHash._id?hu:x));
+        const resH = await fbSet("hashes",existingHash._id,hu);
+        if (!resH.ok) alert("⚠️ Não consegui atualizar a HASH " + slotSN + " no banco: " + resH.error);
       }else{
         const hid=uid();const hd={sn:slotSN,model:d.model,status:slotOn?"NA MAQUINA":"STOCK",machineSN:d.sn,slot:i,...audit(user),addedAt:TODAY()};
-        await fbSet("hashes",hid,hd);mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
+        const resH = await fbSet("hashes",hid,hd);
+        if (resH.ok) mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
+        else alert("⚠️ Não consegui criar a HASH " + slotSN + " no banco: " + resH.error);
       }
       const foundH=data.hashes.find(h=>h.sn===slotSN);
-      syncSheet(webhookUrl,"hashApproved",{sn:slotSN,model:d.model,machineSN:d.sn,slot:i,chips:foundH?.chips||0,employeeName:user.name,employeeCode:user.code});
+      syncSheet(webhookUrl,"hashApproved",{sn:slotSN || "SEM SN",model:d.model,machineSN:d.sn,slot:i,chips:foundH?.chips||0,employeeName:user.name,employeeCode:user.code});
     }
     await markChanged("hashes");
     setSaving(false);onClose(finalSN);
@@ -2624,8 +2633,14 @@ function MachineDetail({ctx,machine,readOnly}){
     const newLog=[logEntry,...(m.changeLog||[])].slice(0,80);
     const u={...m,[k]:v,changeLog:newLog,...audit(user)};
     setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));
-    await fbSet("machines",m._id,u);await markChanged("machines");
-    syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:k,from:logEntry.from,to:v,employeeName:user.name,employeeCode:user.code});
+    const res = await fbSet("machines",m._id,u);
+    if (!res.ok) {
+      alert("❌ Erro ao salvar no banco de dados (Supabase):\n" + res.error);
+      setM(m);mutate("machines",arr=>arr.map(x=>x._id===m._id?m:x));
+      return;
+    }
+    await markChanged("machines");
+    syncSheet(webhookUrl,"updateMachine",{id:u._id,sn:u.sn || "SEM SN",row:u.sheetRow,field:k,from:logEntry.from,to:v,employeeName:user.name,employeeCode:user.code});
   };
   const history=[];
   data.tests.filter(t=>t.machineSN===m.sn&&m.sn).forEach(t=>{const emp=data.employees.find(e=>e._id===t.employeeId);history.push({date:t._at||t.date,text:"Testada por "+(emp?.name||t._byName||"?")+" — "+(t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"),photoKey:t.testPhoto})});
@@ -2643,16 +2658,25 @@ function MachineDetail({ctx,machine,readOnly}){
     if(!confirm(`Desvincular do cliente "${m.destino}" e devolver "${m.sn}" (e as HASHs dela) pro estoque como BOA?`))return;
     const u={...m,situacao:"BOA",destino:"",changeLog:[{field:"situacao",label:"Situação",from:m.situacao,to:"BOA (desvinculada de "+m.destino+")",by:user.name,at:stamp()},...(m.changeLog||[])].slice(0,80),...audit(user)};
     setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));
-    await fbSet("machines",m._id,u);await markChanged("machines");
-    syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
-    syncSheet(webhookUrl,"machineFromClient",{sn:u.sn,employeeName:user.name,employeeCode:user.code});
+    const res = await fbSet("machines",m._id,u);
+    if (!res.ok) {
+      alert("❌ Erro ao desvincular máquina:\n" + res.error);
+      setM(m);mutate("machines",arr=>arr.map(x=>x._id===m._id?m:x));
+      return;
+    }
+    await markChanged("machines");
+    syncSheet(webhookUrl,"updateMachine",{id:u._id,sn:u.sn || "SEM SN",row:u.sheetRow,field:"situacao",to:"BOA",employeeName:user.name,employeeCode:user.code});
+    syncSheet(webhookUrl,"machineFromClient",{sn:u.sn || "SEM SN",employeeName:user.name,employeeCode:user.code});
     // As HASHs que estavam dentro dessa máquina também voltam ao estoque —
     // senão ficavam "presas" como SAIDA pra sempre.
     const mHashes=data.hashes.filter(h=>h.machineSN===m.sn&&m.sn);
     for(const h of mHashes){
       const hu={...h,status:"NA MAQUINA",location:"",changeLog:[{field:"status",label:"Status",from:h.status,to:"NA MAQUINA (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
-      mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));await fbSet("hashes",h._id,hu);
-      syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"NA MAQUINA",machineSN:m.sn,employeeName:user.name,employeeCode:user.code});
+      mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));
+      const resH = await fbSet("hashes",h._id,hu);
+      if (resH.ok) {
+        syncSheet(webhookUrl,"updateHash",{sn:hu.sn || "SEM SN",model:hu.model,status:"NA MAQUINA",machineSN:m.sn,employeeName:user.name,employeeCode:user.code});
+      }
     }
     if(mHashes.length)await markChanged("hashes");
   };
@@ -3122,7 +3146,11 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
     const d={sn:s,model,material,status,location,obs,...audit(user),addedAt:TODAY(),
       machineSN:linkToMachine?linkToMachine.sn:"",slot:linkToMachine?linkToMachine.slot:-1,
       repairedBy:techId || "",repairedByName:techName,photoKey:photoKey||""};
-    await fbSet("hashes",id,d);
+    const saveRes = await fbSet("hashes",id,d);
+    if (!saveRes.ok) {
+      alert("❌ Erro ao criar HASH no banco de dados (Supabase):\n" + saveRes.error);
+      return;
+    }
     mutate("hashes",h=>[...h,{...d,_id:id}]);
     await markChanged("hashes");
     
@@ -3146,11 +3174,11 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
       mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
       await markChanged("repairs");
       if(webhookUrl) {
-        syncSheet(webhookUrl,"addHash",{sn:s,model,status:"BOA",obs,employeeName:techName,employeeCode:techEmp?.code});
+        syncSheet(webhookUrl,"addHash",{id: id, sn:s || "SEM SN",model,status:"BOA",obs,employeeName:techName,employeeCode:techEmp?.code});
         syncSheet(webhookUrl,"repair",{...repRec,status:"BOA",employeeCode:techEmp?.code,employeeName:techName,tecnico:techName});
       }
     } else {
-      if(webhookUrl)syncSheet(webhookUrl,"addHash",{sn:s,model,status,obs,employeeName:user.name,employeeCode:user.code});
+      if(webhookUrl)syncSheet(webhookUrl,"addHash",{id: id, sn:s || "SEM SN",model,status,obs,employeeName:user.name,employeeCode:user.code});
     }
     
     if(linkToMachine&&webhookUrl){
