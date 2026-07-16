@@ -1026,15 +1026,31 @@ export default function App(){
   const[user,setUser]=usePersistedField("session-user",null);
   const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[],orders:[],farmMachines:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
-  const[bridgeStatus,setBridgeStatus]=useState(false);
+    const[bridgeStatus,setBridgeStatus]=useState(true);
   
   useEffect(() => {
-     let interval = setInterval(() => {
-        fetch('http://localhost:3001/api/ping')
-          .then(res => setBridgeStatus(res.ok))
+     const checkConnection = () => {
+        if (!navigator.onLine) {
+           setBridgeStatus(false);
+           return;
+        }
+        // Ping Supabase to ensure connection is live and reachable
+        fetch("https://paelbarlmayswqilhoxa.supabase.co/rest/v1/", {
+           method: "GET",
+           headers: { apikey: import.meta.env.VITE_SUPABASE_KEY || "" }
+        })
+          .then(res => setBridgeStatus(res.ok || res.status === 401))
           .catch(() => setBridgeStatus(false));
-     }, 5000);
-     return () => clearInterval(interval);
+     };
+     checkConnection();
+     let interval = setInterval(checkConnection, 10000);
+     window.addEventListener("online", checkConnection);
+     window.addEventListener("offline", checkConnection);
+     return () => {
+        clearInterval(interval);
+        window.removeEventListener("online", checkConnection);
+        window.removeEventListener("offline", checkConnection);
+     };
   }, []);
 
   useEffect(()=>{
@@ -1418,7 +1434,7 @@ export default function App(){
         <span style={{fontSize:20}}>⛏️</span>
         <div style={{flex:1, display:'flex', alignItems:'center', gap:8}}>
            <div><div style={{fontWeight:900,fontSize:14,color:C.accent}}>HashStock</div><div style={{fontSize:10,color:C.muted}}>{user.name} #{user.code}{syncing?" · 🔄":""}</div></div>
-           <div title={bridgeStatus ? "Bridge Local Conectada" : "Bridge Desconectada (Offline)"} style={{width:8,height:8,borderRadius:'50%',background: bridgeStatus ? C.green : C.red, boxShadow: `0 0 8px ${bridgeStatus ? C.green : C.red}`, transition:'background 0.5s'}}></div>
+           <div title={bridgeStatus ? "Banco de Dados e Internet Conectados (Online)" : "Sem conexão de internet ou Banco de Dados (Offline)"} style={{width:8,height:8,borderRadius:'50%',background: bridgeStatus ? C.green : C.red, boxShadow: `0 0 8px ${bridgeStatus ? C.green : C.red}`, transition:'background 0.5s'}}></div>
         </div>
         <div style={{display:"flex",gap:6}}>
           {myFdbs.length>0&&<Tag color={C.red}>⚠️{myFdbs.length}</Tag>}
@@ -2594,7 +2610,49 @@ function GenerateSNModal({ctx, onClose, testMode}){
 
 function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
   const{data,mutate,user,allModels,gTH,webhookUrl}=ctx;const models=allModels();
-  const[f,setF]=useState({sn:initSN,ref:user.code,model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),type:"complete",hash0:"OFF",hash1:"OFF",hash2:"OFF",hashSN0:"",hashSN1:"",hashSN2:"",controladora:"OFF",fonte:"OFF",fans:"OFF",situacao:"STOCK",destino:"",location:""});
+  const existing = initSN.trim() ? data.machines.find(m => m.sn === initSN.toUpperCase().trim()) : null;
+  const[f,setF]=useState(() => {
+    if (existing) {
+      return {
+        sn: existing.sn || "",
+        ref: existing.ref || user.code,
+        model: existing.model || models[0]?.m || "M30S",
+        th: existing.th ?? gTH(existing.model || models[0]?.m || "M30S"),
+        type: existing.type || "complete",
+        hash0: existing.hash0 || "OFF",
+        hash1: existing.hash1 || "OFF",
+        hash2: existing.hash2 || "OFF",
+        hashSN0: existing.hashSN0 || "",
+        hashSN1: existing.hashSN1 || "",
+        hashSN2: existing.hashSN2 || "",
+        controladora: existing.controladora || "OFF",
+        fonte: existing.fonte || "OFF",
+        fans: existing.fans || "OFF",
+        situacao: existing.situacao || "STOCK",
+        destino: existing.destino || "",
+        location: existing.location || ""
+      };
+    }
+    return {
+      sn: initSN,
+      ref: user.code,
+      model: models[0]?.m || "M30S",
+      th: gTH(models[0]?.m || "M30S"),
+      type: "complete",
+      hash0: "OFF",
+      hash1: "OFF",
+      hash2: "OFF",
+      hashSN0: "",
+      hashSN1: "",
+      hashSN2: "",
+      controladora: "OFF",
+      fonte: "OFF",
+      fans: "OFF",
+      situacao: "STOCK",
+      destino: "",
+      location: ""
+    };
+  });
   const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false),[confirmOverwrite,setConfirmOverwrite]=useState(false),[photoBlocked,setPhotoBlocked]=useState(false);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const dupMachine=f.sn.trim()?data.machines.find(m=>m.sn===f.sn.toUpperCase().trim()):null;
