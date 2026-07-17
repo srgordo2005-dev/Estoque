@@ -2579,26 +2579,28 @@ function AddFarmForm({ctx, onClose}) {
     const [name, setName] = useState("");
     const [ipBase, setIpBase] = useState("192.168.1.");
     const [startIp, setStartIp] = useState(10);
-    const [endIp, setEndIp] = useState(45);
+    const [slotsQty, setSlotsQty] = useState(10);
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
         if(!name) return alert("Digite o nome da prateleira");
-        if(startIp > endIp) return alert("IP inicial maior que final");
+        if(slotsQty <= 0) return alert("Digite uma quantidade válida de lugares.");
         setSaving(true);
         const machines = [];
         let currentIp = startIp;
+        let count = 0;
 
-        while(currentIp <= endIp) {
+        while(count < slotsQty) {
             const m = {
-                sn: "FARM-" + Date.now() + "-" + currentIp, // Placeholder SN
+                sn: "FARM-" + Date.now() + "-" + currentIp,
                 model: "M30S", 
-                shelf: name + " - AutoSlot " + (currentIp-startIp+1),
+                shelf: name + " - AutoSlot " + (count + 1),
                 ip: ipBase + currentIp,
                 status: "MAPPED"
             };
             machines.push(m);
             currentIp++;
+            count++;
         }
         
         // Save to farm_machines
@@ -2620,12 +2622,12 @@ function AddFarmForm({ctx, onClose}) {
         </div>
         
         <div style={{display:'flex', gap:8}}>
-            <Inp label="IP Inicial" type="number" value={startIp} onChange={e=>setStartIp(Number(e.target.value))}/>
-            <Inp label="IP Final" type="number" value={endIp} onChange={e=>setEndIp(Number(e.target.value))}/>
+            <Inp label="IP Inicial (Final de IP)" type="number" value={startIp} onChange={e=>setStartIp(Number(e.target.value))}/>
+            <Inp label="Quantidade de Lugares (Máquinas)" type="number" value={slotsQty} onChange={e=>setSlotsQty(Number(e.target.value))}/>
         </div>
         
         <div style={{fontSize:11, color:C.subtle, background:C.card, padding:8, borderRadius:6}}>
-            Isso vai pré-mapear {(endIp - startIp) + 1} posições (sem limite físico exato de andares), associando os IPs de {ipBase}{startIp} até {ipBase}{endIp}.
+            Isso vai pré-mapear {slotsQty} posições na prateleira "{name}", associando os IPs sequenciais de {ipBase}{startIp} até {ipBase}{startIp + slotsQty - 1}.
         </div>
 
         <div style={{display:'flex', gap:10, marginTop:10}}>
