@@ -1026,21 +1026,22 @@ export default function App(){
   const[user,setUser]=usePersistedField("session-user",null);
   const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[],orders:[],farmMachines:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
-    const[bridgeStatus,setBridgeStatus]=useState(true);
+    const[dbConnected,setDbConnected]=useState(true);
+  const[localConnected,setLocalConnected]=useState(false);
   
+  // Internet and Supabase DB check
   useEffect(() => {
      const checkConnection = () => {
         if (!navigator.onLine) {
-           setBridgeStatus(false);
+           setDbConnected(false);
            return;
         }
-        // Ping Supabase to ensure connection is live and reachable
         fetch("https://paelbarlmayswqilhoxa.supabase.co/rest/v1/", {
            method: "GET",
            headers: { apikey: import.meta.env.VITE_SUPABASE_KEY || "" }
         })
-          .then(res => setBridgeStatus(res.ok || res.status === 401))
-          .catch(() => setBridgeStatus(false));
+          .then(res => setDbConnected(res.ok || res.status === 401))
+          .catch(() => setDbConnected(false));
      };
      checkConnection();
      let interval = setInterval(checkConnection, 10000);
@@ -1051,6 +1052,18 @@ export default function App(){
         window.removeEventListener("online", checkConnection);
         window.removeEventListener("offline", checkConnection);
      };
+  }, []);
+
+  // Local helper server ping check
+  useEffect(() => {
+     const checkLocal = () => {
+        fetch("http://localhost:3001/api/ping")
+          .then(res => setLocalConnected(res.ok))
+          .catch(() => setLocalConnected(false));
+     };
+     checkLocal();
+     let interval = setInterval(checkLocal, 5000);
+     return () => clearInterval(interval);
   }, []);
 
   useEffect(()=>{
@@ -1434,7 +1447,32 @@ export default function App(){
         <span style={{fontSize:20}}>⛏️</span>
         <div style={{flex:1, display:'flex', alignItems:'center', gap:8}}>
            <div><div style={{fontWeight:900,fontSize:14,color:C.accent}}>HashStock</div><div style={{fontSize:10,color:C.muted}}>{user.name} #{user.code}{syncing?" · 🔄":""}</div></div>
-           <div title={bridgeStatus ? "Banco de Dados e Internet Conectados (Online)" : "Sem conexão de internet ou Banco de Dados (Offline)"} style={{width:8,height:8,borderRadius:'50%',background: bridgeStatus ? C.green : C.red, boxShadow: `0 0 8px ${bridgeStatus ? C.green : C.red}`, transition:'background 0.5s'}}></div>
+                      {/* Luz 1: Internet / Banco de Dados */}
+           <div 
+             title={dbConnected ? "Internet & Banco de Dados: Conectado (Online)" : "Internet & Banco de Dados: DESCONECTADO (Offline)"} 
+             style={{
+               width:8,
+               height:8,
+               borderRadius:'50%',
+               background: dbConnected ? C.green : C.red, 
+               boxShadow: `0 0 8px ${dbConnected ? C.green : C.red}`, 
+               transition:'background 0.5s',
+               animation: dbConnected ? 'none' : 'blink-glow 1.5s infinite alternate'
+             }}
+           />
+           {/* Luz 2: Servidor Local Helper */}
+           <div 
+             title={localConnected ? "Servidor Local (Helper): Conectado (Online)" : "Servidor Local (Helper): DESCONECTADO (Offline)"} 
+             style={{
+               width:8,
+               height:8,
+               borderRadius:'50%',
+               background: localConnected ? C.green : C.red, 
+               boxShadow: `0 0 8px ${localConnected ? C.green : C.red}`, 
+               transition:'background 0.5s',
+               animation: localConnected ? 'none' : 'blink-glow 1.5s infinite alternate'
+             }}
+           />
         </div>
         <div style={{display:"flex",gap:6}}>
           {myFdbs.length>0&&<Tag color={C.red}>⚠️{myFdbs.length}</Tag>}
