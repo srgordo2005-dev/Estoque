@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import TelegramBot from 'node-telegram-bot-api';
+import puppeteer from 'puppeteer-core';
 
 const botToken = '8627853322:AAEwVrIwNz3vPejxiaUFGR0sb2I6bBRieyo';
 const bot = new TelegramBot(botToken, {polling: true});

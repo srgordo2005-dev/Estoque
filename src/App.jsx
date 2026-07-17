@@ -2166,14 +2166,254 @@ function MapeamentoPrateleira({ctx, onClose}){
   </div>
 }
 
+const formatUptime = (secs) => {
+  if (!secs) return "0m";
+  const d = Math.floor(secs / (3600 * 24));
+  const h = Math.floor((secs % (3600 * 24)) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  let res = "";
+  if (d > 0) res += d + "d ";
+  if (h > 0) res += h + "h ";
+  res += m + "m";
+  return res;
+};
+
+function FarmMachineCard({ m, ctx, onLink, onUnlink, onBindIP }) {
+  const { setModal, data } = ctx;
+  const [info, setInfo] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [blinking, setBlinking] = useState(m._blinking || false);
+  const [takingScreenshot, setTakingScreenshot] = useState(false);
+
+  const fetchStatus = useCallback(async () => {
+    if (!m.ip) return;
+    setLoading(true);
+    try {
+      const r = await fetch("http://localhost:3001/api/miner-info?ip=" + m.ip);
+      if (r.ok) {
+        const d = await r.json();
+        setInfo(d);
+      } else {
+        setInfo(null);
+      }
+    } catch (e) {
+      setInfo(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [m.ip]);
+
+  useEffect(() => {
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 20000); // 20s
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
+  const toggleBlink = async () => {
+    if (!m.ip) return alert("Máquina sem IP");
+    const nextState = !blinking;
+    setBlinking(nextState);
+    try {
+      await fetch('http://localhost:3001/api/blink', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: m.ip, firmware: m.firmware || 'vnish', on: nextState })
+      });
+    } catch (e) {
+      alert("Erro ao piscar: " + e.message);
+      setBlinking(!nextState);
+    }
+  };
+
+  const takeScreenshot = async () => {
+    if (!m.ip) return;
+    setTakingScreenshot(true);
+    try {
+      const r = await fetch('http://localhost:3001/api/screenshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: m.ip })
+      });
+      if (r.ok) {
+        const res = await r.json();
+        if (res.success && res.image) {
+          setModal(
+            <Modal title={"Print do Minerador - " + m.ip} onClose={() => setModal(null)}>
+              <div style={{ textAlign: 'center', padding: 10 }}>
+                <img src={res.image} alt="Screenshot" style={{ maxWidth: '100%', borderRadius: 8, border: "1px solid " + C.border }} />
+              </div>
+            </Modal>
+          );
+        } else {
+          alert("Erro no helper: " + (res.error || "Desconhecido"));
+        }
+      } else {
+        const errData = await r.json();
+        alert("Erro ao obter print: " + (errData.error || r.statusText));
+      }
+    } catch (e) {
+      alert("Falha de rede ao tirar print: " + e.message);
+    } finally {
+      setTakingScreenshot(false);
+    }
+  };
+
+  const isDummy = m.sn && m.sn.startsWith("FARM-");
+  const isOnline = !!info;
+  const statusColor = isOnline ? (info.status === 'mining' ? C.green : C.amber) : (loading ? C.muted : C.red);
+  const snMismatch = isOnline && info.sn && m.sn && !isDummy && info.sn.trim().toUpperCase() !== m.sn.trim().toUpperCase();
+
+  return (
+    <div style={{
+      background: C.card,
+      padding: 12,
+      borderRadius: 10,
+      width: 220,
+      borderLeft: "4px solid " + statusColor,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontWeight: 900, fontSize: 11, color: C.accent, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.shelf}>{m.shelf || "Sem Local"}</div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }}></div>
+          <span style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>
+            {isOnline ? (info.status === 'mining' ? 'MINANDO' : 'OCIOSO') : (loading ? 'LENDO...' : 'OFFLINE')}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 10 }}>
+        <div style={{ color: C.muted, fontSize: 8, fontWeight: 700, marginBottom: 2 }}>MÁQUINA / SN</div>
+        {isDummy ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ color: C.muted, fontStyle: 'italic' }}>Prateleira Vazia</span>
+            <button onClick={() => onLink(m)} style={{ background: C.green + '22', border: "1px solid " + C.green + "44", color: C.green, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Vincular</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 800, color: C.text, wordBreak: 'break-all' }}>{m.sn}</span>
+            <button onClick={() => onUnlink(m)} style={{ background: C.red + '22', border: "1px solid " + C.red + "44", color: C.red, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Soltar</button>
+          </div>
+        )}
+      </div>
+
+      {snMismatch && (
+        <div style={{ background: '#2a1a0c', border: "1px solid " + C.amber + "44", color: C.amber, padding: '4px 6px', borderRadius: 6, fontSize: 8, fontWeight: 700 }}>
+          ⚠️ Conflito SN: Físico é {info.sn}
+        </div>
+      )}
+
+      <div style={{ fontSize: 10 }}>
+        <div style={{ color: C.muted, fontSize: 8, fontWeight: 700, marginBottom: 2 }}>ENDEREÇO IP</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {m.ip ? (
+            <a href={"http://" + m.ip} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: 'none', fontWeight: 700 }}>{m.ip}</a>
+          ) : (
+            <span style={{ color: C.muted, fontStyle: 'italic' }}>Sem IP</span>
+          )}
+          <button onClick={() => onBindIP(m)} style={{ background: C.accent + '22', border: "1px solid " + C.accent + "44", color: C.accent, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>{m.ip ? 'Trocar' : 'Por IP'}</button>
+        </div>
+      </div>
+
+      {isOnline && (
+        <div style={{ background: C.card2, padding: 6, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: C.muted }}>Modelo:</span>
+            <span style={{ fontWeight: 700 }}>{info.model || m.model || 'Whatsminer'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: C.muted }}>Uptime:</span>
+            <span style={{ fontWeight: 700 }}>{formatUptime(info.uptime)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: C.muted }}>Hashrate:</span>
+            <span style={{ fontWeight: 700, color: C.green }}>{info.hashrate.toFixed(1)} TH/s</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 1 }}>
+            <span style={{ color: C.muted }}>Placas:</span>
+            <div style={{ display: 'flex', gap: 3 }}>
+              {info.slots.map((s, idx) => (
+                <div 
+                  key={idx} 
+                  title={s ? "Slot " + idx + ": " + s : "Slot " + idx + ": VAZIO / FALHA"} 
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background: s ? C.green : C.red
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {m.ip && (
+        <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+          <button 
+            onClick={toggleBlink} 
+            style={{
+              flex: 1, 
+              background: blinking ? C.amber : C.card2, 
+              border: blinking ? "1px solid " + C.amber : "1px solid " + C.border,
+              color: blinking ? '#000' : C.text,
+              borderRadius: 6, 
+              padding: '5px 0', 
+              fontSize: 9, 
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            💡 {blinking ? 'Piscando' : 'Piscar'}
+          </button>
+          <button 
+            onClick={takeScreenshot} 
+            disabled={takingScreenshot}
+            style={{
+              flex: 1, 
+              background: C.card2, 
+              border: "1px solid " + C.border,
+              color: C.text,
+              borderRadius: 6, 
+              padding: '5px 0', 
+              fontSize: 9, 
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            📸 {takingScreenshot ? 'Printando...' : 'Print'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DataCenterPage({ctx}) {
-    const {data, setModal} = ctx;
-    
-    // Agora usa a tabela isolada farmMachines em vez do Estoque
+    const {data, mutate, setModal, user} = ctx;
     const farmMachines = data.farmMachines || [];
+    const [recentIPs, setRecentIPs] = useState([]);
+
+    // Periodically fetch UDP scanned IP Reports from local helper
+    useEffect(() => {
+      const fetchIPReports = async () => {
+         try {
+           const r = await fetch('http://localhost:3001/api/ipreport');
+           if (r.ok) {
+              const d = await r.json();
+              setRecentIPs(d);
+           }
+         } catch(e) {}
+      };
+      fetchIPReports();
+      const interval = setInterval(fetchIPReports, 3000);
+      return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
-        // Envia a lista para a Bridge monitorar e alertar no Telegram
         if(farmMachines.length > 0) {
            fetch('http://localhost:3001/api/set-farm', {
                method: 'POST',
@@ -2183,60 +2423,153 @@ function DataCenterPage({ctx}) {
         }
     }, [farmMachines]);
 
-    const toggleBlink = async (m) => {
-        if(!m.ip) return alert("Máquina sem IP");
-        // Firmware default vnish
-        const firmware = m.firmware || "vnish";
-        fetch('http://localhost:3001/api/blink', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ip: m.ip, firmware, on: !m._blinking})
-        }).then(() => {
-           // local state only
-        });
+    const handleUnlink = async (m) => {
+       if(!confirm('Deseja desvincular a máquina ' + m.sn + ' desta prateleira?')) return;
+       const u = {
+          ...m,
+          sn: 'FARM-' + Date.now() + '-' + (m.ip ? m.ip.split('.').pop() : 'empty'),
+          status: 'MAPPED',
+          addedAt: TODAY()
+       };
+       mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
+       const res = await fbSet("farmMachines", m._id, u);
+       if(!res.ok) alert("Erro ao salvar desvinculação no banco de dados.");
+    };
+
+    const handleLinkSN = (m) => {
+       let typedSN = "";
+       setModal(
+          <Modal title={"Vincular SN à prateleira - " + m.shelf} onClose={() => setModal(null)}>
+             <div style={{display:'flex', flexDirection:'column', gap:12}}>
+                <Inp label="Número de Série (Bipe ou digite)" onChange={e => { typedSN = e.target.value; }} />
+                <div style={{fontSize:11, color:C.subtle}}>
+                   Se você bipar o SN de uma máquina do estoque, ela será vinculada a esta prateleira.
+                </div>
+                <Btn onClick={async () => {
+                   const cleanSN = typedSN.trim().toUpperCase();
+                   if(!cleanSN) return alert("Digite um SN válido.");
+                   const u = { ...m, sn: cleanSN, status: 'ACTIVE' };
+                   mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
+                   const res = await fbSet("farmMachines", m._id, u);
+                   if(!res.ok) alert("Erro ao salvar no banco.");
+                   setModal(null);
+                }}>Vincular SN</Btn>
+             </div>
+          </Modal>
+       );
+    };
+
+    const handleBindIP = (m) => {
+       let typedIP = m.ip || "";
+       setModal(
+          <Modal title={"Configurar IP - " + m.shelf} onClose={() => setModal(null)}>
+             <div style={{display:'flex', flexDirection:'column', gap:12}}>
+                <Inp label="Endereço IP do Minerador" defaultValue={m.ip || ""} onChange={e => { typedIP = e.target.value; }} />
+                <Btn onClick={async () => {
+                   const cleanIP = typedIP.trim();
+                   if(!cleanIP) return alert("Digite um IP válido.");
+                   const u = { ...m, ip: cleanIP };
+                   mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
+                   const res = await fbSet("farmMachines", m._id, u);
+                   if(!res.ok) alert("Erro ao salvar no banco.");
+                   setModal(null);
+                }}>Configurar IP</Btn>
+             </div>
+          </Modal>
+       );
+    };
+
+    const handleBindIPReport = (ip) => {
+       setModal(
+          <Modal title={"Vincular IP Detectado: " + ip} onClose={() => setModal(null)}>
+             <div style={{display:'flex', flexDirection:'column', gap:12}}>
+                <div style={{fontSize:12, color:C.text}}>Escolha qual prateleira/slot deseja associar a este IP:</div>
+                <select id="bind-shelf-select" style={{...inp, padding:8}}>
+                   {farmMachines.map(fm => (
+                      <option key={fm._id} value={fm._id}>
+                         {fm.shelf} {fm.ip ? "(IP atual: " + fm.ip + ")" : '(Sem IP)'} - {fm.sn.startsWith('FARM-') ? 'Vazia' : fm.sn}
+                      </option>
+                   ))}
+                </select>
+                <Btn onClick={async () => {
+                   const selectVal = document.getElementById("bind-shelf-select").value;
+                   const targetMachine = farmMachines.find(x => x._id === selectVal);
+                   if(!targetMachine) return alert("Erro ao achar slot de prateleira");
+                   const u = { ...targetMachine, ip: ip };
+                   mutate("farmMachines", prev => prev.map(x => x._id === targetMachine._id ? u : x));
+                   const res = await fbSet("farmMachines", targetMachine._id, u);
+                   if(!res.ok) alert("Erro ao salvar no banco.");
+                   setModal(null);
+                }}>Confirmar Vinculação</Btn>
+             </div>
+          </Modal>
+       );
     };
 
     return <div style={{padding: 20}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
-           <h2>🌐 Data Center / Monitor de Fazenda</h2>
+           <h2>💻 Data Center / Monitor de Fazenda</h2>
            <div style={{display:'flex', gap:10}}>
               <Btn v="b" onClick={() => setModal(<Modal title="Nova Prateleira" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
-              <Btn v="s" onClick={() => alert("Gerador PDF sendo implementado (necessita lib jsPDF)")}>📄 Exportar PDF</Btn>
            </div>
         </div>
 
+        {recentIPs.length > 0 && (
+           <div style={{background:C.purple + "15", border:"1px solid " + C.purple + "44", borderRadius:10, padding:14, marginBottom:20}}>
+              <div style={{fontWeight:800, fontSize:13, color:C.purple, marginBottom:10, display:'flex', alignItems:'center', gap:6}}>
+                 📢 IPs Detectados via IP Report (Bipados recentemente):
+              </div>
+              <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
+                 {recentIPs.map(r => (
+                    <div key={r.ip} style={{background:C.card, padding:'8px 12px', borderRadius:8, display:'flex', alignItems:'center', gap:12, border:"1px solid " + C.border}}>
+                       <div style={{fontSize:12, fontWeight:700}}>{r.ip}</div>
+                       <button 
+                         onClick={() => handleBindIPReport(r.ip)}
+                         style={{
+                           background: C.purple, 
+                           color:'#fff', 
+                           border:'none', 
+                           borderRadius:6, 
+                           padding:'4px 10px', 
+                           fontSize:11, 
+                           fontWeight:700, 
+                           cursor:'pointer'
+                         }}
+                       >
+                          Vincular a Prateleira
+                       </button>
+                    </div>
+                 ))}
+              </div>
+           </div>
+        )}
+
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20}}>
-           <div style={{background:C.card, padding:20, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:28, color:C.blue, fontWeight:'bold'}}>{farmMachines.length}</div>
-              <div style={{color:C.subtle, fontSize:12}}>Máquinas Mapeadas na Fazenda</div>
+           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
+              <div style={{fontSize:24, color:C.blue, fontWeight:'bold'}}>{farmMachines.length}</div>
+              <div style={{color:C.subtle, fontSize:11}}>Mapeadas na Fazenda</div>
            </div>
-           <div style={{background:C.card, padding:20, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:28, color:C.green, fontWeight:'bold'}}>{farmMachines.filter(m=>m.ip).length}</div>
-              <div style={{color:C.subtle, fontSize:12}}>IPs Vinculados</div>
+           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
+              <div style={{fontSize:24, color:C.green, fontWeight:'bold'}}>{farmMachines.filter(m=>m.ip).length}</div>
+              <div style={{color:C.subtle, fontSize:11}}>IPs Vinculados</div>
            </div>
-           <div style={{background:C.card, padding:20, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:28, color:C.amber, fontWeight:'bold'}}>{farmMachines.filter(m=>!m.ip).length}</div>
-              <div style={{color:C.subtle, fontSize:12}}>Faltando IP</div>
+           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
+              <div style={{fontSize:24, color:C.amber, fontWeight:'bold'}}>{farmMachines.filter(m=>!m.ip).length}</div>
+              <div style={{color:C.subtle, fontSize:11}}>Sem IP Vinculado</div>
            </div>
         </div>
 
         <div style={{display:'flex', flexWrap:'wrap', gap:10}}>
-           {farmMachines.map(m => {
-              const isDummy = m.sn && m.sn.startsWith("FARM-");
-              const [showSn, setShowSn] = useState(false);
-              return <div key={m._id} style={{background:C.card, padding:12, borderRadius:8, width: 220, borderLeft: m.ip ? `4px solid ${C.green}` : `4px solid ${C.amber}`}}>
-                  <div style={{fontWeight:900, marginBottom:4, fontSize:12}}>{m.shelf || "Sem Local"}</div>
-                  <div style={{fontSize:11, color:C.text, cursor:'pointer'}} onClick={()=>setShowSn(!showSn)}>
-                      {isDummy ? (showSn ? m.sn : "Máquina não bipada (vazio)") : m.sn}
-                  </div>
-                  <div style={{fontSize:10, color:C.muted, marginTop:4}}>
-                     IP: {m.ip ? <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{color:C.blue, textDecoration:'none'}}>{m.ip}</a> : "Não vinculado"}
-                  </div>
-                  {m.ip && <div style={{marginTop:10}}>
-                     <Btn v="s" onClick={()=>toggleBlink(m)} style={{width:'100%', fontSize:10, padding:4}}>🔦 Piscar LED</Btn>
-                  </div>}
-              </div>
-           })}
+           {farmMachines.map(m => (
+              <FarmMachineCard 
+                 key={m._id} 
+                 m={m} 
+                 ctx={ctx} 
+                 onLink={handleLinkSN}
+                 onUnlink={handleUnlink}
+                 onBindIP={handleBindIP}
+              />
+           ))}
         </div>
     </div>;
 }
@@ -2255,15 +2588,13 @@ function AddFarmForm({ctx, onClose}) {
         setSaving(true);
         const machines = [];
         let currentIp = startIp;
-        let v = 1;
-        let a = 1;
 
         while(currentIp <= endIp) {
             const m = {
-                sn: `FARM-${Date.now()}-${currentIp}`, // Placeholder SN
+                sn: "FARM-" + Date.now() + "-" + currentIp, // Placeholder SN
                 model: "M30S", 
-                shelf: `${name} - AutoSlot ${currentIp-startIp+1}`,
-                ip: `${ipBase}${currentIp}`,
+                shelf: name + " - AutoSlot " + (currentIp-startIp+1),
+                ip: ipBase + currentIp,
                 status: "MAPPED"
             };
             machines.push(m);
