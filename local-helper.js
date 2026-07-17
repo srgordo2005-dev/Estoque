@@ -310,32 +310,52 @@ app.post('/api/blink', async (req, res) => {
     }
 });
 
-// Farm Monitoring
+// Farm Monitoring and Status Caching
 let farmMachines = []; // array of { ip, sn, location }
+let minerStatusCache = {};
 
 app.post('/api/set-farm', (req, res) => {
     if (req.body.machines) {
         farmMachines = req.body.machines;
         console.log(`Farm list updated. Monitoring ${farmMachines.length} machines.`);
+        // Clean cache of removed IPs
+        const activeIPs = new Set(farmMachines.map(m => m.ip).filter(Boolean));
+        for (const cachedIP in minerStatusCache) {
+             if (!activeIPs.has(cachedIP)) delete minerStatusCache[cachedIP];
+        }
+        // Run update immediately
+        updateFarmStatus();
     }
     res.json({ success: true, count: farmMachines.length });
 });
 
-setInterval(async () => {
+app.get('/api/farm-status', (req, res) => {
+    res.json(minerStatusCache);
+});
+
+const updateFarmStatus = async () => {
     if (farmMachines.length === 0) return;
-    console.log(`Monitoring Loop: checking ${farmMachines.length} machines...`);
+    const activeIPs = farmMachines.map(m => m.ip).filter(Boolean);
     
-    for (const m of farmMachines) {
-        if (!m.ip) continue;
+    // Process pings in parallel
+    const promises = activeIPs.map(async (ip) => {
         try {
-            const statsData = await queryMinerAPI(m.ip, 'stats').catch(e => null);
+            const summaryData = await queryMinerAPI(ip, 'summary').catch(() => null);
+            const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
+            
             if (!statsData || !statsData.STATS || statsData.STATS.length < 2) {
-                 if (telegramChatId) bot.sendMessage(telegramChatId, `⚠️ MÁQUINA OFFLINE / ERRO DE LEITURA\n📍 Local: ${m.location}\n📦 SN: ${m.sn}\n🌐 IP: ${m.ip}`);
-                 continue;
+                minerStatusCache[ip] = { ip, status: 'offline', temp: 0, hashrate: 0, slots: [null, null, null], lastUpdate: Date.now() };
+                return;
             }
             
-            const stat = statsData.STATS[1];
-            // Check Temp > 89
+            const sum = summaryData?.SUMMARY?.[0] || {};
+            const stat = statsData.STATS[1] || {};
+            
+            let hashrate = 0;
+            if (sum['MHS av']) hashrate = sum['MHS av'] / 1000000;
+            if (sum['GHS av']) hashrate = sum['GHS av'] / 1000;
+            if (sum['THS av']) hashrate = sum['THS av'];
+            
             let maxTemp = 0;
             for(let i=1; i<=4; i++) {
                 if(stat[`temp${i}`] > maxTemp) maxTemp = stat[`temp${i}`];
@@ -345,23 +365,57 @@ setInterval(async () => {
                 }
             }
             
-            if (maxTemp > 89) {
-                 if (telegramChatId) bot.sendMessage(telegramChatId, `🔥 ALERTA DE SUPERAQUECIMENTO\n📍 Local: ${m.location}\n📦 SN: ${m.sn}\n🌐 IP: ${m.ip}\n🌡️ Temperatura Crítica: ${maxTemp}°C`);
-            }
+            const slots = [
+                stat.chain_sn0 || stat.pcb_sn0 || stat['hash board 0 sn'] || stat['board_sn0'] || null,
+                stat.chain_sn1 || stat.pcb_sn1 || stat['hash board 1 sn'] || stat['board_sn1'] || null,
+                stat.chain_sn2 || stat.pcb_sn2 || stat['hash board 2 sn'] || stat['board_sn2'] || null
+            ];
             
-            // Check Fans
-            if (stat.fan_num !== undefined) {
-               let badFans = false;
-               for(let f=1; f<=stat.fan_num; f++) {
-                   if (stat[`fan${f}`] === 0) badFans = true;
-               }
-               if (badFans && telegramChatId) {
-                   bot.sendMessage(telegramChatId, `🧊 ALERTA DE FAN PARADO\n📍 Local: ${m.location}\n📦 SN: ${m.sn}\n🌐 IP: ${m.ip}\nRPM Zero detectado!`);
-               }
+            minerStatusCache[ip] = {
+                ip,
+                status: hashrate > 0 ? 'mining' : 'idle',
+                model: stat.Type || stat.Miner || stat['Miner Type'] || 'Whatsminer',
+                sn: stat.Miner_SN || stat.miner_sn || stat.SN || '',
+                uptime: sum.Elapsed || 0,
+                hashrate: hashrate,
+                temp: maxTemp,
+                slots,
+                lastUpdate: Date.now()
+            };
+        } catch (e) {
+            minerStatusCache[ip] = { ip, status: 'offline', error: e.message, temp: 0, hashrate: 0, slots: [null, null, null], lastUpdate: Date.now() };
+        }
+    });
+    
+    await Promise.all(promises);
+};
+
+// Background task to update status cache every 10 seconds
+setInterval(updateFarmStatus, 10000);
+
+// Telegram alert checker runs every 5 minutes on the cached data (preventing double pings)
+setInterval(() => {
+    if (farmMachines.length === 0) return;
+    console.log(`Monitoring Alert Check: analyzing ${farmMachines.length} cached machines...`);
+    
+    for (const m of farmMachines) {
+        if (!m.ip) continue;
+        const cached = minerStatusCache[m.ip];
+        if (!cached || cached.status === 'offline') {
+            // Only alert offline once or keep quiet to avoid spam. Let's send basic notification.
+            if (telegramChatId && (!cached || Date.now() - cached.lastUpdate > 300000)) {
+                bot.sendMessage(telegramChatId, `⚠️ MÁQUINA OFFLINE / ERRO DE LEITURA\n📍 Local: ${m.location}\n📦 SN: ${m.sn}\n🌐 IP: ${m.ip}`);
             }
-        } catch(e) {}
+            continue;
+        }
+        
+        if (cached.temp > 89) {
+            if (telegramChatId) {
+                bot.sendMessage(telegramChatId, `🔥 ALERTA DE SUPERAQUECIMENTO\n📍 Local: ${m.location}\n📦 SN: ${m.sn}\n🌐 IP: ${m.ip}\n🌡️ Temperatura Crítica: ${cached.temp}°C`);
+            }
+        }
     }
-}, 5 * 60 * 1000); // 5 minutes
+}, 5 * 60 * 1000);
 
 app.listen(PORT, () => {
     console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT}`);

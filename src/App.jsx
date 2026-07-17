@@ -2216,226 +2216,122 @@ const formatUptime = (secs) => {
   return res;
 };
 
-function FarmMachineCard({ m, ctx, onLink, onUnlink, onBindIP }) {
-  const { setModal, data } = ctx;
-  const [info, setInfo] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [blinking, setBlinking] = useState(m._blinking || false);
-  const [takingScreenshot, setTakingScreenshot] = useState(false);
-
-  const fetchStatus = useCallback(async () => {
-    if (!m.ip) return;
-    setLoading(true);
-    try {
-      const r = await fetch("http://localhost:3001/api/miner-info?ip=" + m.ip);
-      if (r.ok) {
-        const d = await r.json();
-        setInfo(d);
-      } else {
-        setInfo(null);
-      }
-    } catch (e) {
-      setInfo(null);
-    } finally {
-      setLoading(false);
+function AddFarmForm({ctx, onClose}) {
+    const {data, mutate, user} = ctx;
+    const farmMachines = data.farmMachines || [];
+    
+    // Extract unique farms list
+    const currentFarms = Array.from(new Set(farmMachines.map(m => m.location || "Fazenda Principal"))).filter(Boolean);
+    if (!currentFarms.includes("Fazenda Principal")) {
+        currentFarms.unshift("Fazenda Principal");
     }
-  }, [m.ip]);
 
-  useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 20000); // 20s
-    return () => clearInterval(interval);
-  }, [fetchStatus]);
+    const [selectedFarm, setSelectedFarm] = useState(currentFarms[0] || "Fazenda Principal");
+    const [newFarmName, setNewFarmName] = useState("");
+    const [name, setName] = useState("");
+    const [ipBase, setIpBase] = useState("192.168.1.");
+    const [startIp, setStartIp] = useState(10);
+    const [slotsQty, setSlotsQty] = useState(10);
+    const [saving, setSaving] = useState(false);
 
-  const toggleBlink = async () => {
-    if (!m.ip) return alert("Máquina sem IP");
-    const nextState = !blinking;
-    setBlinking(nextState);
-    try {
-      await fetch('http://localhost:3001/api/blink', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip: m.ip, firmware: m.firmware || 'vnish', on: nextState })
-      });
-    } catch (e) {
-      alert("Erro ao piscar: " + e.message);
-      setBlinking(!nextState);
-    }
-  };
+    const handleSave = async () => {
+        const farmName = selectedFarm === "NEW_FARM" ? newFarmName.trim() : selectedFarm;
+        if(!farmName) return alert("Digite ou selecione o nome da fazenda.");
+        if(!name) return alert("Digite o nome da prateleira.");
+        if(slotsQty <= 0) return alert("Digite uma quantidade de lugares válida.");
+        
+        setSaving(true);
+        const machines = [];
+        let currentIp = startIp;
+        let count = 0;
 
-  const takeScreenshot = async () => {
-    if (!m.ip) return;
-    setTakingScreenshot(true);
-    try {
-      const r = await fetch('http://localhost:3001/api/screenshot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip: m.ip })
-      });
-      if (r.ok) {
-        const res = await r.json();
-        if (res.success && res.image) {
-          setModal(
-            <Modal title={"Print do Minerador - " + m.ip} onClose={() => setModal(null)}>
-              <div style={{ textAlign: 'center', padding: 10 }}>
-                <img src={res.image} alt="Screenshot" style={{ maxWidth: '100%', borderRadius: 8, border: "1px solid " + C.border }} />
-              </div>
-            </Modal>
-          );
-        } else {
-          alert("Erro no helper: " + (res.error || "Desconhecido"));
+        while(count < slotsQty) {
+            const m = {
+                sn: "FARM-" + Date.now() + "-" + currentIp,
+                model: "M30S", 
+                location: farmName, // Farm Name stored in location
+                shelf: name,        // Shelf Name stored in shelf
+                notes: String(count + 1), // Slot Number stored in notes
+                ip: ipBase + currentIp,
+                status: "MAPPED"
+            };
+            machines.push(m);
+            currentIp++;
+            count++;
         }
-      } else {
-        const errData = await r.json();
-        alert("Erro ao obter print: " + (errData.error || r.statusText));
-      }
-    } catch (e) {
-      alert("Falha de rede ao tirar print: " + e.message);
-    } finally {
-      setTakingScreenshot(false);
-    }
-  };
+        
+        const res = await fbBatch(machines.map(m => ({c:"farmMachines", id: m._id || uid(), d: m})));
+        if(res.ok) {
+            mutate("farmMachines", prev => [...prev, ...machines]);
+            onClose();
+        } else {
+            alert("Erro ao salvar farm: " + (res.errors||[]).join(", "));
+        }
+        setSaving(false);
+    };
 
-  const isDummy = m.sn && m.sn.startsWith("FARM-");
-  const isOnline = !!info;
-  const statusColor = isOnline ? (info.status === 'mining' ? C.green : C.amber) : (loading ? C.muted : C.red);
-  const snMismatch = isOnline && info.sn && m.sn && !isDummy && info.sn.trim().toUpperCase() !== m.sn.trim().toUpperCase();
-
-  return (
-    <div style={{
-      background: C.card,
-      padding: 12,
-      borderRadius: 10,
-      width: 220,
-      borderLeft: "4px solid " + statusColor,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 6
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontWeight: 900, fontSize: 11, color: C.accent, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.shelf}>{m.shelf || "Sem Local"}</div>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <div style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }}></div>
-          <span style={{ fontSize: 9, color: C.muted, fontWeight: 700 }}>
-            {isOnline ? (info.status === 'mining' ? 'MINANDO' : 'OCIOSO') : (loading ? 'LENDO...' : 'OFFLINE')}
-          </span>
+    return <div style={{display:'flex', flexDirection:'column', gap:12}}>
+        <div>
+            <label style={{fontSize:11, color:C.subtle, fontWeight:700, display:'block', marginBottom:4}}>SELECIONE A FAZENDA</label>
+            <select value={selectedFarm} onChange={e=>setSelectedFarm(e.target.value)} style={{...inp, width:'100%', padding:8}}>
+                {currentFarms.map(f => <option key={f} value={f}>{f}</option>)}
+                <option value="NEW_FARM">+ Nova Fazenda...</option>
+            </select>
         </div>
-      </div>
 
-      <div style={{ fontSize: 10 }}>
-        <div style={{ color: C.muted, fontSize: 8, fontWeight: 700, marginBottom: 2 }}>MÁQUINA / SN</div>
-        {isDummy ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: C.muted, fontStyle: 'italic' }}>Prateleira Vazia</span>
-            <button onClick={() => onLink(m)} style={{ background: C.green + '22', border: "1px solid " + C.green + "44", color: C.green, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Vincular</button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 800, color: C.text, wordBreak: 'break-all' }}>{m.sn}</span>
-            <button onClick={() => onUnlink(m)} style={{ background: C.red + '22', border: "1px solid " + C.red + "44", color: C.red, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Soltar</button>
-          </div>
+        {selectedFarm === "NEW_FARM" && (
+            <Inp label="Nome da Nova Fazenda" value={newFarmName} onChange={e=>setNewFarmName(e.target.value)} placeholder="Ex: Galpão 2, Fazenda Sul"/>
         )}
-      </div>
 
-      {snMismatch && (
-        <div style={{ background: '#2a1a0c', border: "1px solid " + C.amber + "44", color: C.amber, padding: '4px 6px', borderRadius: 6, fontSize: 8, fontWeight: 700 }}>
-          ⚠️ Conflito SN: Físico é {info.sn}
-        </div>
-      )}
+        <Inp label="Nome da Prateleira" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Prateleira A"/>
 
-      <div style={{ fontSize: 10 }}>
-        <div style={{ color: C.muted, fontSize: 8, fontWeight: 700, marginBottom: 2 }}>ENDEREÇO IP</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {m.ip ? (
-            <a href={"http://" + m.ip} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: 'none', fontWeight: 700 }}>{m.ip}</a>
-          ) : (
-            <span style={{ color: C.muted, fontStyle: 'italic' }}>Sem IP</span>
-          )}
-          <button onClick={() => onBindIP(m)} style={{ background: C.accent + '22', border: "1px solid " + C.accent + "44", color: C.accent, borderRadius: 4, padding: '2px 6px', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>{m.ip ? 'Trocar' : 'Por IP'}</button>
+        <div style={{display:'flex', gap:8}}>
+            <Inp label="IP Base (ex: 192.168.1.)" value={ipBase} onChange={e=>setIpBase(e.target.value)}/>
         </div>
-      </div>
+        
+        <div style={{display:'flex', gap:8}}>
+            <Inp label="IP Inicial (Final de IP)" type="number" value={startIp} onChange={e=>setStartIp(Number(e.target.value))}/>
+            <Inp label="Quantidade de Lugares (Máquinas)" type="number" value={slotsQty} onChange={e=>setSlotsQty(Number(e.target.value))}/>
+        </div>
+        
+        <div style={{fontSize:11, color:C.subtle, background:C.card, padding:8, borderRadius:6}}>
+            Isso vai pré-mapear {slotsQty} posições na prateleira "{name}", associando os IPs sequenciais de {ipBase}{startIp} até {ipBase}{startIp + slotsQty - 1}.
+        </div>
 
-      {isOnline && (
-        <div style={{ background: C.card2, padding: 6, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: C.muted }}>Modelo:</span>
-            <span style={{ fontWeight: 700 }}>{info.model || m.model || 'Whatsminer'}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: C.muted }}>Uptime:</span>
-            <span style={{ fontWeight: 700 }}>{formatUptime(info.uptime)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: C.muted }}>Hashrate:</span>
-            <span style={{ fontWeight: 700, color: C.green }}>{info.hashrate.toFixed(1)} TH/s</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 1 }}>
-            <span style={{ color: C.muted }}>Placas:</span>
-            <div style={{ display: 'flex', gap: 3 }}>
-              {info.slots.map((s, idx) => (
-                <div 
-                  key={idx} 
-                  title={s ? "Slot " + idx + ": " + s : "Slot " + idx + ": VAZIO / FALHA"} 
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: '50%',
-                    background: s ? C.green : C.red
-                  }}
-                />
-              ))}
-            </div>
-          </div>
+        <div style={{display:'flex', gap:10, marginTop:10}}>
+            <Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
+            <Btn onClick={handleSave} disabled={saving} style={{flex:1}}>{saving ? "Salvando..." : "Salvar Prateleira"}</Btn>
         </div>
-      )}
-
-      {m.ip && (
-        <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
-          <button 
-            onClick={toggleBlink} 
-            style={{
-              flex: 1, 
-              background: blinking ? C.amber : C.card2, 
-              border: blinking ? "1px solid " + C.amber : "1px solid " + C.border,
-              color: blinking ? '#000' : C.text,
-              borderRadius: 6, 
-              padding: '5px 0', 
-              fontSize: 9, 
-              fontWeight: 700,
-              cursor: 'pointer'
-            }}
-          >
-            💡 {blinking ? 'Piscando' : 'Piscar'}
-          </button>
-          <button 
-            onClick={takeScreenshot} 
-            disabled={takingScreenshot}
-            style={{
-              flex: 1, 
-              background: C.card2, 
-              border: "1px solid " + C.border,
-              color: C.text,
-              borderRadius: 6, 
-              padding: '5px 0', 
-              fontSize: 9, 
-              fontWeight: 700,
-              cursor: 'pointer'
-            }}
-          >
-            📸 {takingScreenshot ? 'Printando...' : 'Print'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
+    </div>;
 }
 
 function DataCenterPage({ctx}) {
     const {data, mutate, setModal, user} = ctx;
     const farmMachines = data.farmMachines || [];
     const [recentIPs, setRecentIPs] = useState([]);
+    
+    // Global Status Cache fetched from local server helper
+    const [farmStatus, setFarmStatus] = useState({});
+    const [activeFarm, setActiveFarm] = useState("Fazenda Principal");
+    const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
+    const [squareSize, setSquareSize] = useState("medium"); // "small" | "medium" | "large"
+    const [hideEmpty, setHideEmpty] = useState(false);
 
-    // Periodically fetch UDP scanned IP Reports from local helper
+    // List of unique farms
+    const farmsList = useMemo(() => {
+        const list = Array.from(new Set(farmMachines.map(m => m.location || "Fazenda Principal"))).filter(Boolean);
+        if (list.length === 0) list.push("Fazenda Principal");
+        return list;
+    }, [farmMachines]);
+
+    // Keep activeFarm in bounds
+    useEffect(() => {
+        if (farmsList.length > 0 && !farmsList.includes(activeFarm)) {
+            setActiveFarm(farmsList[0]);
+        }
+    }, [farmsList, activeFarm]);
+
+    // Periodically fetch UDP scanned IP Reports
     useEffect(() => {
       const fetchIPReports = async () => {
          try {
@@ -2451,6 +2347,23 @@ function DataCenterPage({ctx}) {
       return () => clearInterval(interval);
     }, []);
 
+    // Periodically fetch global farm statuses from local helper (ONE SINGLE CALL for all IPs!)
+    useEffect(() => {
+      const fetchFarmStatus = async () => {
+         try {
+           const r = await fetch('http://localhost:3001/api/farm-status');
+           if (r.ok) {
+              const d = await r.json();
+              setFarmStatus(d);
+           }
+         } catch(e) {}
+      };
+      fetchFarmStatus();
+      const interval = setInterval(fetchFarmStatus, 4000); // 4s
+      return () => clearInterval(interval);
+    }, []);
+
+    // Keep helper sync updated
     useEffect(() => {
         if(farmMachines.length > 0) {
            fetch('http://localhost:3001/api/set-farm', {
@@ -2462,12 +2375,12 @@ function DataCenterPage({ctx}) {
     }, [farmMachines]);
 
     const handleUnlink = async (m) => {
-       if(!confirm('Deseja desvincular a máquina ' + m.sn + ' desta prateleira?')) return;
+       if(!confirm('Deseja desvincular a máquina ' + (m.sn.startsWith('FARM-') ? '' : m.sn) + ' deste slot?')) return;
        const u = {
           ...m,
           sn: 'FARM-' + Date.now() + '-' + (m.ip ? m.ip.split('.').pop() : 'empty'),
           status: 'MAPPED',
-          addedAt: TODAY()
+          updatedAt: stamp()
        };
        mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
        const res = await fbSet("farmMachines", m._id, u);
@@ -2477,16 +2390,16 @@ function DataCenterPage({ctx}) {
     const handleLinkSN = (m) => {
        let typedSN = "";
        setModal(
-          <Modal title={"Vincular SN à prateleira - " + m.shelf} onClose={() => setModal(null)}>
+          <Modal title={"Vincular SN à Prateleira: " + m.shelf + " - Slot " + m.notes} onClose={() => setModal(null)}>
              <div style={{display:'flex', flexDirection:'column', gap:12}}>
                 <Inp label="Número de Série (Bipe ou digite)" onChange={e => { typedSN = e.target.value; }} />
                 <div style={{fontSize:11, color:C.subtle}}>
-                   Se você bipar o SN de uma máquina do estoque, ela será vinculada a esta prateleira.
+                   Digite ou bipe o SN físico para registrar a máquina neste slot.
                 </div>
                 <Btn onClick={async () => {
                    const cleanSN = typedSN.trim().toUpperCase();
                    if(!cleanSN) return alert("Digite um SN válido.");
-                   const u = { ...m, sn: cleanSN, status: 'ACTIVE' };
+                   const u = { ...m, sn: cleanSN, status: 'ACTIVE', updatedAt: stamp() };
                    mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
                    const res = await fbSet("farmMachines", m._id, u);
                    if(!res.ok) alert("Erro ao salvar no banco.");
@@ -2500,13 +2413,13 @@ function DataCenterPage({ctx}) {
     const handleBindIP = (m) => {
        let typedIP = m.ip || "";
        setModal(
-          <Modal title={"Configurar IP - " + m.shelf} onClose={() => setModal(null)}>
+          <Modal title={"Configurar IP: " + m.shelf + " - Slot " + m.notes} onClose={() => setModal(null)}>
              <div style={{display:'flex', flexDirection:'column', gap:12}}>
                 <Inp label="Endereço IP do Minerador" defaultValue={m.ip || ""} onChange={e => { typedIP = e.target.value; }} />
                 <Btn onClick={async () => {
                    const cleanIP = typedIP.trim();
                    if(!cleanIP) return alert("Digite um IP válido.");
-                   const u = { ...m, ip: cleanIP };
+                   const u = { ...m, ip: cleanIP, updatedAt: stamp() };
                    mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
                    const res = await fbSet("farmMachines", m._id, u);
                    if(!res.ok) alert("Erro ao salvar no banco.");
@@ -2525,7 +2438,7 @@ function DataCenterPage({ctx}) {
                 <select id="bind-shelf-select" style={{...inp, padding:8}}>
                    {farmMachines.map(fm => (
                       <option key={fm._id} value={fm._id}>
-                         {fm.shelf} {fm.ip ? "(IP atual: " + fm.ip + ")" : '(Sem IP)'} - {fm.sn.startsWith('FARM-') ? 'Vazia' : fm.sn}
+                         [{fm.location || 'Sem Fazenda'}] {fm.shelf} - Slot {fm.notes} {fm.ip ? "(IP: " + fm.ip + ")" : '(Sem IP)'} - {fm.sn.startsWith('FARM-') ? 'Vazio' : fm.sn}
                       </option>
                    ))}
                 </select>
@@ -2533,7 +2446,7 @@ function DataCenterPage({ctx}) {
                    const selectVal = document.getElementById("bind-shelf-select").value;
                    const targetMachine = farmMachines.find(x => x._id === selectVal);
                    if(!targetMachine) return alert("Erro ao achar slot de prateleira");
-                   const u = { ...targetMachine, ip: ip };
+                   const u = { ...targetMachine, ip: ip, updatedAt: stamp() };
                    mutate("farmMachines", prev => prev.map(x => x._id === targetMachine._id ? u : x));
                    const res = await fbSet("farmMachines", targetMachine._id, u);
                    if(!res.ok) alert("Erro ao salvar no banco.");
@@ -2544,17 +2457,238 @@ function DataCenterPage({ctx}) {
        );
     };
 
+    const triggerBlink = async (m, currentState) => {
+        if (!m.ip) return;
+        const nextState = !currentState;
+        try {
+          await fetch('http://localhost:3001/api/blink', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: m.ip, firmware: m.firmware || 'vnish', on: nextState })
+          });
+        } catch (e) {
+          alert("Erro ao acionar LED: " + e.message);
+        }
+    };
+
+    const triggerScreenshot = async (m) => {
+        if (!m.ip) return;
+        setModal(
+          <Modal title={"Capturando Tela... - " + m.ip} onClose={() => null}>
+             <div style={{padding:20, textAlign:'center', color:C.subtle}}>
+                 Iniciando o navegador e gerando print, aguarde...
+             </div>
+          </Modal>
+        );
+        try {
+          const r = await fetch('http://localhost:3001/api/screenshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: m.ip })
+          });
+          if (r.ok) {
+            const res = await r.json();
+            if (res.success && res.image) {
+              setModal(
+                <Modal title={"Print do Minerador - " + m.ip} onClose={() => setModal(null)}>
+                  <div style={{ textAlign: 'center', padding: 10 }}>
+                    <img src={res.image} alt="Screenshot" style={{ maxWidth: '100%', borderRadius: 8, border: "1px solid " + C.border }} />
+                  </div>
+                </Modal>
+              );
+            } else {
+              alert("Erro no helper: " + (res.error || "Desconhecido"));
+              setModal(null);
+            }
+          } else {
+            const errData = await r.json();
+            alert("Erro ao obter print: " + (errData.error || r.statusText));
+            setModal(null);
+          }
+        } catch (e) {
+          alert("Falha ao tirar print: " + e.message);
+          setModal(null);
+        }
+    };
+
+    const handleDeleteShelf = async (shelfName) => {
+        if (!confirm("Tem certeza que deseja APAGAR a prateleira \"" + shelfName + "\" e todas as suas posições?")) return;
+        const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === activeFarm && m.shelf === shelfName);
+        mutate("farmMachines", prev => prev.filter(x => !targets.some(t => t._id === x._id)));
+        const promises = targets.map(t => fbDel("farmMachines", t._id));
+        await Promise.all(promises);
+    };
+
+    const handleDeleteFarm = async () => {
+        if (!confirm("Tem certeza que deseja APAGAR a fazenda \"" + activeFarm + "\" e TODAS as suas prateleiras?")) return;
+        const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === activeFarm);
+        mutate("farmMachines", prev => prev.filter(x => !targets.some(t => t._id === x._id)));
+        const promises = targets.map(t => fbDel("farmMachines", t._id));
+        await Promise.all(promises);
+        setActiveFarm(farmsList.find(f => f !== activeFarm) || "Fazenda Principal");
+    };
+
+    // Filter machines for selected Farm
+    const activeMachines = useMemo(() => {
+        return farmMachines.filter(m => (m.location || "Fazenda Principal") === activeFarm);
+    }, [farmMachines, activeFarm]);
+
+    // Group by shelf name
+    const shelfGroups = useMemo(() => {
+        const groups = {};
+        activeMachines.forEach(m => {
+            if (!groups[m.shelf]) groups[m.shelf] = [];
+            groups[m.shelf].push(m);
+        });
+        
+        // Sort slots inside each shelf
+        for (const shelf in groups) {
+            groups[shelf].sort((a, b) => {
+                const numA = parseInt(a.notes || 0) || 0;
+                const numB = parseInt(b.notes || 0) || 0;
+                return numA - numB;
+            });
+        }
+        return groups;
+    }, [activeMachines]);
+
+    // Global Stats for Active Farm
+    const totalSlots = activeMachines.length;
+    const onlineCount = activeMachines.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
+    const totalFarmTH = activeMachines.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
+
+    // Dimension helpers for squares
+    const squareStyles = {
+        small: { size: 38, font: 10 },
+        medium: { size: 56, font: 12 },
+        large: { size: 76, font: 14 }
+    };
+    const activeStyle = squareStyles[squareSize] || squareStyles.medium;
+
+    const openSlotDetailsModal = (m) => {
+        const stat = farmStatus[m.ip] || null;
+        const isDummy = m.sn && m.sn.startsWith("FARM-");
+        const isOnline = stat && stat.status !== 'offline';
+        const snMismatch = isOnline && stat.sn && m.sn && !isDummy && stat.sn.trim().toUpperCase() !== m.sn.trim().toUpperCase();
+
+        setModal(
+            <Modal title={"Gerenciar Slot " + m.notes + " - " + m.shelf} onClose={() => setModal(null)}>
+                <div style={{display:'flex', flexDirection:'column', gap:14}}>
+                    <div style={{background:C.card, padding:10, borderRadius:8, border:"1px solid " + C.border, display:'flex', flexDirection:'column', gap:6, fontSize:12}}>
+                        <div><span style={{color:C.muted}}>Local:</span> <span style={{fontWeight:700}}>{activeFarm} / {m.shelf}</span></div>
+                        <div><span style={{color:C.muted}}>Posição:</span> <span style={{fontWeight:700}}>Slot #{m.notes}</span></div>
+                        <div><span style={{color:C.muted}}>Endereço IP:</span> <span style={{fontWeight:700, color:C.blue}}>{m.ip || "Não configurado"}</span></div>
+                        <div><span style={{color:C.muted}}>SN Registrado:</span> <span style={{fontWeight:700}}>{isDummy ? "(Slot Vago)" : m.sn}</span></div>
+                        {isOnline && (
+                            <>
+                                <div style={{height:1, background:C.border, margin:'4px 0'}} />
+                                <div><span style={{color:C.muted}}>Status Físico:</span> <span style={{fontWeight:800, color: stat.status === 'mining' ? C.green : C.amber}}>{stat.status === 'mining' ? 'MINANDO' : 'OCIOSO/ERRO'}</span></div>
+                                <div><span style={{color:C.muted}}>SN Reportado:</span> <span style={{fontWeight:700}}>{stat.sn || "Não reportado"}</span></div>
+                                <div><span style={{color:C.muted}}>Uptime:</span> <span style={{fontWeight:700}}>{formatUptime(stat.uptime)}</span></div>
+                                <div><span style={{color:C.muted}}>Média Hashrate:</span> <span style={{fontWeight:700, color:C.green}}>{stat.hashrate.toFixed(1)} TH/s</span></div>
+                                <div><span style={{color:C.muted}}>Temperatura Máxima:</span> <span style={{fontWeight:700, color: stat.temp > 85 ? C.red : C.text}}>{stat.temp}°C</span></div>
+                                <div style={{display:'flex', alignItems:'center', gap:6}}>
+                                    <span style={{color:C.muted}}>Placas Físicas:</span>
+                                    <div style={{display:'flex', gap:4}}>
+                                        {stat.slots.map((s, idx) => (
+                                            <div 
+                                                key={idx} 
+                                                title={s ? "Placa " + (idx + 1) + ": " + s : "Placa " + (idx + 1) + ": Sem SN / Falha"}
+                                                style={{width:8, height:8, borderRadius:'50%', background: s ? C.green : C.red}}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        {snMismatch && (
+                            <div style={{background:'#2a1a0c', border:"1px solid " + C.amber + "55", color:C.amber, padding:6, borderRadius:6, fontSize:10, fontWeight:700, marginTop:4}}>
+                                ⚠️ Conflito SN: O SN gravado na máquina ({stat.sn}) é diferente da etiqueta cadastrada ({m.sn})!
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
+                        <Btn onClick={() => { setModal(null); handleLinkSN(m); }}>📋 Vincular SN</Btn>
+                        <Btn onClick={() => { setModal(null); handleBindIP(m); }}>🌐 Configurar IP</Btn>
+                        <Btn disabled={!m.ip} onClick={() => triggerBlink(m, false)}>💡 Piscar LED</Btn>
+                        <Btn disabled={!m.ip} onClick={() => { setModal(null); triggerScreenshot(m); }}>📸 Tirar Print</Btn>
+                    </div>
+                    
+                    {!isDummy && (
+                        <Btn v="d" onClick={async () => { setModal(null); await handleUnlink(m); }} style={{width:'100%', marginTop:6}}>🗑️ Desvincular / Limpar Slot</Btn>
+                    )}
+                </div>
+            </Modal>
+        );
+    };
+
+    const cssStyles = '.shelf-rack-cabinet { background: #0d1520; border: 3px solid #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; box-shadow: inset 0 0 30px rgba(0,0,0,0.8), 0 8px 24px rgba(0,0,0,0.5); border-bottom: 8px solid #0f172a; } .shelf-rack-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 10px; margin-bottom: 14px; } .shelf-rack-grid { display: flex; flex-wrap: wrap; gap: 8px; } .shelf-slot-box { display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 8px; font-weight: 800; cursor: pointer; transition: all 0.2s ease-in-out; position: relative; box-shadow: 0 2px 4px rgba(0,0,0,0.2); } .shelf-slot-box:hover { transform: scale(1.1); z-index: 10; box-shadow: 0 0 14px rgba(14,165,233,0.3); } .shelf-slot-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); background: rgba(13, 21, 32, 0.96); border: 1px solid #334155; color: #f1f5f9; padding: 10px; border-radius: 8px; width: 210px; font-size: 10px; font-weight: 500; z-index: 9999; transition: opacity 0.2s ease, visibility 0.2s ease; box-shadow: 0 10px 20px rgba(0,0,0,0.6), 0 0 15px rgba(14,165,233,0.2); backdrop-filter: blur(8px); pointer-events: none; text-align: left; } .shelf-slot-box:hover .shelf-slot-tooltip { visibility: visible; opacity: 1; }';
+
     return <div style={{padding: 20}}>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20}}>
-           <h2>💻 Data Center / Monitor de Fazenda</h2>
-           <div style={{display:'flex', gap:10}}>
+        {/* Style block for visual shelves grid */}
+        <style>{cssStyles}</style>
+
+        {/* Top Header & Selector */}
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, marginBottom:20}}>
+           <div>
+              <h2>🖥️ Data Center / Monitor de Fazenda</h2>
+              <div style={{display:'flex', gap:6, marginTop:8, overflowX:'auto', maxWidth:'75vw', paddingBottom:4}}>
+                 {farmsList.map(f => (
+                    <button 
+                       key={f} 
+                       onClick={() => setActiveFarm(f)}
+                       style={{
+                          background: activeFarm === f ? C.accent : C.card,
+                          color: activeFarm === f ? '#000' : C.text,
+                          border: "1px solid " + C.border,
+                          borderBottom: activeFarm === f ? "3px solid " + C.accent : "1px solid " + C.border,
+                          borderRadius: '6px 6px 0 0',
+                          padding: '8px 16px',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap'
+                       }}
+                    >
+                       {f}
+                    </button>
+                 ))}
+                 <button 
+                    onClick={() => {
+                       const name = prompt("Nome da Nova Fazenda:");
+                       if(name && name.trim()) {
+                          setActiveFarm(name.trim());
+                       }
+                    }}
+                    style={{
+                       background: C.card2,
+                       color: C.subtle,
+                       border: "1px dashed " + C.border,
+                       borderRadius: 6,
+                       padding: '6px 14px',
+                       fontSize: 12,
+                       fontWeight: 700,
+                       cursor: 'pointer',
+                       whiteSpace: 'nowrap'
+                    }}
+                 >
+                    + Nova Fazenda
+                 </button>
+              </div>
+           </div>
+           
+           <div style={{display:'flex', gap:8}}>
+              {farmsList.length > 1 && (
+                  <Btn v="d" onClick={handleDeleteFarm}>Apagar Fazenda</Btn>
+              )}
               <Btn v="b" onClick={() => setModal(<Modal title="Nova Prateleira" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
            </div>
         </div>
 
         {recentIPs.length > 0 && (
            <div style={{background:C.purple + "15", border:"1px solid " + C.purple + "44", borderRadius:10, padding:14, marginBottom:20}}>
-              <div style={{fontWeight:800, fontSize:13, color:C.purple, marginBottom:10, display:'flex', alignItems:'center', gap:6}}>
+              <div style={{fontWeight:800, fontSize:13, color:C.purple, display:'flex', alignItems:'center', gap:6, marginBottom:10}}>
                  📢 IPs Detectados via IP Report (Bipados recentemente):
               </div>
               <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
@@ -2582,100 +2716,200 @@ function DataCenterPage({ctx}) {
            </div>
         )}
 
+        {/* Global farm stats widgets */}
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20}}>
            <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:24, color:C.blue, fontWeight:'bold'}}>{farmMachines.length}</div>
-              <div style={{color:C.subtle, fontSize:11}}>Mapeadas na Fazenda</div>
+              <div style={{fontSize:24, color:C.blue, fontWeight:'bold'}}>{totalSlots}</div>
+              <div style={{color:C.subtle, fontSize:11}}>Total de Posições (Slots)</div>
            </div>
            <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:24, color:C.green, fontWeight:'bold'}}>{farmMachines.filter(m=>m.ip).length}</div>
-              <div style={{color:C.subtle, fontSize:11}}>IPs Vinculados</div>
+              <div style={{fontSize:24, color:C.green, fontWeight:'bold'}}>{onlineCount}</div>
+              <div style={{color:C.subtle, fontSize:11}}>Minadores Ativos (Online)</div>
            </div>
            <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:24, color:C.amber, fontWeight:'bold'}}>{farmMachines.filter(m=>!m.ip).length}</div>
-              <div style={{color:C.subtle, fontSize:11}}>Sem IP Vinculado</div>
+              <div style={{fontSize:24, color:C.accent, fontWeight:'bold'}}>{totalFarmTH.toFixed(1)} TH/s</div>
+              <div style={{color:C.subtle, fontSize:11}}>Hashrate Total da Fazenda</div>
            </div>
         </div>
 
-        <div style={{display:'flex', flexWrap:'wrap', gap:10}}>
-           {farmMachines.map(m => (
-              <FarmMachineCard 
-                 key={m._id} 
-                 m={m} 
-                 ctx={ctx} 
-                 onLink={handleLinkSN}
-                 onUnlink={handleUnlink}
-                 onBindIP={handleBindIP}
+        {/* View Mode Controls bar */}
+        <div style={{background:C.card, border: "1px solid " + C.border, borderRadius:8, padding:10, marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
+           <div style={{display:'flex', alignItems:'center', gap:12}}>
+              <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>EXIBIÇÃO:</span>
+              <div style={{display:'flex', background:C.card2, padding:2, borderRadius:6}}>
+                 {['number', 'temp', 'hashrate'].map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setViewMode(mode)}
+                      style={{
+                         background: viewMode === mode ? C.accent : 'transparent',
+                         color: viewMode === mode ? '#000' : C.subtle,
+                         border: 'none',
+                         borderRadius: 4,
+                         padding: '4px 10px',
+                         fontSize: 10,
+                         fontWeight: 700,
+                         cursor: 'pointer'
+                      }}
+                    >
+                       {mode === 'number' ? 'Número' : mode === 'temp' ? 'Temperatura' : 'Hashrate'}
+                    </button>
+                 ))}
+              </div>
+           </div>
+
+           <div style={{display:'flex', alignItems:'center', gap:12}}>
+              <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>TAMANHO:</span>
+              <div style={{display:'flex', background:C.card2, padding:2, borderRadius:6}}>
+                 {['small', 'medium', 'large'].map(sz => (
+                    <button
+                      key={sz}
+                      onClick={() => setSquareSize(sz)}
+                      style={{
+                         background: squareSize === sz ? C.accent : 'transparent',
+                         color: squareSize === sz ? '#000' : C.subtle,
+                         border: 'none',
+                         borderRadius: 4,
+                         padding: '4px 10px',
+                         fontSize: 10,
+                         fontWeight: 700,
+                         cursor: 'pointer'
+                      }}
+                    >
+                       {sz === 'small' ? 'P' : sz === 'medium' ? 'M' : 'G'}
+                    </button>
+                 ))}
+              </div>
+           </div>
+
+           <div style={{display:'flex', alignItems:'center', gap:6}}>
+              <input 
+                type="checkbox" 
+                id="hide-empty-check" 
+                checked={hideEmpty} 
+                onChange={e=>setHideEmpty(e.target.checked)} 
+                style={{cursor:'pointer'}}
               />
-           ))}
+              <label htmlFor="hide-empty-check" style={{fontSize:11, color:C.subtle, fontWeight:700, cursor:'pointer'}}>Ocultar Vagos</label>
+           </div>
         </div>
+
+        {/* Shelves Layout */}
+        {Object.keys(shelfGroups).length === 0 ? (
+           <div style={{textAlign:'center', padding:40, color:C.subtle, border: "2px dashed " + C.border, borderRadius:10, width:'100%'}}>
+               Nenhuma prateleira cadastrada nesta Fazenda. Clique em "+ Adicionar Prateleira" para começar.
+           </div>
+        ) : (
+           Object.keys(shelfGroups).map(shelfName => {
+              const list = shelfGroups[shelfName];
+              
+              // Filter empty if requested
+              const filteredList = hideEmpty ? list.filter(m => !m.sn.startsWith('FARM-') || m.ip) : list;
+              if (filteredList.length === 0) return null;
+
+              // Calculate total shelf hashrate
+              const shelfTH = list.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
+              const shelfOnline = list.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
+
+              return (
+                 <div key={shelfName} className="shelf-rack-cabinet">
+                     <div className="shelf-rack-header">
+                         <div>
+                             <span style={{fontWeight:900, fontSize:15, color:C.text}}>{shelfName}</span>
+                             <span style={{fontSize:11, color:C.subtle, marginLeft:10}}>({shelfOnline}/{list.length} Online)</span>
+                         </div>
+                         <div style={{display:'flex', alignItems:'center', gap:12}}>
+                             <div style={{background:C.accent + "15", border:"1px solid " + C.accent + "44", color:C.accent, padding:'4px 10px', borderRadius:6, fontSize:12, fontWeight:800}}>
+                                 ⛏️ {shelfTH.toFixed(1)} TH/s
+                             </div>
+                             <button 
+                               onClick={() => handleDeleteShelf(shelfName)}
+                               style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}
+                             >
+                                 Apagar Prateleira
+                             </button>
+                         </div>
+                     </div>
+
+                     <div className="shelf-rack-grid">
+                         {filteredList.map(m => {
+                             const stat = farmStatus[m.ip] || null;
+                             const isDummy = m.sn && m.sn.startsWith("FARM-");
+                             const isOnline = stat && stat.status !== 'offline';
+                             const isMining = isOnline && stat.status === 'mining';
+                             
+                             // Mapped (offline), Active (mining), Idle (error/warning), Empty (grey)
+                             let bg = '#1e293b'; // Grey (Empty)
+                             let borderGlow = 'none';
+                             
+                             if (m.ip) {
+                                 if (isOnline) {
+                                     bg = isMining ? C.green : C.amber;
+                                     borderGlow = "0 0 10px " + (isMining ? C.green : C.amber) + "55";
+                                 } else {
+                                     bg = C.red; // Mapped but offline
+                                 }
+                             }
+
+                             // Toggle Content
+                             let valToShow = m.notes; // Default to Slot Number
+                             if (viewMode === 'temp') {
+                                 valToShow = isOnline && stat.temp ? stat.temp + '°' : '--';
+                             } else if (viewMode === 'hashrate') {
+                                 valToShow = isOnline && stat.hashrate ? stat.hashrate.toFixed(0) + 'T' : '--';
+                             }
+
+                             const snMismatch = isOnline && stat.sn && m.sn && !isDummy && stat.sn.trim().toUpperCase() !== m.sn.trim().toUpperCase();
+
+                             return (
+                                 <div 
+                                    key={m._id} 
+                                    className="shelf-slot-box"
+                                    onClick={() => openSlotDetailsModal(m)}
+                                    style={{
+                                        width: activeStyle.size,
+                                        height: activeStyle.size,
+                                        fontSize: activeStyle.font,
+                                        background: bg,
+                                        color: isOnline || m.ip ? '#000' : C.subtle,
+                                        boxShadow: borderGlow,
+                                        border: snMismatch ? "2px solid " + C.amber : "1px solid rgba(255,255,255,0.05)"
+                                    }}
+                                 >
+                                     {valToShow}
+
+                                     {/* Tooltip Card */}
+                                     <div className="shelf-slot-tooltip">
+                                         <div style={{fontWeight:900, color:C.accent, fontSize:12, marginBottom:4, display:'flex', justifyContent:'space-between'}}>
+                                             <span>Slot #{m.notes}</span>
+                                             <span style={{color: isOnline ? C.green : C.red}}>{isOnline ? (isMining ? 'MINANDO' : 'OCIOSO') : 'OFFLINE'}</span>
+                                         </div>
+                                         <div style={{height:1, background:C.border, margin:'4px 0'}} />
+                                         <div>🌐 IP: {m.ip || 'Sem IP'}</div>
+                                         <div>📦 SN Carcaça: {isDummy ? '(Vazio)' : m.sn}</div>
+                                         {isOnline && (
+                                             <>
+                                                 <div>📦 SN Físico: {stat.sn || '--'}</div>
+                                                 <div>⏱️ Uptime: {formatUptime(stat.uptime)}</div>
+                                                 <div>🌡️ Temp: {stat.temp}°C</div>
+                                                 <div>⛏️ Hash: {stat.hashrate.toFixed(1)} TH/s</div>
+                                                 <div>⚡ Boards: {stat.slots.map(s => s ? '🟢' : '🔴').join(' ')}</div>
+                                             </>
+                                         )}
+                                         {snMismatch && (
+                                             <div style={{color:C.amber, fontWeight:700, marginTop:4}}>⚠️ Conflito SN Físico!</div>
+                                         )}
+                                     </div>
+                                 </div>
+                             );
+                         })}
+                     </div>
+                 </div>
+              );
+           })
+        )}
     </div>;
-}
-
-function AddFarmForm({ctx, onClose}) {
-    const {mutate, user} = ctx;
-    const [name, setName] = useState("");
-    const [ipBase, setIpBase] = useState("192.168.1.");
-    const [startIp, setStartIp] = useState(10);
-    const [slotsQty, setSlotsQty] = useState(10);
-    const [saving, setSaving] = useState(false);
-
-    const handleSave = async () => {
-        if(!name) return alert("Digite o nome da prateleira");
-        if(slotsQty <= 0) return alert("Digite uma quantidade válida de lugares.");
-        setSaving(true);
-        const machines = [];
-        let currentIp = startIp;
-        let count = 0;
-
-        while(count < slotsQty) {
-            const m = {
-                sn: "FARM-" + Date.now() + "-" + currentIp,
-                model: "M30S", 
-                shelf: name + " - AutoSlot " + (count + 1),
-                ip: ipBase + currentIp,
-                status: "MAPPED"
-            };
-            machines.push(m);
-            currentIp++;
-            count++;
-        }
-        
-        // Save to farm_machines
-        const res = await fbBatch(machines.map(m => ({c:"farmMachines", id: m._id || uid(), d: m})));
-        if(res.ok) {
-            mutate("farmMachines", prev => [...prev, ...machines]);
-            onClose();
-        } else {
-            alert("Erro ao salvar farm: " + (res.errors||[]).join(", "));
-        }
-        setSaving(false);
-    };
-
-    return <div style={{display:'flex', flexDirection:'column', gap:12}}>
-        <Inp label="Nome da Prateleira" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Prateleira A"/>
-
-        <div style={{display:'flex', gap:8}}>
-            <Inp label="IP Base (ex: 192.168.1.)" value={ipBase} onChange={e=>setIpBase(e.target.value)}/>
-        </div>
-        
-        <div style={{display:'flex', gap:8}}>
-            <Inp label="IP Inicial (Final de IP)" type="number" value={startIp} onChange={e=>setStartIp(Number(e.target.value))}/>
-            <Inp label="Quantidade de Lugares (Máquinas)" type="number" value={slotsQty} onChange={e=>setSlotsQty(Number(e.target.value))}/>
-        </div>
-        
-        <div style={{fontSize:11, color:C.subtle, background:C.card, padding:8, borderRadius:6}}>
-            Isso vai pré-mapear {slotsQty} posições na prateleira "{name}", associando os IPs sequenciais de {ipBase}{startIp} até {ipBase}{startIp + slotsQty - 1}.
-        </div>
-
-        <div style={{display:'flex', gap:10, marginTop:10}}>
-            <Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
-            <Btn onClick={handleSave} disabled={saving} style={{flex:1}}>{saving ? "Salvando..." : "Salvar Prateleira"}</Btn>
-        </div>
-    </div>;
-}
-
-function AddModeSelect({ctx,onClose,initialMode=null}){
+}function AddModeSelect({ctx,onClose,initialMode=null}){
   const[mode,setMode]=useState(initialMode);
   if(!mode)return<div><div style={{color:C.subtle,fontSize:13,marginBottom:18,textAlign:"center"}}>Como deseja adicionar?</div><div style={{display:"flex",flexDirection:"column",gap:10}}><Btn onClick={()=>setMode("single")} style={{justifyContent:"center",padding:"14px 0"}}>🖥️ Individual</Btn><Btn v="b" onClick={()=>setMode("batch-sn")} style={{justifyContent:"center",padding:"14px 0"}}>📋 Lote COM SN</Btn><Btn v="p" onClick={()=>setMode("batch-nosn")} style={{justifyContent:"center",padding:"14px 0"}}>📦 Lote SEM SN</Btn></div></div>;
   if(mode==="single")return<AddMachineForm ctx={ctx} onClose={onClose}/>;
