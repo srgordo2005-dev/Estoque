@@ -2419,6 +2419,10 @@ function DataCenterPage({ctx}) {
                 <Btn onClick={async () => {
                    const cleanIP = typedIP.trim();
                    if(!cleanIP) return alert("Digite um IP válido.");
+                   const conflict = farmMachines.find(x => x._id !== m._id && x.ip === cleanIP);
+                   if (conflict) {
+                      return alert(`Esse IP já está em uso na prateleira ${conflict.shelf} - Slot ${conflict.notes}!\nPor favor, desvincule-o primeiro.`);
+                   }
                    const u = { ...m, ip: cleanIP, updatedAt: stamp() };
                    mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
                    const res = await fbSet("farmMachines", m._id, u);
@@ -2446,6 +2450,10 @@ function DataCenterPage({ctx}) {
                    const selectVal = document.getElementById("bind-shelf-select").value;
                    const targetMachine = farmMachines.find(x => x._id === selectVal);
                    if(!targetMachine) return alert("Erro ao achar slot de prateleira");
+                   const conflict = farmMachines.find(x => x._id !== targetMachine._id && x.ip === ip);
+                   if (conflict) {
+                      return alert(`Esse IP já está em uso na prateleira ${conflict.shelf} - Slot ${conflict.notes}!\nPor favor, desvincule-o primeiro.`);
+                   }
                    const u = { ...targetMachine, ip: ip, updatedAt: stamp() };
                    mutate("farmMachines", prev => prev.map(x => x._id === targetMachine._id ? u : x));
                    const res = await fbSet("farmMachines", targetMachine._id, u);
@@ -2577,7 +2585,35 @@ function DataCenterPage({ctx}) {
                     <div style={{background:C.card, padding:10, borderRadius:8, border:"1px solid " + C.border, display:'flex', flexDirection:'column', gap:6, fontSize:12}}>
                         <div><span style={{color:C.muted}}>Local:</span> <span style={{fontWeight:700}}>{activeFarm} / {m.shelf}</span></div>
                         <div><span style={{color:C.muted}}>Posição:</span> <span style={{fontWeight:700}}>Slot #{m.notes}</span></div>
-                        <div><span style={{color:C.muted}}>Endereço IP:</span> <span style={{fontWeight:700, color:C.blue}}>{m.ip || "Não configurado"}</span></div>
+                        <div>
+                          <span style={{color:C.muted}}>Endereço IP:</span>{' '}
+                          <span style={{fontWeight:700, color:C.blue}}>{m.ip || "Não configurado"}</span>
+                          {m.ip && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!window.confirm("Deseja mesmo desvincular o IP desta máquina?")) return;
+                                const u = { ...m, ip: "", updatedAt: stamp() };
+                                mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
+                                const res = await fbSet("farmMachines", m._id, u);
+                                if(!res.ok) alert("Erro ao salvar no banco.");
+                                setModal(null);
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: C.red,
+                                fontWeight: 'bold',
+                                marginLeft: 8,
+                                cursor: 'pointer',
+                                fontSize: 12
+                              }}
+                              title="Desvincular IP"
+                            >
+                              ❌
+                            </button>
+                          )}
+                        </div>
                         <div><span style={{color:C.muted}}>SN Registrado:</span> <span style={{fontWeight:700}}>{isDummy ? "(Slot Vago)" : m.sn}</span></div>
                         {isOnline && (
                             <>
@@ -2686,13 +2722,13 @@ function DataCenterPage({ctx}) {
            </div>
         </div>
 
-        {recentIPs.length > 0 && (
+        {recentIPs.filter(r => !farmMachines.some(fm => fm.ip === r.ip)).length > 0 && (
            <div style={{background:C.purple + "15", border:"1px solid " + C.purple + "44", borderRadius:10, padding:14, marginBottom:20}}>
               <div style={{fontWeight:800, fontSize:13, color:C.purple, display:'flex', alignItems:'center', gap:6, marginBottom:10}}>
                  📢 IPs Detectados via IP Report (Bipados recentemente):
               </div>
               <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
-                 {recentIPs.map(r => (
+                 {recentIPs.filter(r => !farmMachines.some(fm => fm.ip === r.ip)).map(r => (
                     <div key={r.ip} style={{background:C.card, padding:'8px 12px', borderRadius:8, display:'flex', alignItems:'center', gap:12, border:"1px solid " + C.border}}>
                        <div style={{fontSize:12, fontWeight:700}}>{r.ip}</div>
                        <button 
@@ -4672,6 +4708,17 @@ function TestePage({ctx}){
 
   const loadMachine=async(snParam)=>{
     const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;
+    
+    // Se tiver sessão de teste ativa, confere se o SN escaneado deve preencher algum slot ruim
+    if (session) {
+      const badSlotIdx = session.slots.findIndex(s => s.status === "bad" && !s.hashSN);
+      if (badSlotIdx !== -1 && sn !== session.machineSN) {
+        await setSlotSN(badSlotIdx, sn);
+        setMacInput("");
+        return;
+      }
+    }
+
     resolveSNDuplicates(sn, "machine", ctx, async (ex) => {
       const actualSN = ex ? ex.sn : sn;
       if(!await checkSessionConflicts(actualSN))return;
@@ -4818,7 +4865,62 @@ function TestePage({ctx}){
 
   const applySlotSN=async(i,upperSn,existing,extraNote)=>{
     const newSlots=[...session.slots];
+    const oldSN = newSlots[i].hashSN;
     const wasBad=newSlots[i].status==="bad";
+
+    // Se estiver substituindo uma HASH existente por outra nova
+    if (oldSN && upperSn && oldSN.toUpperCase().trim() !== upperSn.toUpperCase().trim()) {
+      const oldH = data.hashes.find(x => x.sn === oldSN.toUpperCase().trim());
+      const apprId = uid();
+      let logPhotoUrl = "";
+      
+      // Tentar tirar print/foto da tela do log do minerador físico e salvar no Google Drive
+      const machine = data.farmMachines.find(m => m.sn === session.machineSN) || data.machines.find(m => m.sn === session.machineSN);
+      if (machine?.ip) {
+        try {
+          const r = await fetch('http://localhost:3001/api/screenshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: machine.ip })
+          });
+          if (r.ok) {
+            const res = await r.json();
+            if (res.success && res.image) {
+              // Upload base64 screenshot to Google Drive
+              const driveRes = await uploadPhoto(res.image, `logs-teste/${oldSN.toUpperCase().trim()}_swap_${uid()}.jpg`);
+              if (driveRes) {
+                logPhotoUrl = driveRes;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Erro ao tirar print da tela ao substituir HASH:", e);
+        }
+      }
+
+      const appr = {
+        type: "hashBad",
+        sn: oldSN.toUpperCase().trim(),
+        model: oldH?.model || session.model || "M30S",
+        material: oldH?.material || "",
+        chips: oldH?.chips || "",
+        existingId: oldH?._id || "",
+        logPhoto: logPhotoUrl,
+        notes: `Substituída no teste por ${upperSn}`,
+        location: "",
+        machineSN: session.machineSN,
+        employeeId: user._id,
+        employeeName: user.name,
+        employeeCode: user.code,
+        date: TODAY(),
+        status: "pending",
+        ...audit(user)
+      };
+      await fbSet("pendingApprovals", apprId, appr);
+      mutate("approvals", a => [...a, { ...appr, _id: apprId }]);
+      await markChanged("approvals");
+    }
+
     newSlots[i]={...newSlots[i],hashSN:upperSn,status:(wasBad&&upperSn)?"":newSlots[i].status};
     let newSession={...session,slots:newSlots,updatedAt:stamp()};
     // Nunca deixa ir pra revisão com a carcaça de um modelo e a HASH de outro
@@ -5234,7 +5336,33 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     if(!logPhoto&&!notes.trim()){setErr("Coloca uma foto OU escreve uma descrição do erro (pelo menos um dos dois)");return}
     setErr("");
     setSaving(true);
-    const newSlots=[...session.slots];newSlots[slotIndex]={...slot,hashSN:"",status:"bad",logPhoto:logPhoto||"",logNotes:notes};
+    
+    let logPhotoUrl = logPhoto || "";
+    // Se a máquina tem IP, tirar print/foto da tela do log físico do minerador e salvar no Google Drive!
+    const machine = data.farmMachines.find(m => m.sn === session.machineSN) || data.machines.find(m => m.sn === session.machineSN);
+    if (machine?.ip) {
+      try {
+        const r = await fetch('http://localhost:3001/api/screenshot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ip: machine.ip })
+        });
+        if (r.ok) {
+          const res = await r.json();
+          if (res.success && res.image) {
+            // Envia o print da tela do minerador para o Google Drive
+            const driveRes = await uploadPhoto(res.image, `logs-teste/${slot.hashSN || "SEM_SN"}_ruim_${uid()}.jpg`);
+            if (driveRes) {
+              logPhotoUrl = driveRes;
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao puxar print do minerador:", e);
+      }
+    }
+
+    const newSlots=[...session.slots];newSlots[slotIndex]={...slot,hashSN:"",status:"bad",logPhoto:logPhotoUrl,logNotes:notes};
     const sn=slot.hashSN?slot.hashSN.toUpperCase().trim():"";
     if(sn){
       // Não muda mais a HASH na hora — fica pendente até o Admin aprovar na Revisão
@@ -5242,7 +5370,7 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
       const appr={type:"hashBad",sn,
         model:h?.model||newModel,material:h?.material||newMaterial,chips:h?.chips||newChips||gChips(newModel,newMaterial)||"",
         existingId:h?._id||"",
-        logPhoto:logPhoto||"",notes,location,machineSN:session.machineSN,
+        logPhoto:logPhotoUrl,notes,location,machineSN:session.machineSN,
         employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",...audit(user)};
       await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
       await markChanged("approvals");
