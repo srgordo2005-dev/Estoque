@@ -2312,12 +2312,15 @@ function DataCenterPage({ctx}) {
     
     // Global Status Cache fetched from local server helper
     const [farmStatus, setFarmStatus] = useState({});
-    const [activeFarm, setActiveFarm] = useState("Fazenda Principal");
+    const [activeFarm, setActiveFarm] = useState("ALL"); // "ALL" para exibir todas as fazendas em lista vertical
     const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
-    const [viewType, setViewType] = useState("rack"); // "rack" (Prateleira Virtual HahsCoreTools) | "btc" (Tabela BTC Tools)
+    const [viewType, setViewType] = useState("btc"); // Default "btc" ou "rack"
     const [squareSize, setSquareSize] = useState("medium"); // "small" | "medium" | "large"
     const [hideEmpty, setHideEmpty] = useState(false);
+    const [onlyOnline, setOnlyOnline] = useState(false); // Pedido 1: Apenas máquinas online
+    const [autoScan, setAutoScan] = useState(true); // Pedido 2: Auto-scan em 5s
     const [selectedSubnet, setSelectedSubnet] = useState('ALL');
+    const [isScanning, setIsScanning] = useState(false);
 
     // Periodically fetch IP reports
     useEffect(() => {
@@ -2335,21 +2338,29 @@ function DataCenterPage({ctx}) {
       return () => clearInterval(interval);
     }, []);
 
-    // Periodically fetch global farm statuses from local helper
-    useEffect(() => {
-      const fetchFarmStatus = async () => {
-         try {
-           const r = await fetch('http://localhost:3001/api/farm-status');
-           if (r.ok) {
-              const d = await r.json();
-              setFarmStatus(d);
-           }
-         } catch(e) {}
-      };
-      fetchFarmStatus();
-      const interval = setInterval(fetchFarmStatus, 4000);
-      return () => clearInterval(interval);
+    // Fetch farm status (manual + 5s loop)
+    const fetchFarmStatus = useCallback(async () => {
+       try {
+         const r = await fetch('http://localhost:3001/api/farm-status');
+         if (r.ok) {
+            const d = await r.json();
+            setFarmStatus(d);
+         }
+       } catch(e) {}
     }, []);
+
+    useEffect(() => {
+      fetchFarmStatus();
+      if (!autoScan) return;
+      const interval = setInterval(fetchFarmStatus, 5000); // 5s auto-scan
+      return () => clearInterval(interval);
+    }, [autoScan, fetchFarmStatus]);
+
+    const handleManualRefresh = async () => {
+        setIsScanning(true);
+        await fetchFarmStatus();
+        setTimeout(() => setIsScanning(false), 600);
+    };
 
     // Keep helper sync updated
     useEffect(() => {
@@ -2507,74 +2518,51 @@ function DataCenterPage({ctx}) {
         }
     };
 
-    const handleDeleteShelf = async (shelfName) => {
+    const handleDeleteShelf = async (shelfName, farmLocation) => {
         if (!confirm("Tem certeza que deseja APAGAR a prateleira \"" + shelfName + "\" e todas as suas posições?")) return;
-        const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === activeFarm && m.shelf === shelfName);
+        const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === farmLocation && m.shelf === shelfName);
         mutate("farmMachines", prev => prev.filter(x => !targets.some(t => t._id === x._id)));
         const promises = targets.map(t => fbDel("farmMachines", t._id));
         await Promise.all(promises);
     };
 
-    const handleDeleteFarm = async () => {
-        if (!confirm("Tem certeza que deseja APAGAR a fazenda \"" + activeFarm + "\" e TODAS as suas prateleiras?")) return;
-        const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === activeFarm);
+    const handleDeleteFarm = async (farmName) => {
+        if (!confirm("Tem certeza que deseja APAGAR a fazenda \"" + farmName + "\" e TODAS as suas prateleiras?")) return;
+        const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === farmName);
         mutate("farmMachines", prev => prev.filter(x => !targets.some(t => t._id === x._id)));
         const promises = targets.map(t => fbDel("farmMachines", t._id));
         await Promise.all(promises);
-        setActiveFarm(farmsList.find(f => f !== activeFarm) || "Fazenda Principal");
     };
 
-    // Extract all farms
+    // Extract all unique farms
     const farmsList = useMemo(() => {
         const list = Array.from(new Set(farmMachines.map(m => m.location || "Fazenda Principal"))).filter(Boolean);
         if (list.length === 0) list.push("Fazenda Principal");
         return list;
     }, [farmMachines]);
 
-    // Filter machines for selected Farm
-    const rawActiveMachines = useMemo(() => {
-        return farmMachines.filter(m => (m.location || "Fazenda Principal") === activeFarm);
-    }, [farmMachines, activeFarm]);
+    // Filter list of farms to display (All vs Single)
+    const displayedFarms = useMemo(() => {
+        if (activeFarm === "ALL") return farmsList;
+        return farmsList.filter(f => f === activeFarm);
+    }, [farmsList, activeFarm]);
 
-    // Extract available IP subnets
+    // Extract available IP subnets across all machines
     const availableSubnets = useMemo(() => {
         const set = new Set();
-        rawActiveMachines.forEach(m => {
+        farmMachines.forEach(m => {
             if (m.ip && m.ip.includes('.')) {
                 const parts = m.ip.split('.');
                 set.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
             }
         });
         return Array.from(set);
-    }, [rawActiveMachines]);
+    }, [farmMachines]);
 
-    const activeMachines = useMemo(() => {
-        if (selectedSubnet === 'ALL') return rawActiveMachines;
-        return rawActiveMachines.filter(m => m.ip && m.ip.startsWith(selectedSubnet));
-    }, [rawActiveMachines, selectedSubnet]);
-
-    // Group by shelf name
-    const shelfGroups = useMemo(() => {
-        const groups = {};
-        activeMachines.forEach(m => {
-            if (!groups[m.shelf]) groups[m.shelf] = [];
-            groups[m.shelf].push(m);
-        });
-        
-        for (const shelf in groups) {
-            groups[shelf].sort((a, b) => {
-                const numA = parseInt(a.notes || 0) || 0;
-                const numB = parseInt(b.notes || 0) || 0;
-                return numA - numB;
-            });
-        }
-        return groups;
-    }, [activeMachines]);
-
-    // Global Stats for Active Farm
-    const totalSlots = activeMachines.length;
-    const onlineCount = activeMachines.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
-    const totalFarmTH = activeMachines.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
+    // Global Stats for All/Filtered Machines
+    const totalSlotsGlobal = farmMachines.length;
+    const onlineCountGlobal = farmMachines.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
+    const totalFarmTHGlobal = farmMachines.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
 
     const squareStyles = {
         small: { size: 38, font: 10 },
@@ -2593,7 +2581,7 @@ function DataCenterPage({ctx}) {
             <Modal title={"Gerenciar Slot " + m.notes + " - " + m.shelf} onClose={() => setModal(null)}>
                 <div style={{display:'flex', flexDirection:'column', gap:14}}>
                     <div style={{background:C.card, padding:10, borderRadius:8, border:"1px solid " + C.border, display:'flex', flexDirection:'column', gap:6, fontSize:12}}>
-                        <div><span style={{color:C.muted}}>Local:</span> <span style={{fontWeight:700}}>{activeFarm} / {m.shelf}</span></div>
+                        <div><span style={{color:C.muted}}>Local:</span> <span style={{fontWeight:700}}>{m.location || "Fazenda Principal"} / {m.shelf}</span></div>
                         <div><span style={{color:C.muted}}>Posição:</span> <span style={{fontWeight:700}}>Slot #{m.notes}</span></div>
                         <div>
                           <span style={{color:C.muted}}>Endereço IP:</span>{' '}
@@ -2621,6 +2609,7 @@ function DataCenterPage({ctx}) {
                             <>
                                 <div style={{height:1, background:C.border, margin:'4px 0'}} />
                                 <div><span style={{color:C.muted}}>Status Físico:</span> <span style={{fontWeight:800, color: stat.status === 'mining' ? C.green : C.amber}}>{stat.status === 'mining' ? 'MINANDO' : 'OCIOSO/ERRO'}</span></div>
+                                <div><span style={{color:C.muted}}>Modelo Físico:</span> <span style={{fontWeight:700}}>{stat.model || m.model || "Whatsminer"}</span></div>
                                 <div><span style={{color:C.muted}}>SN Reportado:</span> <span style={{fontWeight:700}}>{stat.sn || "Não reportado"}</span></div>
                                 <div><span style={{color:C.muted}}>Uptime:</span> <span style={{fontWeight:700}}>{formatUptime(stat.uptime)}</span></div>
                                 <div><span style={{color:C.muted}}>Média Hashrate:</span> <span style={{fontWeight:700, color:C.green}}>{stat.hashrate.toFixed(1)} TH/s</span></div>
@@ -2649,11 +2638,28 @@ function DataCenterPage({ctx}) {
     return <div style={{padding: 20}}>
         <style>{cssStyles}</style>
 
-        {/* Top Header & Selector */}
+        {/* Top Header & Farm Filter Tabs */}
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, marginBottom:20}}>
            <div>
               <h2>🖥️ Data Center / Monitor de Fazenda</h2>
               <div style={{display:'flex', gap:6, marginTop:8, overflowX:'auto', maxWidth:'75vw', paddingBottom:4}}>
+                 <button
+                    onClick={() => setActiveFarm("ALL")}
+                    style={{
+                       background: activeFarm === "ALL" ? C.accent : C.card,
+                       color: activeFarm === "ALL" ? '#000' : C.text,
+                       border: "1px solid " + C.border,
+                       borderBottom: activeFarm === "ALL" ? "3px solid " + C.accent : "1px solid " + C.border,
+                       borderRadius: '6px 6px 0 0',
+                       padding: '8px 16px',
+                       fontSize: 12,
+                       fontWeight: 800,
+                       cursor: 'pointer',
+                       whiteSpace: 'nowrap'
+                    }}
+                 >
+                    🌐 TODAS AS FAZENDAS (LISTA COMPLETA)
+                 </button>
                  {farmsList.map(f => (
                     <button 
                        key={f} 
@@ -2671,7 +2677,7 @@ function DataCenterPage({ctx}) {
                           whiteSpace: 'nowrap'
                        }}
                     >
-                       {f}
+                       🏠 {f}
                     </button>
                  ))}
                  <button 
@@ -2688,10 +2694,10 @@ function DataCenterPage({ctx}) {
               </div>
            </div>
            
-           <div style={{display:'flex', gap:8}}>
-              {farmsList.length > 1 && (
-                  <Btn v="d" onClick={handleDeleteFarm}>Apagar Fazenda</Btn>
-              )}
+           <div style={{display:'flex', gap:8, alignItems:'center'}}>
+              <Btn v="b" onClick={handleManualRefresh} disabled={isScanning}>
+                 {isScanning ? "⏳ Escaneando..." : "🔄 Recarregar IPs"}
+              </Btn>
               <Btn v="b" onClick={() => setModal(<Modal title="Nova Prateleira" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
            </div>
         </div>
@@ -2720,43 +2726,73 @@ function DataCenterPage({ctx}) {
         {/* Global farm stats widgets */}
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20}}>
            <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:24, color:C.blue, fontWeight:'bold'}}>{totalSlots}</div>
+              <div style={{fontSize:24, color:C.blue, fontWeight:'bold'}}>{totalSlotsGlobal}</div>
               <div style={{color:C.subtle, fontSize:11}}>Total de Posições (Slots)</div>
            </div>
            <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:24, color:C.green, fontWeight:'bold'}}>{onlineCount}</div>
+              <div style={{fontSize:24, color:C.green, fontWeight:'bold'}}>{onlineCountGlobal}</div>
               <div style={{color:C.subtle, fontSize:11}}>Minadores Ativos (Online)</div>
            </div>
            <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
-              <div style={{fontSize:24, color:C.accent, fontWeight:'bold'}}>{totalFarmTH.toFixed(1)} TH/s</div>
-              <div style={{color:C.subtle, fontSize:11}}>Hashrate Total da Fazenda</div>
+              <div style={{fontSize:24, color:C.accent, fontWeight:'bold'}}>{totalFarmTHGlobal.toFixed(1)} TH/s</div>
+              <div style={{color:C.subtle, fontSize:11}}>Hashrate Total Geral</div>
            </div>
         </div>
 
-        {/* View Mode Controls bar */}
+        {/* View Controls & Filter Bar */}
         <div style={{background:C.card, border: "1px solid " + C.border, borderRadius:8, padding:10, marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
            <div style={{display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
               <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>VISÃO:</span>
               <div style={{display:'flex', background:C.card2, padding:2, borderRadius:6}}>
-                 <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:10}}>
-                     🗄️ Prateleira Virtual (HahsCore)
-                 </button>
                  <button onClick={()=>setViewType('btc')} style={{background: viewType === 'btc' ? C.accent : 'transparent', color: viewType === 'btc' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:10}}>
                      📊 Tabela BTC Tools
+                 </button>
+                 <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:10}}>
+                     🗄️ Prateleira Virtual (HahsCore)
                  </button>
               </div>
 
               {availableSubnets.length > 0 && (
-                 <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:10}}>
-                    <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>SUBREDE IP:</span>
+                 <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6}}>
+                    <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>SUBREDE:</span>
                     <select value={selectedSubnet} onChange={e=>setSelectedSubnet(e.target.value)} style={{background:C.card2, color:C.text, border:"1px solid " + C.border, borderRadius:4, padding:'4px 8px', fontSize:10, fontWeight:700}}>
-                       <option value="ALL">Todas as Faixas</option>
+                       <option value="ALL">Todas as Faixas IP</option>
                        {availableSubnets.map(sub => <option key={sub} value={sub}>{sub}.x</option>)}
                     </select>
                  </div>
               )}
 
-              <span style={{fontSize:11, color:C.subtle, fontWeight:700, marginLeft:10}}>EXIBIÇÃO:</span>
+              {/* Pedido 1: Apenas máquinas online */}
+              <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6, background: onlyOnline ? C.green + "22" : 'transparent', padding:'2px 8px', borderRadius:4, border: onlyOnline ? "1px solid " + C.green : "1px solid transparent"}}>
+                 <input 
+                   type="checkbox" 
+                   id="only-online-check" 
+                   checked={onlyOnline} 
+                   onChange={e=>setOnlyOnline(e.target.checked)} 
+                   style={{cursor:'pointer'}}
+                 />
+                 <label htmlFor="only-online-check" style={{fontSize:11, color: onlyOnline ? C.green : C.subtle, fontWeight:800, cursor:'pointer'}}>
+                    🟢 Apenas Máquinas Online
+                 </label>
+              </div>
+
+              {/* Pedido 2: Auto-scan 5s */}
+              <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6}}>
+                 <input 
+                   type="checkbox" 
+                   id="auto-scan-check" 
+                   checked={autoScan} 
+                   onChange={e=>setAutoScan(e.target.checked)} 
+                   style={{cursor:'pointer'}}
+                 />
+                 <label htmlFor="auto-scan-check" style={{fontSize:11, color: autoScan ? C.blue : C.subtle, fontWeight:700, cursor:'pointer'}}>
+                    ⏱️ Auto-Scan (5s)
+                 </label>
+              </div>
+           </div>
+
+           <div style={{display:'flex', alignItems:'center', gap:12}}>
+              <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>EXIBIÇÃO:</span>
               <div style={{display:'flex', background:C.card2, padding:2, borderRadius:6}}>
                  {['number', 'temp', 'hashrate'].map(mode => (
                     <button
@@ -2777,32 +2813,8 @@ function DataCenterPage({ctx}) {
                     </button>
                  ))}
               </div>
-           </div>
 
-           <div style={{display:'flex', alignItems:'center', gap:12}}>
-              <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>TAMANHO:</span>
-              <div style={{display:'flex', background:C.card2, padding:2, borderRadius:6}}>
-                 {['small', 'medium', 'large'].map(sz => (
-                    <button
-                      key={sz}
-                      onClick={() => setSquareSize(sz)}
-                      style={{
-                         background: squareSize === sz ? C.accent : 'transparent',
-                         color: squareSize === sz ? '#000' : C.subtle,
-                         border: 'none',
-                         borderRadius: 4,
-                         padding: '4px 10px',
-                         fontSize: 10,
-                         fontWeight: 700,
-                         cursor: 'pointer'
-                      }}
-                    >
-                       {sz === 'small' ? 'P' : sz === 'medium' ? 'M' : 'G'}
-                    </button>
-                 ))}
-              </div>
-              
-              <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:10}}>
+              <div style={{display:'flex', alignItems:'center', gap:6}}>
                  <input 
                    type="checkbox" 
                    id="hide-empty-check" 
@@ -2815,201 +2827,267 @@ function DataCenterPage({ctx}) {
            </div>
         </div>
 
-        {/* Layout Switcher */}
-        {viewType === 'btc' ? (
-           <div style={{background:C.card, borderRadius:12, border:"1px solid " + C.border, padding:14, overflowX:'auto'}}>
-               <div style={{fontWeight:800, fontSize:13, color:C.accent, marginBottom:12, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                   <span>📊 Tabela de Monitoramento da Fazenda (Estilo BTC Tools)</span>
-                   <span style={{fontSize:11, color:C.subtle}}>🌐 Clique duplo no IP para abrir o minerador no navegador</span>
-               </div>
-               <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, color:C.text}}>
-                   <thead>
-                       <tr style={{borderBottom:"2px solid " + C.border, color:C.subtle, textAlign:'left'}}>
-                           <th style={{padding:8}}>Status</th>
-                           <th style={{padding:8}}>IP (Duplo clique p/ abrir)</th>
-                           <th style={{padding:8}}>Modelo</th>
-                           <th style={{padding:8}}>Hashrate</th>
-                           <th style={{padding:8}}>Temp</th>
-                           <th style={{padding:8}}>Uptime</th>
-                           <th style={{padding:8}}>Placas Físicas</th>
-                           <th style={{padding:8}}>Prateleira / Slot</th>
-                           <th style={{padding:8}}>SN Cadastrado</th>
-                           <th style={{padding:8, textAlign:'center'}}>Ações</th>
-                       </tr>
-                   </thead>
-                   <tbody>
-                       {activeMachines
-                          .filter(m => hideEmpty ? (!m.sn.startsWith('FARM-') || m.ip) : true)
-                          .map(m => {
-                              const stat = farmStatus[m.ip] || null;
-                              const isDummy = m.sn && m.sn.startsWith("FARM-");
-                              const isMining = stat && stat.status === 'mining';
-                              const isIdle = stat && stat.status !== 'offline' && !isMining;
-                              
-                              return (
-                                  <tr key={m._id} style={{borderBottom:"1px solid " + C.border + "44", background: isMining ? '#091c13' : 'transparent'}}>
-                                      <td style={{padding:8}}>
-                                          {isMining ? (
-                                              <span style={{background:'#0e3925', color:C.green, border:'1px solid ' + C.green, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🟢 MINANDO</span>
-                                          ) : isIdle ? (
-                                              <span style={{background:'#3a2e0a', color:C.amber, border:'1px solid ' + C.amber, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🟡 OCIOSO</span>
-                                          ) : (
-                                              <span style={{background:'#3a0a0a', color:C.red, border:'1px solid ' + C.red, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🔴 OFFLINE</span>
-                                          )}
-                                      </td>
-                                      <td 
-                                        onDoubleClick={() => m.ip && window.open('http://' + m.ip, '_blank')}
-                                        style={{padding:8, fontWeight:800, color: m.ip ? C.blue : C.subtle, cursor: m.ip ? 'pointer' : 'default'}}
-                                        title={m.ip ? "Clique duplo para abrir no navegador (http://" + m.ip + ")" : "Sem IP"}
-                                      >
-                                          {m.ip ? `🌐 ${m.ip}` : "Sem IP"}
-                                      </td>
-                                      <td style={{padding:8, fontWeight:700}}>{stat?.model || m.model || "Whatsminer"}</td>
-                                      <td style={{padding:8, color:C.green, fontWeight:800}}>{stat?.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '-'}</td>
-                                      <td style={{padding:8, color: stat?.temp > 85 ? C.red : C.text, fontWeight:700}}>{stat?.temp ? stat.temp + '°C' : '-'}</td>
-                                      <td style={{padding:8, color:C.subtle}}>{stat?.uptime ? formatUptime(stat.uptime) : '-'}</td>
-                                      <td style={{padding:8}}>
-                                          <div style={{display:'flex', gap:4}}>
-                                              {(stat?.slots || [null, null, null]).map((s, idx) => (
-                                                  <div key={idx} title={s ? "Placa " + (idx+1) + ": " + s : "Placa " + (idx+1) + ": Vazia / Erro"} style={{width:8, height:8, borderRadius:'50%', background: s ? C.green : C.red}} />
-                                              ))}
-                                          </div>
-                                      </td>
-                                      <td style={{padding:8}}><span style={{background:C.card2, padding:'2px 6px', borderRadius:4, fontSize:11, fontWeight:700}}>{m.shelf} - Slot #{m.notes}</span></td>
-                                      <td style={{padding:8, fontWeight:700, color: isDummy ? C.subtle : C.text}}>{isDummy ? "(Vazio)" : m.sn}</td>
-                                      <td style={{padding:8, textAlign:'center'}}>
-                                          <button onClick={() => openSlotDetailsModal(m)} style={{background:C.card2, border:"1px solid " + C.border, color:C.text, borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:700, cursor:'pointer'}}>⚙️ Gerenciar</button>
-                                      </td>
-                                  </tr>
-                              );
-                          })}
-                   </tbody>
-               </table>
+        {/* Pedido 3: LISTA VERTICAL DE TODAS AS FAZENDAS */}
+        {displayedFarms.length === 0 ? (
+           <div style={{textAlign:'center', padding:40, color:C.subtle, border: "2px dashed " + C.border, borderRadius:10, width:'100%'}}>
+               Nenhuma fazenda encontrada. Clique em "+ Nova Fazenda" para começar.
            </div>
         ) : (
-           Object.keys(shelfGroups).length === 0 ? (
-              <div style={{textAlign:'center', padding:40, color:C.subtle, border: "2px dashed " + C.border, borderRadius:10, width:'100%'}}>
-                  Nenhuma prateleira cadastrada nesta Fazenda. Clique em "+ Adicionar Prateleira" para começar.
-              </div>
-           ) : (
-              Object.keys(shelfGroups).map(shelfName => {
-                 const list = shelfGroups[shelfName];
-                 const filteredList = hideEmpty ? list.filter(m => !m.sn.startsWith('FARM-') || m.ip) : list;
-                 if (filteredList.length === 0) return null;
+           displayedFarms.map(farmName => {
+               // Filter machines for this specific farm in the list
+               const farmMachinesList = farmMachines.filter(m => (m.location || "Fazenda Principal") === farmName);
+               
+               // Apply subnet filter & online only filter
+               const filteredFarmMachines = farmMachinesList.filter(m => {
+                   if (selectedSubnet !== 'ALL' && m.ip && !m.ip.startsWith(selectedSubnet)) return false;
+                   if (onlyOnline) {
+                       const stat = farmStatus[m.ip];
+                       return stat && stat.status === 'mining';
+                   }
+                   if (hideEmpty) {
+                       return !m.sn.startsWith('FARM-') || m.ip;
+                   }
+                   return true;
+               });
 
-                 const shelfTH = list.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
-                 const shelfOnline = list.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
+               if (onlyOnline && filteredFarmMachines.length === 0) return null;
 
-                 return (
-                    <div key={shelfName} className="shelf-rack-cabinet">
-                        <div className="shelf-rack-header">
-                            <div>
-                                <span style={{fontWeight:900, fontSize:15, color:C.text}}>{shelfName}</span>
-                                <span style={{fontSize:11, color:C.subtle, marginLeft:10}}>({shelfOnline}/{list.length} Online)</span>
-                            </div>
-                            <div style={{display:'flex', alignItems:'center', gap:12}}>
-                                <div style={{background:C.accent + "15", border:"1px solid " + C.accent + "44", color:C.accent, padding:'4px 10px', borderRadius:6, fontSize:12, fontWeight:800}}>
-                                    ⛏️ {shelfTH.toFixed(1)} TH/s
-                                </div>
-                                <button 
-                                  onClick={() => handleDeleteShelf(shelfName)}
-                                  style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}
-                                >
-                                    Apagar Prateleira
+               const farmOnlineCount = farmMachinesList.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
+               const farmTotalTH = farmMachinesList.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
+
+               // Group machines by shelf name for this farm
+               const shelfGroups = {};
+               filteredFarmMachines.forEach(m => {
+                   if (!shelfGroups[m.shelf]) shelfGroups[m.shelf] = [];
+                   shelfGroups[m.shelf].push(m);
+               });
+               for (const shelf in shelfGroups) {
+                   shelfGroups[shelf].sort((a, b) => (parseInt(a.notes || 0) || 0) - (parseInt(b.notes || 0) || 0));
+               }
+
+               return (
+                   <div key={farmName} style={{background:C.card, borderRadius:14, border:"1px solid " + C.border, padding:16, marginBottom:24}}>
+                       {/* Farm Section Header */}
+                       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, borderBottom:"2px solid " + C.border, paddingBottom:12, marginBottom:16}}>
+                          <div>
+                             <h3 style={{fontSize:16, fontWeight:900, color:C.accent, display:'flex', alignItems:'center', gap:8}}>
+                                🏠 FAZENDA: {farmName.toUpperCase()}
+                             </h3>
+                             <div style={{fontSize:11, color:C.subtle, marginTop:4}}>
+                                {farmMachinesList.length} posições cadastradas · {farmOnlineCount} online
+                             </div>
+                          </div>
+
+                          <div style={{display:'flex', alignItems:'center', gap:12}}>
+                             <div style={{background:C.green + "15", border:"1px solid " + C.green + "44", color:C.green, padding:'4px 12px', borderRadius:8, fontSize:13, fontWeight:900}}>
+                                ⛏️ {farmTotalTH.toFixed(1)} TH/s
+                             </div>
+                             {farmsList.length > 1 && (
+                                <button onClick={() => handleDeleteFarm(farmName)} style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}>
+                                   Apagar Fazenda
                                 </button>
-                            </div>
-                        </div>
+                             )}
+                          </div>
+                       </div>
 
-                        <div className="shelf-rack-grid">
-                            {filteredList.map(m => {
-                                const stat = farmStatus[m.ip] || null;
-                                const isDummy = m.sn && m.sn.startsWith("FARM-");
-                                const isOnline = stat && stat.status !== 'offline';
-                                const isMining = isOnline && stat.status === 'mining';
-                                
-                                // HahsCoreTools metallic rack slot styling
-                                let bg = '#17202e'; 
-                                let textColor = '#94a3b8'; 
-                                let borderStyle = '1px solid #334155';
-                                let ledColor = '#475569';
-                                let borderGlow = 'none';
+                       {/* Content View: Table vs Virtual Rack */}
+                       {viewType === 'btc' ? (
+                          <div style={{overflowX:'auto'}}>
+                              <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, color:C.text}}>
+                                  <thead>
+                                      <tr style={{borderBottom:"2px solid " + C.border, color:C.subtle, textAlign:'left'}}>
+                                          <th style={{padding:8}}>Status</th>
+                                          <th style={{padding:8}}>IP (Duplo clique p/ abrir)</th>
+                                          <th style={{padding:8}}>Modelo da Máquina</th>
+                                          <th style={{padding:8}}>Hashrate</th>
+                                          <th style={{padding:8}}>Temp</th>
+                                          <th style={{padding:8}}>Uptime</th>
+                                          <th style={{padding:8}}>Placas Físicas</th>
+                                          <th style={{padding:8}}>Prateleira / Slot</th>
+                                          <th style={{padding:8}}>SN Cadastrado</th>
+                                          <th style={{padding:8, textAlign:'center'}}>Ações</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      {filteredFarmMachines.map(m => {
+                                             const stat = farmStatus[m.ip] || null;
+                                             const isDummy = m.sn && m.sn.startsWith("FARM-");
+                                             const isMining = stat && stat.status === 'mining';
+                                             const isIdle = stat && stat.status !== 'offline' && !isMining;
+                                             
+                                             // Pedido 4: Nome amigável substituindo AutoSlot pelo Modelo da Máquina
+                                             const machineModelName = stat?.model || m.model || "Whatsminer";
+                                             const shelfLabel = m.shelf ? m.shelf.replace(/AutoSlot/gi, "Prateleira") : "Prateleira";
 
-                                if (m.ip) {
-                                    if (isMining) {
-                                        bg = '#064e3b';
-                                        textColor = '#6ee7b7';
-                                        borderStyle = '1px solid #10b981';
-                                        borderGlow = '0 0 12px rgba(16,185,129,0.4)';
-                                        ledColor = '#10b981';
-                                    } else if (isOnline) {
-                                        bg = '#451a03';
-                                        textColor = '#fde68a';
-                                        borderStyle = '1px solid #f59e0b';
-                                        borderGlow = '0 0 10px rgba(245,158,11,0.3)';
-                                        ledColor = '#f59e0b';
-                                    } else {
-                                        bg = '#1e1b2e';
-                                        textColor = '#cbd5e1';
-                                        borderStyle = '1px solid #475569';
-                                        ledColor = '#ef4444';
-                                    }
-                                }
-
-                                let valToShow = m.notes;
-                                if (viewMode === 'temp') {
-                                    valToShow = isOnline && stat.temp ? stat.temp + '°' : '--';
-                                } else if (viewMode === 'hashrate') {
-                                    valToShow = isOnline && stat.hashrate ? stat.hashrate.toFixed(0) + 'T' : '--';
-                                }
-
-                                const snMismatch = isOnline && stat.sn && m.sn && !isDummy && stat.sn.trim().toUpperCase() !== m.sn.trim().toUpperCase();
+                                             return (
+                                                 <tr key={m._id} style={{borderBottom:"1px solid " + C.border + "44", background: isMining ? '#091c13' : 'transparent'}}>
+                                                     <td style={{padding:8}}>
+                                                         {isMining ? (
+                                                             <span style={{background:'#0e3925', color:C.green, border:'1px solid ' + C.green, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🟢 MINANDO</span>
+                                                         ) : isIdle ? (
+                                                             <span style={{background:'#3a2e0a', color:C.amber, border:'1px solid ' + C.amber, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🟡 OCIOSO</span>
+                                                         ) : (
+                                                             <span style={{background:'#3a0a0a', color:C.red, border:'1px solid ' + C.red, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🔴 OFFLINE</span>
+                                                         )}
+                                                     </td>
+                                                     <td 
+                                                       onDoubleClick={() => m.ip && window.open('http://' + m.ip, '_blank')}
+                                                       style={{padding:8, fontWeight:800, color: m.ip ? C.blue : C.subtle, cursor: m.ip ? 'pointer' : 'default'}}
+                                                       title={m.ip ? "Clique duplo para abrir no navegador (http://" + m.ip + ")" : "Sem IP"}
+                                                     >
+                                                         {m.ip ? `🌐 ${m.ip}` : "Sem IP"}
+                                                     </td>
+                                                     {/* Modelo Prominente */}
+                                                     <td style={{padding:8, fontWeight:800, color:C.accent}}>{machineModelName}</td>
+                                                     <td style={{padding:8, color:C.green, fontWeight:800}}>{stat?.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '-'}</td>
+                                                     <td style={{padding:8, color: stat?.temp > 85 ? C.red : C.text, fontWeight:700}}>{stat?.temp ? stat.temp + '°C' : '-'}</td>
+                                                     <td style={{padding:8, color:C.subtle}}>{stat?.uptime ? formatUptime(stat.uptime) : '-'}</td>
+                                                     <td style={{padding:8}}>
+                                                         <div style={{display:'flex', gap:4}}>
+                                                             {(stat?.slots || [null, null, null]).map((s, idx) => (
+                                                                 <div key={idx} title={s ? "Placa " + (idx+1) + ": " + s : "Placa " + (idx+1) + ": Vazia / Erro"} style={{width:8, height:8, borderRadius:'50%', background: s ? C.green : C.red}} />
+                                                             ))}
+                                                         </div>
+                                                     </td>
+                                                     {/* Limpo sem AutoSlot */}
+                                                     <td style={{padding:8}}>
+                                                        <span style={{background:C.card2, padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:700}}>
+                                                           {shelfLabel} · Slot #{m.notes}
+                                                        </span>
+                                                     </td>
+                                                     <td style={{padding:8, fontWeight:700, color: isDummy ? C.subtle : C.text}}>{isDummy ? "(Vazio)" : m.sn}</td>
+                                                     <td style={{padding:8, textAlign:'center'}}>
+                                                         <button onClick={() => openSlotDetailsModal(m)} style={{background:C.card2, border:"1px solid " + C.border, color:C.text, borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:700, cursor:'pointer'}}>⚙️ Gerenciar</button>
+                                                     </td>
+                                                 </tr>
+                                             );
+                                         })}
+                                  </tbody>
+                              </table>
+                          </div>
+                       ) : (
+                          /* View Mode Rack Virtual */
+                          Object.keys(shelfGroups).length === 0 ? (
+                             <div style={{textAlign:'center', padding:20, color:C.subtle}}>Nenhuma máquina encontrada nesta visualização.</div>
+                          ) : (
+                             Object.keys(shelfGroups).map(shelfName => {
+                                const list = shelfGroups[shelfName];
+                                const shelfTH = list.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
+                                const shelfOnline = list.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
+                                const cleanedShelfName = shelfName.replace(/AutoSlot/gi, "Prateleira");
 
                                 return (
-                                    <div 
-                                       key={m._id} 
-                                       className="shelf-slot-box"
-                                       onDoubleClick={(e) => { e.stopPropagation(); if (m.ip) window.open('http://' + m.ip, '_blank'); }}
-                                       onClick={() => openSlotDetailsModal(m)}
-                                       style={{
-                                           width: activeStyle.size,
-                                           height: activeStyle.size,
-                                           fontSize: activeStyle.font,
-                                           background: bg,
-                                           color: textColor,
-                                           boxShadow: borderGlow,
-                                           border: snMismatch ? "2px solid " + C.amber : borderStyle
-                                       }}
-                                    >
-                                        <div style={{position:'absolute', top:4, right:4, width:6, height:6, borderRadius:'50%', background: ledColor}} />
-                                        {valToShow}
+                                   <div key={shelfName} className="shelf-rack-cabinet">
+                                       <div className="shelf-rack-header">
+                                           <div>
+                                               <span style={{fontWeight:900, fontSize:14, color:C.text}}>{cleanedShelfName}</span>
+                                               <span style={{fontSize:11, color:C.subtle, marginLeft:10}}>({shelfOnline}/{list.length} Online)</span>
+                                           </div>
+                                           <div style={{display:'flex', alignItems:'center', gap:12}}>
+                                               <div style={{background:C.accent + "15", border:"1px solid " + C.accent + "44", color:C.accent, padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:800}}>
+                                                   ⛏️ {shelfTH.toFixed(1)} TH/s
+                                               </div>
+                                               <button onClick={() => handleDeleteShelf(shelfName, farmName)} style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}>
+                                                   Apagar Prateleira
+                                               </button>
+                                           </div>
+                                       </div>
 
-                                        {/* Tooltip Card */}
-                                        <div className="shelf-slot-tooltip">
-                                            <div style={{fontWeight:900, color:C.accent, fontSize:12, marginBottom:4, display:'flex', justifyContent:'space-between'}}>
-                                                <span>Slot #{m.notes}</span>
-                                                <span style={{color: isOnline ? C.green : C.red}}>{isOnline ? (isMining ? 'MINANDO' : 'OCIOSO') : 'OFFLINE'}</span>
-                                            </div>
-                                            <div style={{height:1, background:C.border, margin:'4px 0'}} />
-                                            <div>🌐 IP: {m.ip || 'Sem IP'}</div>
-                                            <div>📦 SN Carcaça: {isDummy ? '(Vazio)' : m.sn}</div>
-                                            {isOnline && (
-                                                <>
-                                                    <div>📦 SN Físico: {stat.sn || '--'}</div>
-                                                    <div>⏱️ Uptime: {formatUptime(stat.uptime)}</div>
-                                                    <div>⛏️ Hashrate: {stat.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '--'}</div>
-                                                    <div>🌡️ Temp: {stat.temp ? stat.temp + '°C' : '--'}</div>
-                                                </>
-                                            )}
-                                            <div style={{fontSize:9, color:C.subtle, marginTop:4}}>(Clique duplo para abrir IP no navegador)</div>
-                                        </div>
-                                    </div>
+                                       <div className="shelf-rack-grid">
+                                           {list.map(m => {
+                                               const stat = farmStatus[m.ip] || null;
+                                               const isDummy = m.sn && m.sn.startsWith("FARM-");
+                                               const isOnline = stat && stat.status !== 'offline';
+                                               const isMining = isOnline && stat.status === 'mining';
+                                               const machineModelName = stat?.model || m.model || "Whatsminer";
+                                               
+                                               let bg = '#17202e'; 
+                                               let textColor = '#94a3b8'; 
+                                               let borderStyle = '1px solid #334155';
+                                               let ledColor = '#475569';
+                                               let borderGlow = 'none';
+
+                                               if (m.ip) {
+                                                   if (isMining) {
+                                                       bg = '#064e3b';
+                                                       textColor = '#6ee7b7';
+                                                       borderStyle = '1px solid #10b981';
+                                                       borderGlow = '0 0 12px rgba(16,185,129,0.4)';
+                                                       ledColor = '#10b981';
+                                                   } else if (isOnline) {
+                                                       bg = '#451a03';
+                                                       textColor = '#fde68a';
+                                                       borderStyle = '1px solid #f59e0b';
+                                                       borderGlow = '0 0 10px rgba(245,158,11,0.3)';
+                                                       ledColor = '#f59e0b';
+                                                   } else {
+                                                       bg = '#1e1b2e';
+                                                       textColor = '#cbd5e1';
+                                                       borderStyle = '1px solid #475569';
+                                                       ledColor = '#ef4444';
+                                                   }
+                                               }
+
+                                               let valToShow = m.notes;
+                                               if (viewMode === 'temp') {
+                                                   valToShow = isOnline && stat.temp ? stat.temp + '°' : '--';
+                                               } else if (viewMode === 'hashrate') {
+                                                   valToShow = isOnline && stat.hashrate ? stat.hashrate.toFixed(0) + 'T' : '--';
+                                               }
+
+                                               const snMismatch = isOnline && stat.sn && m.sn && !isDummy && stat.sn.trim().toUpperCase() !== m.sn.trim().toUpperCase();
+
+                                               return (
+                                                   <div 
+                                                      key={m._id} 
+                                                      className="shelf-slot-box"
+                                                      onDoubleClick={(e) => { e.stopPropagation(); if (m.ip) window.open('http://' + m.ip, '_blank'); }}
+                                                      onClick={() => openSlotDetailsModal(m)}
+                                                      style={{
+                                                          width: activeStyle.size,
+                                                          height: activeStyle.size,
+                                                          fontSize: activeStyle.font,
+                                                          background: bg,
+                                                          color: textColor,
+                                                          boxShadow: borderGlow,
+                                                          border: snMismatch ? "2px solid " + C.amber : borderStyle
+                                                      }}
+                                                   >
+                                                       <div style={{position:'absolute', top:4, right:4, width:6, height:6, borderRadius:'50%', background: ledColor}} />
+                                                       {valToShow}
+
+                                                       {/* Tooltip Card */}
+                                                       <div className="shelf-slot-tooltip">
+                                                           <div style={{fontWeight:900, color:C.accent, fontSize:12, marginBottom:4, display:'flex', justifyContent:'space-between'}}>
+                                                               <span>Slot #{m.notes} · {machineModelName}</span>
+                                                               <span style={{color: isOnline ? C.green : C.red}}>{isOnline ? (isMining ? 'MINANDO' : 'OCIOSO') : 'OFFLINE'}</span>
+                                                           </div>
+                                                           <div style={{height:1, background:C.border, margin:'4px 0'}} />
+                                                           <div>🌐 IP: {m.ip || 'Sem IP'}</div>
+                                                           <div>💻 Modelo: {machineModelName}</div>
+                                                           <div>📦 SN Carcaça: {isDummy ? '(Vazio)' : m.sn}</div>
+                                                           {isOnline && (
+                                                               <>
+                                                                   <div>📦 SN Físico: {stat.sn || '--'}</div>
+                                                                   <div>⏱️ Uptime: {formatUptime(stat.uptime)}</div>
+                                                                   <div>⛏️ Hashrate: {stat.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '--'}</div>
+                                                                   <div>🌡️ Temp: {stat.temp ? stat.temp + '°C' : '--'}</div>
+                                                               </>
+                                                           )}
+                                                           <div style={{fontSize:9, color:C.subtle, marginTop:4}}>(Clique duplo para abrir IP no navegador)</div>
+                                                       </div>
+                                                   </div>
+                                               );
+                                           })}
+                                       </div>
+                                   </div>
                                 );
-                            })}
-                        </div>
-                    </div>
-                 );
-              })
-           )
+                             })
+                          )
+                       )}
+                   </div>
+               );
+           })
         )}
     </div>;
 }
