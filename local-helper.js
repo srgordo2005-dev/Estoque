@@ -446,64 +446,66 @@ app.get('/api/farm-status', (req, res) => {
 });
 
 const updateFarmStatus = async () => {
-    if (farmMachines.length === 0) return;
-    const activeIPs = farmMachines.map(m => m.ip).filter(Boolean);
+    let activeIPs = farmMachines.map(m => m.ip).filter(Boolean);
     
-    // Process pings in parallel
-    const promises = activeIPs.map(async (ip) => {
-        try {
-            const summaryData = await queryMinerAPI(ip, 'summary').catch(() => null);
-            const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
-            
-            if (!statsData || !statsData.STATS || statsData.STATS.length < 2) {
-                minerStatusCache[ip] = { ip, status: 'offline', temp: 0, hashrate: 0, slots: [null, null, null], lastUpdate: Date.now() };
-                return;
-            }
-            
-            const sum = summaryData?.SUMMARY?.[0] || {};
-            const stat = statsData.STATS[1] || {};
-            
-            let hashrate = 0;
-            if (sum['MHS av']) hashrate = sum['MHS av'] / 1000000;
-            if (sum['GHS av']) hashrate = sum['GHS av'] / 1000;
-            if (sum['THS av']) hashrate = sum['THS av'];
-            
-            let maxTemp = 0;
-            for(let i=1; i<=4; i++) {
-                if(stat[`temp${i}`] > maxTemp) maxTemp = stat[`temp${i}`];
-                if(stat[`temp_chip${i}`]) {
-                    const temps = stat[`temp_chip${i}`].split('-').map(Number);
-                    temps.forEach(t => { if(t > maxTemp) maxTemp = t; });
-                }
-            }
-            
-            const slots = [
-                stat.chain_sn0 || stat.pcb_sn0 || stat['hash board 0 sn'] || stat['board_sn0'] || null,
-                stat.chain_sn1 || stat.pcb_sn1 || stat['hash board 1 sn'] || stat['board_sn1'] || null,
-                stat.chain_sn2 || stat.pcb_sn2 || stat['hash board 2 sn'] || stat['board_sn2'] || null
-            ];
-            
-            minerStatusCache[ip] = {
-                ip,
-                status: hashrate > 0 ? 'mining' : 'idle',
-                model: detectMinerDetails(stat, summaryData, null).model,
-                sn: detectMinerDetails(stat, summaryData, null).sn || stat.Miner_SN || '',
-                sn: stat.Miner_SN || stat.miner_sn || stat.SN || '',
-                uptime: sum.Elapsed || 0,
-                hashrate: hashrate,
-                temp: maxTemp,
-                slots,
-                lastUpdate: Date.now()
-            };
-        } catch (e) {
-            minerStatusCache[ip] = { ip, status: 'offline', error: e.message, temp: 0, hashrate: 0, slots: [null, null, null], lastUpdate: Date.now() };
+    // Auto-discover local subnet 192.168.1.x if activeIPs is empty
+    if (activeIPs.length === 0) {
+        for (let i = 1; i <= 254; i++) {
+            activeIPs.push("192.168.1." + i);
         }
-    });
-    
-    await Promise.all(promises);
+    }
+
+    const batchSize = 30;
+    for (let i = 0; i < activeIPs.length; i += batchSize) {
+        const batch = activeIPs.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (ip) => {
+            try {
+                const summaryData = await queryMinerAPI(ip, 'summary').catch(() => null);
+                if (!summaryData) return;
+                const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
+                
+                const sum = summaryData?.SUMMARY?.[0] || {};
+                const stat = statsData?.STATS?.[1] || statsData?.STATS?.[0] || {};
+                
+                let hashrate = 0;
+                if (sum['MHS av']) hashrate = sum['MHS av'] / 1000000;
+                if (sum['GHS av']) hashrate = sum['GHS av'] / 1000;
+                if (sum['THS av']) hashrate = sum['THS av'];
+                
+                let maxTemp = 0;
+                for(let t=1; t<=4; t++) {
+                    if(stat[`temp${t}`] > maxTemp) maxTemp = stat[`temp${t}`];
+                    if(stat[`temp_chip${t}`]) {
+                        const temps = String(stat[`temp_chip${t}`]).split('-').map(Number);
+                        temps.forEach(tp => { if(tp > maxTemp) maxTemp = tp; });
+                    }
+                }
+                
+                const slots = [
+                    stat.chain_sn0 || stat.pcb_sn0 || stat['hash board 0 sn'] || stat['board_sn0'] || null,
+                    stat.chain_sn1 || stat.pcb_sn1 || stat['hash board 1 sn'] || stat['board_sn1'] || null,
+                    stat.chain_sn2 || stat.pcb_sn2 || stat['hash board 2 sn'] || stat['board_sn2'] || null
+                ];
+                
+                const details = detectMinerDetails(stat, summaryData, null);
+                minerStatusCache[ip] = {
+                    ip,
+                    status: hashrate > 0 ? 'mining' : 'idle',
+                    model: details.model,
+                    sn: details.sn,
+                    uptime: sum.Elapsed || 0,
+                    hashrate: hashrate,
+                    temp: maxTemp,
+                    slots,
+                    lastUpdate: Date.now()
+                };
+            } catch (e) {
+                // Non-responsive IP
+            }
+        }));
+    }
 };
 
-// Background task to update status cache every 10 seconds
 setInterval(updateFarmStatus, 10000);
 
 // Telegram alert checker runs every 5 minutes on the cached data (preventing double pings)

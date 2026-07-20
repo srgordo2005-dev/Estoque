@@ -2326,22 +2326,40 @@ function AddFarmForm({ctx, onClose}) {
 
 function DataCenterPage({ctx}) {
     const {data, mutate, setModal, user} = ctx;
-    const farmMachines = data.farmMachines || [];
+    const dbFarmMachines = data.farmMachines || [];
     const [recentIPs, setRecentIPs] = useState([]);
     
     // Global Status Cache fetched from local server helper
     const [farmStatus, setFarmStatus] = useState({});
-    const [activeFarm, setActiveFarm] = useState("ALL"); // "ALL" para exibir todas as fazendas em lista vertical
+    const [activeFarm, setActiveFarm] = useState("ALL");
     const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
     const [viewType, setViewType] = useState("btc"); // Default "btc" ou "rack"
-    const [squareSize, setSquareSize] = useState("medium"); // "small" | "medium" | "large"
+    const [squareSize, setSquareSize] = useState("medium");
     const [hideEmpty, setHideEmpty] = useState(false);
-    const [onlyOnline, setOnlyOnline] = useState(false); // Pedido 1: Apenas máquinas online
-    const [autoScan, setAutoScan] = useState(true); // Pedido 2: Auto-scan em 5s
+    const [onlyOnline, setOnlyOnline] = useState(false);
+    const [autoScan, setAutoScan] = useState(true);
     const [selectedSubnet, setSelectedSubnet] = useState('ALL');
-    const [searchQuery, setSearchQuery] = useState(''); // Busca global estilo HashCore
-    const [selectedMachineIds, setSelectedMachineIds] = useState([]); // Seleção múltipla para Mass Operations
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedMachineIds, setSelectedMachineIds] = useState([]);
     const [isScanning, setIsScanning] = useState(false);
+
+    // Fetch farm status (manual + 5s loop)
+    const fetchFarmStatus = useCallback(async () => {
+       try {
+         const r = await fetch('http://localhost:3001/api/farm-status');
+         if (r.ok) {
+            const d = await r.json();
+            setFarmStatus(d);
+         }
+       } catch(e) {}
+    }, []);
+
+    useEffect(() => {
+      fetchFarmStatus();
+      if (!autoScan) return;
+      const interval = setInterval(fetchFarmStatus, 4000);
+      return () => clearInterval(interval);
+    }, [autoScan, fetchFarmStatus]);
 
     // Periodically fetch IP reports
     useEffect(() => {
@@ -2359,29 +2377,36 @@ function DataCenterPage({ctx}) {
       return () => clearInterval(interval);
     }, []);
 
-    // Fetch farm status (manual + 5s loop)
-    const fetchFarmStatus = useCallback(async () => {
-       try {
-         const r = await fetch('http://localhost:3001/api/farm-status');
-         if (r.ok) {
-            const d = await r.json();
-            setFarmStatus(d);
-         }
-       } catch(e) {}
-    }, []);
-
-    useEffect(() => {
-      fetchFarmStatus();
-      if (!autoScan) return;
-      const interval = setInterval(fetchFarmStatus, 5000); // 5s auto-scan HashCore
-      return () => clearInterval(interval);
-    }, [autoScan, fetchFarmStatus]);
-
     const handleManualRefresh = async () => {
         setIsScanning(true);
         await fetchFarmStatus();
         setTimeout(() => setIsScanning(false), 600);
     };
+
+    // Synthesize live network machines for any IP responding in farmStatus that is not in DB
+    const farmMachines = useMemo(() => {
+        const merged = [...dbFarmMachines];
+        const knownIPs = new Set(dbFarmMachines.map(m => m.ip).filter(Boolean));
+
+        for (const ip in farmStatus) {
+            const stat = farmStatus[ip];
+            if (stat && stat.status !== 'offline' && !knownIPs.has(ip)) {
+                const lastOctet = ip.split('.').pop() || '1';
+                merged.push({
+                    _id: 'live-' + ip,
+                    ip: ip,
+                    sn: stat.sn || 'SN-' + lastOctet,
+                    model: stat.model || 'Antminer S19j Pro',
+                    shelf: 'Prateleira 1',
+                    notes: lastOctet,
+                    location: 'Fazenda Principal',
+                    status: 'ACTIVE',
+                    isLiveAutoDiscovered: true
+                });
+            }
+        }
+        return merged;
+    }, [dbFarmMachines, farmStatus]);
 
     // Keep helper sync updated
     useEffect(() => {
@@ -2539,14 +2564,14 @@ function DataCenterPage({ctx}) {
         }
     };
 
-    // HASHCORE MASS OPERATIONS (Operações em Lote)
+    // HASHSTOCK MASS OPERATIONS
     const handleBulkReboot = async () => {
         const targets = farmMachines.filter(m => selectedMachineIds.includes(m._id) && m.ip);
         if (targets.length === 0) return alert("Nenhuma máquina com IP selecionada.");
         if (!confirm(`Deseja REINICIAR ${targets.length} minerador(es) selecionado(s)?`)) return;
 
         setModal(
-           <Modal title="HashCore Toolkit - Reinicialização em Massa" onClose={() => setModal(null)}>
+           <Modal title="HashStock - Reinicialização em Massa" onClose={() => setModal(null)}>
               <div style={{padding:15, textAlign:'center'}}>
                  Enviando comando de reboot para {targets.length} mineradores...
               </div>
@@ -2595,7 +2620,7 @@ function DataCenterPage({ctx}) {
         let pwd = "123";
 
         setModal(
-           <Modal title={`HashCore Toolkit - Troca de Pool em Lote (${targets.length} Mineradores)`} onClose={() => setModal(null)}>
+           <Modal title={`HashStock - Troca de Pool em Lote (${targets.length} Mineradores)`} onClose={() => setModal(null)}>
               <div style={{display:'flex', flexDirection:'column', gap:12}}>
                  <Inp label="URL da Pool (stratum+tcp://...)" onChange={e => poolUrl = e.target.value} placeholder="stratum+tcp://btc.viabtc.top:3333" />
                  <Inp label="Nome do Worker (Ex: usuario.worker)" onChange={e => worker = e.target.value} placeholder="minhafarme.001" />
@@ -2669,7 +2694,6 @@ function DataCenterPage({ctx}) {
     const totalSlotsGlobal = farmMachines.length;
     const onlineCountGlobal = farmMachines.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
     const idleCountGlobal = farmMachines.filter(m => m.ip && farmStatus[m.ip]?.status && farmStatus[m.ip]?.status !== 'mining' && farmStatus[m.ip]?.status !== 'offline').length;
-    const offlineCountGlobal = totalSlotsGlobal - onlineCountGlobal - idleCountGlobal;
     const totalFarmTHGlobal = farmMachines.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
 
     const squareStyles = {
@@ -2717,7 +2741,7 @@ function DataCenterPage({ctx}) {
                             <>
                                 <div style={{height:1, background:C.border, margin:'4px 0'}} />
                                 <div><span style={{color:C.muted}}>Status Físico:</span> <span style={{fontWeight:800, color: stat.status === 'mining' ? C.green : C.amber}}>{stat.status === 'mining' ? 'MINANDO' : 'OCIOSO/ERRO'}</span></div>
-                                <div><span style={{color:C.muted}}>Modelo Físico:</span> <span style={{fontWeight:700}}>{stat.model || m.model || "Whatsminer"}</span></div>
+                                <div><span style={{color:C.muted}}>Modelo Físico:</span> <span style={{fontWeight:700}}>{stat.model || m.model || "Antminer S19j Pro"}</span></div>
                                 <div><span style={{color:C.muted}}>SN Reportado:</span> <span style={{fontWeight:700}}>{stat.sn || "Não reportado"}</span></div>
                                 <div><span style={{color:C.muted}}>Uptime:</span> <span style={{fontWeight:700}}>{formatUptime(stat.uptime)}</span></div>
                                 <div><span style={{color:C.muted}}>Média Hashrate:</span> <span style={{fontWeight:700, color:C.green}}>{stat.hashrate.toFixed(1)} TH/s</span></div>
@@ -2750,8 +2774,8 @@ function DataCenterPage({ctx}) {
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, marginBottom:20}}>
            <div>
               <div style={{display:'flex', alignItems:'center', gap:10}}>
-                 <h2 style={{margin:0}}>⚡ HASHCORE TOOLKIT · Data Center & Monitor de Frota</h2>
-                 <span style={{background:C.accent, color:'#000', padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:900}}>v1.7 PRO</span>
+                 <h2 style={{margin:0}}>⚡ HASHSTOCK · Data Center & Monitor de Fazenda</h2>
+                 <span style={{background:C.accent, color:'#000', padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:900}}>V2.0 LIVE</span>
               </div>
               <div style={{display:'flex', gap:6, marginTop:8, overflowX:'auto', maxWidth:'75vw', paddingBottom:4}}>
                  <button
@@ -2834,7 +2858,7 @@ function DataCenterPage({ctx}) {
            </div>
         )}
 
-        {/* Global HashCore Fleet Widgets */}
+        {/* Global Fleet Widgets */}
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10, marginBottom:20}}>
            <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
               <div style={{fontSize:24, color:C.blue, fontWeight:'bold'}}>{totalSlotsGlobal}</div>
@@ -2854,11 +2878,11 @@ function DataCenterPage({ctx}) {
            </div>
         </div>
 
-        {/* HashCore Mass Operations Bar (Menu de Ações em Lote) */}
+        {/* Mass Operations Bar */}
         {selectedMachineIds.length > 0 && (
            <div style={{background:C.accent + "22", border:"1px solid " + C.accent, borderRadius:10, padding:'10px 16px', marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
               <div style={{fontWeight:900, color:C.accent, fontSize:13}}>
-                 ⚡ HASHCORE MASS OPERATIONS: {selectedMachineIds.length} MINERADORES SELECIONADOS
+                 ⚡ HASHSTOCK MASS OPERATIONS: {selectedMachineIds.length} MINERADORES SELECIONADOS
               </div>
               <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
                  <button onClick={handleBulkReboot} style={{background:C.blue, color:'#fff', border:'none', padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}>
@@ -2883,14 +2907,14 @@ function DataCenterPage({ctx}) {
               <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>VISÃO:</span>
               <div style={{display:'flex', background:C.card2, padding:2, borderRadius:6}}>
                  <button onClick={()=>setViewType('btc')} style={{background: viewType === 'btc' ? C.accent : 'transparent', color: viewType === 'btc' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:10}}>
-                     📊 Tabela BTC Tools
+                     📊 Vista em Tabela
                  </button>
                  <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:10}}>
-                     🗄️ Prateleira Virtual (HahsCore)
+                     🗄️ Prateleira Virtual
                  </button>
               </div>
 
-              {/* HashCore Global Search Bar */}
+              {/* Global Search Bar */}
               <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6}}>
                  <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>🔍 BUSCA:</span>
                  <input 
@@ -2912,7 +2936,7 @@ function DataCenterPage({ctx}) {
                  </div>
               )}
 
-              {/* Pedido 1: Apenas máquinas online */}
+              {/* Apenas máquinas online */}
               <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6, background: onlyOnline ? C.green + "22" : 'transparent', padding:'2px 8px', borderRadius:4, border: onlyOnline ? "1px solid " + C.green : "1px solid transparent"}}>
                  <input 
                    type="checkbox" 
@@ -2926,7 +2950,7 @@ function DataCenterPage({ctx}) {
                  </label>
               </div>
 
-              {/* Pedido 2: Auto-scan 5s */}
+              {/* Auto-scan 5s */}
               <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6}}>
                  <input 
                    type="checkbox" 
@@ -2977,7 +3001,7 @@ function DataCenterPage({ctx}) {
            </div>
         </div>
 
-        {/* Pedido 3: LISTA VERTICAL DE TODAS AS FAZENDAS */}
+        {/* LISTA VERTICAL DE TODAS AS FAZENDAS */}
         {displayedFarms.length === 0 ? (
            <div style={{textAlign:'center', padding:40, color:C.subtle, border: "2px dashed " + C.border, borderRadius:10, width:'100%'}}>
                Nenhuma fazenda encontrada. Clique em "+ Nova Fazenda" para começar.
@@ -3090,8 +3114,7 @@ function DataCenterPage({ctx}) {
                                              const isIdle = stat && stat.status !== 'offline' && !isMining;
                                              const isChecked = selectedMachineIds.includes(m._id);
                                              
-                                             // Pedido 4: Nome amigável substituindo AutoSlot pelo Modelo da Máquina
-                                             const machineModelName = stat?.model || m.model || "Whatsminer";
+                                             const machineModelName = stat?.model || m.model || "Antminer S19j Pro";
                                              const shelfLabel = m.shelf ? m.shelf.replace(/AutoSlot/gi, "Prateleira") : "Prateleira";
 
                                              return (
@@ -3135,7 +3158,6 @@ function DataCenterPage({ctx}) {
                                                              ))}
                                                          </div>
                                                      </td>
-                                                     {/* Limpo sem AutoSlot */}
                                                      <td style={{padding:8}}>
                                                         <span style={{background:C.card2, padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:700}}>
                                                            {shelfLabel} · Slot #{m.notes}
@@ -3185,7 +3207,7 @@ function DataCenterPage({ctx}) {
                                                const isDummy = m.sn && m.sn.startsWith("FARM-");
                                                const isOnline = stat && stat.status !== 'offline';
                                                const isMining = isOnline && stat.status === 'mining';
-                                               const machineModelName = stat?.model || m.model || "Whatsminer";
+                                               const machineModelName = stat?.model || m.model || "Antminer S19j Pro";
                                                
                                                let bg = '#17202e'; 
                                                let textColor = '#94a3b8'; 
