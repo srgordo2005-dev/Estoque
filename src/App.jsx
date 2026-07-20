@@ -4927,64 +4927,90 @@ function LinkNewHashTechForm({ctx, sn, initialModel, onSave, onClose}){
 }
 
 function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession}) {
-    const [listening, setListening] = useState(false);
+    const [listening, setListening] = useState(true); // Default TRUE for continuous automatic listening
+    const [lastCapturedIP, setLastCapturedIP] = useState(session?.ip || "");
     const [blinkOn, setBlinkOn] = useState(false);
-    
+    const [statusText, setStatusText] = useState("📡 IP Report ativo: Aperte o botão na máquina Bitmain/Whatsminer");
+
     useEffect(() => {
         if (!listening) return;
         const interval = setInterval(async () => {
             try {
                 const res = await fetch('http://localhost:3001/api/ipreport');
+                if (!res.ok) return;
                 const reports = await res.json();
                 if (reports && reports.length > 0) {
                     const latest = reports[0];
-                    setListening(false);
-                    // Fetch full data
-                    const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${latest.ip}`);
-                    const info = await infoRes.json();
-                    
-                    if (info.sn) {
-                        setMacInput(info.sn);
-                        // Start session first, then we update it
-                        // (loadMachine does not return the session directly, it updates state, 
-                        // so in reality we should hook into the session state).
-                        alert(`IP ${latest.ip} capturado! Carregando a máquina ${info.sn}... Clique em piscar após carregar.`);
-                        loadMachine(info.sn);
+                    // Only process fresh reports from the last 15 seconds
+                    if (Date.now() - latest.timestamp < 15000) {
+                        if (latest.ip !== lastCapturedIP) {
+                            setLastCapturedIP(latest.ip);
+                            setStatusText(`✅ IP REPORT CAPTURADO: ${latest.ip}`);
+                            
+                            // Fetch full details for this IP
+                            try {
+                                const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${latest.ip}`);
+                                if (infoRes.ok) {
+                                    const info = await infoRes.json();
+                                    if (info.sn) {
+                                        setMacInput(info.sn);
+                                        loadMachine(info.sn);
+                                    }
+                                }
+                            } catch(e) {}
+
+                            // Link IP to active test session
+                            if (saveSession && session) {
+                                saveSession({ ...session, ip: latest.ip });
+                            }
+                        }
                     }
                 }
             } catch(e) {}
         }, 1000);
         return () => clearInterval(interval);
-    }, [listening, loadMachine, setMacInput]);
+    }, [listening, lastCapturedIP, loadMachine, saveSession, session, setMacInput]);
 
     const toggleBlink = async () => {
-        const ip = session?.ip || prompt("Digite o IP da máquina na bancada para piscar:");
+        const ip = session?.ip || lastCapturedIP || prompt("Digite o IP da máquina na bancada para piscar:");
         if (!ip) return;
-        fetch('http://localhost:3001/api/blink', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ip, firmware: "vnish", on: !blinkOn})
-        });
-        setBlinkOn(!blinkOn);
+        try {
+            await fetch('http://localhost:3001/api/blink', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ip, firmware: "vnish", on: !blinkOn})
+            });
+            setBlinkOn(!blinkOn);
+        } catch(e) {
+            alert("Erro ao acionar pisca: " + e.message);
+        }
         if(session && !session.ip) {
-            saveSession({...session, ip}); // link IP to session
+            saveSession({...session, ip});
         }
     };
 
-    return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px dashed ${listening?C.green:C.border}`}}>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-           <div style={{fontWeight:800, color: listening ? C.green : C.subtle}}>
-              {listening ? "📡 Aguardando Botão IP Report..." : "🔌 Automação de Bancada"}
+    return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px solid ${lastCapturedIP ? C.green : C.blue}`}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
+           <div>
+              <div style={{fontWeight:800, color: lastCapturedIP ? C.green : C.blue, fontSize:13}}>
+                 {statusText}
+              </div>
+              {session?.ip && (
+                 <div style={{fontSize:11, color:C.green, marginTop:4, fontWeight:700}}>
+                    🌐 IP BANCADA: {session.ip}
+                 </div>
+              )}
            </div>
+           
            <div style={{display:'flex', gap:8}}>
-              {!listening && <Btn v="b" onClick={()=>setListening(true)}>Capturar IP Report</Btn>}
-              {listening && <Btn v="s" onClick={()=>setListening(false)}>Cancelar</Btn>}
-              <Btn v="s" onClick={toggleBlink}>🔦 {blinkOn ? "Parar de Piscar" : "Piscar Máquina"}</Btn>
+              <Btn v={listening ? "s" : "b"} onClick={()=>setListening(!listening)}>
+                 {listening ? "⏸️ Pausar Captura" : "📡 Ativar IP Report"}
+              </Btn>
+              <Btn v="s" onClick={toggleBlink}>
+                 🔦 {blinkOn ? "Parar de Piscar" : "Piscar LED Máquina"}
+              </Btn>
            </div>
         </div>
-        {session?.ip && <div style={{fontSize:11, color:C.green, marginTop:8}}>
-            IP Vinculado a esta sessão: {session.ip}
-        </div>}
     </div>;
 }
 
