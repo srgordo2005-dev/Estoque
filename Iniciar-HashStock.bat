@@ -1,13 +1,14 @@
 @echo off
-title HashStock Helper Server
+title HashStock Local Server & Dev App
 echo ==============================================
-echo  Iniciando o HashStock Local Helper Server...
+echo  Iniciando o HashStock Local Helper & App...
 echo ==============================================
 echo.
-cd /d "C:\\Users\\Felip\\.gemini\\antigravity\\scratch\\Estoque-main"
+cd /d "C:\Users\Felip\.gemini\antigravity\scratch\Estoque-main"
 start /min cmd /c "npm run helper"
-echo Servidor iniciado em segundo plano (minimizado).
-echo Abrindo o app web no navegador...
-start https://estoque-zeta-one.vercel.app/
+start /min cmd /c "npm run dev -- --host 0.0.0.0 --port 5173"
+echo Servidores iniciados em segundo plano.
+echo Abrindo o HashStock no navegador...
 timeout /t 2 >nul
+start http://localhost:5173/
 exit
