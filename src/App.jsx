@@ -4927,10 +4927,17 @@ function LinkNewHashTechForm({ctx, sn, initialModel, onSave, onClose}){
 }
 
 function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession}) {
-    const [listening, setListening] = useState(true); // Default TRUE for continuous automatic listening
+    const [listening, setListening] = useState(false); // Default FALSE - Modo 100% Manual!
     const [lastCapturedIP, setLastCapturedIP] = useState(session?.ip || "");
     const [blinkOn, setBlinkOn] = useState(false);
-    const [statusText, setStatusText] = useState("📡 IP Report ativo: Aperte o botão na máquina Bitmain/Whatsminer");
+
+    const startManualCapture = async () => {
+        // Clear old IP reports first so only a NEW button press is captured
+        try {
+            await fetch('http://localhost:3001/api/ipreport?clear=true');
+        } catch(e) {}
+        setListening(true);
+    };
 
     useEffect(() => {
         if (!listening) return;
@@ -4941,35 +4948,33 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                 const reports = await res.json();
                 if (reports && reports.length > 0) {
                     const latest = reports[0];
-                    // Only process fresh reports from the last 15 seconds
-                    if (Date.now() - latest.timestamp < 15000) {
-                        if (latest.ip !== lastCapturedIP) {
-                            setLastCapturedIP(latest.ip);
-                            setStatusText(`✅ IP REPORT CAPTURADO: ${latest.ip}`);
-                            
-                            // Fetch full details for this IP
-                            try {
-                                const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${latest.ip}`);
-                                if (infoRes.ok) {
-                                    const info = await infoRes.json();
-                                    if (info.sn) {
-                                        setMacInput(info.sn);
-                                        loadMachine(info.sn);
-                                    }
-                                }
-                            } catch(e) {}
-
-                            // Link IP to active test session
-                            if (saveSession && session) {
-                                saveSession({ ...session, ip: latest.ip });
+                    // Capture report and turn off listening (manual one-shot capture)
+                    setListening(false);
+                    setLastCapturedIP(latest.ip);
+                    
+                    // Fetch details for this IP
+                    try {
+                        const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${latest.ip}`);
+                        if (infoRes.ok) {
+                            const info = await infoRes.json();
+                            if (info.sn) {
+                                setMacInput(info.sn);
+                                loadMachine(info.sn);
                             }
                         }
+                    } catch(e) {}
+
+                    // Link IP to active test session
+                    if (saveSession && session) {
+                        saveSession({ ...session, ip: latest.ip });
                     }
+
+                    alert(`✅ IP REPORT CAPTURADO MANUALMENTE!\n🌐 IP: ${latest.ip}\nApertado com sucesso no teste!`);
                 }
             } catch(e) {}
         }, 1000);
         return () => clearInterval(interval);
-    }, [listening, lastCapturedIP, loadMachine, saveSession, session, setMacInput]);
+    }, [listening, loadMachine, saveSession, session, setMacInput]);
 
     const toggleBlink = async () => {
         const ip = session?.ip || lastCapturedIP || prompt("Digite o IP da máquina na bancada para piscar:");
@@ -4989,23 +4994,25 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         }
     };
 
-    return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px solid ${lastCapturedIP ? C.green : C.blue}`}}>
+    return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px solid ${listening ? C.green : C.border}`}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
            <div>
-              <div style={{fontWeight:800, color: lastCapturedIP ? C.green : C.blue, fontSize:13}}>
-                 {statusText}
+              <div style={{fontWeight:800, color: listening ? C.green : C.subtle, fontSize:13}}>
+                 {listening ? "📡 AGUARDANDO BOTÃO IP REPORT... (Aperte o botão na máquina)" : "🔌 Automação de Bancada (Captura Manual de IP)"}
               </div>
               {session?.ip && (
                  <div style={{fontSize:11, color:C.green, marginTop:4, fontWeight:700}}>
-                    🌐 IP BANCADA: {session.ip}
+                    🌐 IP CAPTURADO NA BANCADA: {session.ip}
                  </div>
               )}
            </div>
            
            <div style={{display:'flex', gap:8}}>
-              <Btn v={listening ? "s" : "b"} onClick={()=>setListening(!listening)}>
-                 {listening ? "⏸️ Pausar Captura" : "📡 Ativar IP Report"}
-              </Btn>
+              {!listening ? (
+                 <Btn v="b" onClick={startManualCapture}>📡 Capturar IP Report (Manual)</Btn>
+              ) : (
+                 <Btn v="s" onClick={()=>setListening(false)}>❌ Cancelar Escuta</Btn>
+              )}
               <Btn v="s" onClick={toggleBlink}>
                  🔦 {blinkOn ? "Parar de Piscar" : "Piscar LED Máquina"}
               </Btn>
