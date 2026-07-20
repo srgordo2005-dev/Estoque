@@ -2228,10 +2228,12 @@ function AddFarmForm({ctx, onClose}) {
 
     const [selectedFarm, setSelectedFarm] = useState(currentFarms[0] || "Fazenda Principal");
     const [newFarmName, setNewFarmName] = useState("");
-    const [name, setName] = useState("");
+    const [name, setName] = useState("Prateleira 1");
     const [ipBase, setIpBase] = useState("192.168.1.");
-    const [startIp, setStartIp] = useState(10);
-    const [slotsQty, setSlotsQty] = useState(10);
+    const [startIp, setStartIp] = useState(1);
+    const [startSlotNum, setStartSlotNum] = useState(1);
+    const [matchSlotWithIP, setMatchSlotWithIP] = useState(true);
+    const [slotsQty, setSlotsQty] = useState(254);
     const [saving, setSaving] = useState(false);
 
     const handleSave = async () => {
@@ -2245,13 +2247,15 @@ function AddFarmForm({ctx, onClose}) {
         let currentIp = startIp;
         let count = 0;
 
-        while(count < slotsQty) {
+        while(count < slotsQty && currentIp <= 254) {
+            const slotNumber = matchSlotWithIP ? String(currentIp) : String(startSlotNum + count);
             const m = {
+                _id: uid(),
                 sn: "FARM-" + Date.now() + "-" + currentIp,
-                model: "M30S", 
-                location: farmName, // Farm Name stored in location
-                shelf: name,        // Shelf Name stored in shelf
-                notes: String(count + 1), // Slot Number stored in notes
+                model: "Antminer S19j Pro", 
+                location: farmName,
+                shelf: name,
+                notes: slotNumber, // Slot number equal to IP final octet if requested
                 ip: ipBase + currentIp,
                 status: "MAPPED"
             };
@@ -2260,7 +2264,7 @@ function AddFarmForm({ctx, onClose}) {
             count++;
         }
         
-        const res = await fbBatch(machines.map(m => ({c:"farmMachines", id: m._id || uid(), d: m})));
+        const res = await fbBatch(machines.map(m => ({c:"farmMachines", id: m._id, d: m})));
         if(res.ok) {
             mutate("farmMachines", prev => [...prev, ...machines]);
             onClose();
@@ -2283,19 +2287,34 @@ function AddFarmForm({ctx, onClose}) {
             <Inp label="Nome da Nova Fazenda" value={newFarmName} onChange={e=>setNewFarmName(e.target.value)} placeholder="Ex: Galpão 2, Fazenda Sul"/>
         )}
 
-        <Inp label="Nome da Prateleira" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Prateleira A"/>
+        <Inp label="Nome da Prateleira" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Prateleira 1"/>
 
         <div style={{display:'flex', gap:8}}>
-            <Inp label="IP Base (ex: 192.168.1.)" value={ipBase} onChange={e=>setIpBase(e.target.value)}/>
+            <Inp label="Subrede / IP Base" value={ipBase} onChange={e=>setIpBase(e.target.value)} placeholder="Ex: 192.168.1."/>
+            <Inp label="IP Inicial (Final)" type="number" value={startIp} onChange={e=>setStartIp(Number(e.target.value))}/>
         </div>
-        
-        <div style={{display:'flex', gap:8}}>
-            <Inp label="IP Inicial (Final de IP)" type="number" value={startIp} onChange={e=>setStartIp(Number(e.target.value))}/>
-            <Inp label="Quantidade de Lugares (Máquinas)" type="number" value={slotsQty} onChange={e=>setSlotsQty(Number(e.target.value))}/>
+
+        <div style={{display:'flex', alignItems:'center', gap:6, background:C.card, padding:8, borderRadius:6}}>
+            <input 
+              type="checkbox" 
+              id="match-slot-ip" 
+              checked={matchSlotWithIP} 
+              onChange={e=>setMatchSlotWithIP(e.target.checked)} 
+              style={{cursor:'pointer'}}
+            />
+            <label htmlFor="match-slot-ip" style={{fontSize:11, color:C.accent, fontWeight:800, cursor:'pointer'}}>
+               Numeração do Slot igual ao final do IP (Ex: IP .122 referente ao Slot #122)
+            </label>
         </div>
-        
+
+        {!matchSlotWithIP && (
+            <Inp label="Número do Primeiro Slot" type="number" value={startSlotNum} onChange={e=>setStartSlotNum(Number(e.target.value))}/>
+        )}
+
+        <Inp label="Quantidade de Lugares (Posições)" type="number" value={slotsQty} onChange={e=>setSlotsQty(Number(e.target.value))}/>
+
         <div style={{fontSize:11, color:C.subtle, background:C.card, padding:8, borderRadius:6}}>
-            Isso vai pré-mapear {slotsQty} posições na prateleira "{name}", associando os IPs sequenciais de {ipBase}{startIp} até {ipBase}{startIp + slotsQty - 1}.
+            Pré-mapeando {slotsQty} posições na "{name}", associando IPs de {ipBase}{startIp} em diante.
         </div>
 
         <div style={{display:'flex', gap:10, marginTop:10}}>
