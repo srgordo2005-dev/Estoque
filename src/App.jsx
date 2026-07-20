@@ -2320,6 +2320,8 @@ function DataCenterPage({ctx}) {
     const [onlyOnline, setOnlyOnline] = useState(false); // Pedido 1: Apenas máquinas online
     const [autoScan, setAutoScan] = useState(true); // Pedido 2: Auto-scan em 5s
     const [selectedSubnet, setSelectedSubnet] = useState('ALL');
+    const [searchQuery, setSearchQuery] = useState(''); // Busca global estilo HashCore
+    const [selectedMachineIds, setSelectedMachineIds] = useState([]); // Seleção múltipla para Mass Operations
     const [isScanning, setIsScanning] = useState(false);
 
     // Periodically fetch IP reports
@@ -2352,7 +2354,7 @@ function DataCenterPage({ctx}) {
     useEffect(() => {
       fetchFarmStatus();
       if (!autoScan) return;
-      const interval = setInterval(fetchFarmStatus, 5000); // 5s auto-scan
+      const interval = setInterval(fetchFarmStatus, 5000); // 5s auto-scan HashCore
       return () => clearInterval(interval);
     }, [autoScan, fetchFarmStatus]);
 
@@ -2518,6 +2520,91 @@ function DataCenterPage({ctx}) {
         }
     };
 
+    // HASHCORE MASS OPERATIONS (Operações em Lote)
+    const handleBulkReboot = async () => {
+        const targets = farmMachines.filter(m => selectedMachineIds.includes(m._id) && m.ip);
+        if (targets.length === 0) return alert("Nenhuma máquina com IP selecionada.");
+        if (!confirm(`Deseja REINICIAR ${targets.length} minerador(es) selecionado(s)?`)) return;
+
+        setModal(
+           <Modal title="HashCore Toolkit - Reinicialização em Massa" onClose={() => setModal(null)}>
+              <div style={{padding:15, textAlign:'center'}}>
+                 Enviando comando de reboot para {targets.length} mineradores...
+              </div>
+           </Modal>
+        );
+
+        let success = 0;
+        for (const m of targets) {
+           try {
+              await fetch('http://localhost:3001/api/reboot', {
+                 method: 'POST',
+                 headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify({ ip: m.ip })
+              });
+              success++;
+           } catch(e) {}
+        }
+
+        alert(`Reboot enviado com sucesso para ${success} de ${targets.length} mineradores!`);
+        setSelectedMachineIds([]);
+        setModal(null);
+    };
+
+    const handleBulkLED = async (turnOn) => {
+        const targets = farmMachines.filter(m => selectedMachineIds.includes(m._id) && m.ip);
+        if (targets.length === 0) return alert("Nenhuma máquina com IP selecionada.");
+
+        for (const m of targets) {
+           try {
+              await fetch('http://localhost:3001/api/blink', {
+                 method: 'POST',
+                 headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify({ ip: m.ip, on: turnOn })
+              });
+           } catch(e) {}
+        }
+        alert(`LEDs ${turnOn ? 'ativados' : 'desativados'} para ${targets.length} mineradores!`);
+    };
+
+    const handleBulkChangePool = () => {
+        const targets = farmMachines.filter(m => selectedMachineIds.includes(m._id) && m.ip);
+        if (targets.length === 0) return alert("Nenhuma máquina com IP selecionada.");
+
+        let poolUrl = "";
+        let worker = "";
+        let pwd = "123";
+
+        setModal(
+           <Modal title={`HashCore Toolkit - Troca de Pool em Lote (${targets.length} Mineradores)`} onClose={() => setModal(null)}>
+              <div style={{display:'flex', flexDirection:'column', gap:12}}>
+                 <Inp label="URL da Pool (stratum+tcp://...)" onChange={e => poolUrl = e.target.value} placeholder="stratum+tcp://btc.viabtc.top:3333" />
+                 <Inp label="Nome do Worker (Ex: usuario.worker)" onChange={e => worker = e.target.value} placeholder="minhafarme.001" />
+                 <Inp label="Senha da Pool (Opcional)" defaultValue="123" onChange={e => pwd = e.target.value} />
+                 <Btn onClick={async () => {
+                    if (!poolUrl || !worker) return alert("Preencha URL e Worker.");
+                    setModal(<Modal title="Enviando..." onClose={()=>null}><div style={{padding:20}}>Aplicando nova pool na frota...</div></Modal>);
+                    
+                    let ok = 0;
+                    for (const m of targets) {
+                       try {
+                          await fetch('http://localhost:3001/api/set-pool', {
+                             method: 'POST',
+                             headers: {'Content-Type': 'application/json'},
+                             body: JSON.stringify({ ip: m.ip, url: poolUrl, worker, password: pwd })
+                          });
+                          ok++;
+                       } catch(e) {}
+                    }
+                    alert(`Pool atualizada com sucesso em ${ok} de ${targets.length} mineradores!`);
+                    setSelectedMachineIds([]);
+                    setModal(null);
+                 }}>Aplicar Pool na Frota</Btn>
+              </div>
+           </Modal>
+        );
+    };
+
     const handleDeleteShelf = async (shelfName, farmLocation) => {
         if (!confirm("Tem certeza que deseja APAGAR a prateleira \"" + shelfName + "\" e todas as suas posições?")) return;
         const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === farmLocation && m.shelf === shelfName);
@@ -2562,6 +2649,8 @@ function DataCenterPage({ctx}) {
     // Global Stats for All/Filtered Machines
     const totalSlotsGlobal = farmMachines.length;
     const onlineCountGlobal = farmMachines.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
+    const idleCountGlobal = farmMachines.filter(m => m.ip && farmStatus[m.ip]?.status && farmStatus[m.ip]?.status !== 'mining' && farmStatus[m.ip]?.status !== 'offline').length;
+    const offlineCountGlobal = totalSlotsGlobal - onlineCountGlobal - idleCountGlobal;
     const totalFarmTHGlobal = farmMachines.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
 
     const squareStyles = {
@@ -2641,7 +2730,10 @@ function DataCenterPage({ctx}) {
         {/* Top Header & Farm Filter Tabs */}
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, marginBottom:20}}>
            <div>
-              <h2>🖥️ Data Center / Monitor de Fazenda</h2>
+              <div style={{display:'flex', alignItems:'center', gap:10}}>
+                 <h2 style={{margin:0}}>⚡ HASHCORE TOOLKIT · Data Center & Monitor de Frota</h2>
+                 <span style={{background:C.accent, color:'#000', padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:900}}>v1.7 PRO</span>
+              </div>
               <div style={{display:'flex', gap:6, marginTop:8, overflowX:'auto', maxWidth:'75vw', paddingBottom:4}}>
                  <button
                     onClick={() => setActiveFarm("ALL")}
@@ -2696,7 +2788,7 @@ function DataCenterPage({ctx}) {
            
            <div style={{display:'flex', gap:8, alignItems:'center'}}>
               <Btn v="b" onClick={handleManualRefresh} disabled={isScanning}>
-                 {isScanning ? "⏳ Escaneando..." : "🔄 Recarregar IPs"}
+                 {isScanning ? "⏳ Escaneando..." : "🔄 Escanear Frota Agora"}
               </Btn>
               <Btn v="b" onClick={() => setModal(<Modal title="Nova Prateleira" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
            </div>
@@ -2723,21 +2815,48 @@ function DataCenterPage({ctx}) {
            </div>
         )}
 
-        {/* Global farm stats widgets */}
-        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:20}}>
-           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
+        {/* Global HashCore Fleet Widgets */}
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10, marginBottom:20}}>
+           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
               <div style={{fontSize:24, color:C.blue, fontWeight:'bold'}}>{totalSlotsGlobal}</div>
-              <div style={{color:C.subtle, fontSize:11}}>Total de Posições (Slots)</div>
+              <div style={{color:C.subtle, fontSize:11}}>Total Posições (Slots)</div>
            </div>
-           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
+           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
               <div style={{fontSize:24, color:C.green, fontWeight:'bold'}}>{onlineCountGlobal}</div>
-              <div style={{color:C.subtle, fontSize:11}}>Minadores Ativos (Online)</div>
+              <div style={{color:C.subtle, fontSize:11}}>🟢 Minando (Online)</div>
            </div>
-           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center'}}>
+           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
+              <div style={{fontSize:24, color:C.amber, fontWeight:'bold'}}>{idleCountGlobal}</div>
+              <div style={{color:C.subtle, fontSize:11}}>🟡 Ociosos / Alerta</div>
+           </div>
+           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
               <div style={{fontSize:24, color:C.accent, fontWeight:'bold'}}>{totalFarmTHGlobal.toFixed(1)} TH/s</div>
-              <div style={{color:C.subtle, fontSize:11}}>Hashrate Total Geral</div>
+              <div style={{color:C.subtle, fontSize:11}}>⚡ Hashrate Total da Frota</div>
            </div>
         </div>
+
+        {/* HashCore Mass Operations Bar (Menu de Ações em Lote) */}
+        {selectedMachineIds.length > 0 && (
+           <div style={{background:C.accent + "22", border:"1px solid " + C.accent, borderRadius:10, padding:'10px 16px', marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
+              <div style={{fontWeight:900, color:C.accent, fontSize:13}}>
+                 ⚡ HASHCORE MASS OPERATIONS: {selectedMachineIds.length} MINERADORES SELECIONADOS
+              </div>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+                 <button onClick={handleBulkReboot} style={{background:C.blue, color:'#fff', border:'none', padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}>
+                    🔄 Reiniciar em Massa
+                 </button>
+                 <button onClick={() => handleBulkLED(true)} style={{background:C.amber, color:'#000', border:'none', padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}>
+                    💡 Piscar LEDs
+                 </button>
+                 <button onClick={handleBulkChangePool} style={{background:C.green, color:'#000', border:'none', padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}>
+                    🌊 Trocar Pool em Lote
+                 </button>
+                 <button onClick={() => setSelectedMachineIds([])} style={{background:C.card2, color:C.text, border:"1px solid " + C.border, padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer'}}>
+                    ❌ Cancelar Seleção
+                 </button>
+              </div>
+           </div>
+        )}
 
         {/* View Controls & Filter Bar */}
         <div style={{background:C.card, border: "1px solid " + C.border, borderRadius:8, padding:10, marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
@@ -2750,6 +2869,18 @@ function DataCenterPage({ctx}) {
                  <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:10}}>
                      🗄️ Prateleira Virtual (HahsCore)
                  </button>
+              </div>
+
+              {/* HashCore Global Search Bar */}
+              <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6}}>
+                 <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>🔍 BUSCA:</span>
+                 <input 
+                   type="text" 
+                   value={searchQuery} 
+                   onChange={e => setSearchQuery(e.target.value)} 
+                   placeholder="IP, SN, Modelo, Slot..." 
+                   style={{background:C.card2, color:C.text, border:"1px solid " + C.border, borderRadius:4, padding:'4px 8px', fontSize:11, width:140}}
+                 />
               </div>
 
               {availableSubnets.length > 0 && (
@@ -2837,7 +2968,7 @@ function DataCenterPage({ctx}) {
                // Filter machines for this specific farm in the list
                const farmMachinesList = farmMachines.filter(m => (m.location || "Fazenda Principal") === farmName);
                
-               // Apply subnet filter & online only filter
+               // Apply subnet filter, search query & online only filter
                const filteredFarmMachines = farmMachinesList.filter(m => {
                    if (selectedSubnet !== 'ALL' && m.ip && !m.ip.startsWith(selectedSubnet)) return false;
                    if (onlyOnline) {
@@ -2845,7 +2976,17 @@ function DataCenterPage({ctx}) {
                        return stat && stat.status === 'mining';
                    }
                    if (hideEmpty) {
-                       return !m.sn.startsWith('FARM-') || m.ip;
+                       if (m.sn.startsWith('FARM-') && !m.ip) return false;
+                   }
+                   if (searchQuery.trim()) {
+                       const q = searchQuery.toLowerCase().trim();
+                       const stat = farmStatus[m.ip] || {};
+                       const matchIP = m.ip && m.ip.toLowerCase().includes(q);
+                       const matchSN = m.sn && m.sn.toLowerCase().includes(q);
+                       const matchModel = (stat.model || m.model || "").toLowerCase().includes(q);
+                       const matchSlot = m.notes && m.notes.toLowerCase().includes(q);
+                       const matchShelf = m.shelf && m.shelf.toLowerCase().includes(q);
+                       if (!matchIP && !matchSN && !matchModel && !matchSlot && !matchShelf) return false;
                    }
                    return true;
                });
@@ -2864,6 +3005,17 @@ function DataCenterPage({ctx}) {
                for (const shelf in shelfGroups) {
                    shelfGroups[shelf].sort((a, b) => (parseInt(a.notes || 0) || 0) - (parseInt(b.notes || 0) || 0));
                }
+
+               const allFilteredIds = filteredFarmMachines.map(m => m._id);
+               const isAllSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selectedMachineIds.includes(id));
+
+               const toggleSelectAll = () => {
+                   if (isAllSelected) {
+                       setSelectedMachineIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
+                   } else {
+                       setSelectedMachineIds(prev => Array.from(new Set([...prev, ...allFilteredIds])));
+                   }
+               };
 
                return (
                    <div key={farmName} style={{background:C.card, borderRadius:14, border:"1px solid " + C.border, padding:16, marginBottom:24}}>
@@ -2896,6 +3048,9 @@ function DataCenterPage({ctx}) {
                               <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, color:C.text}}>
                                   <thead>
                                       <tr style={{borderBottom:"2px solid " + C.border, color:C.subtle, textAlign:'left'}}>
+                                          <th style={{padding:8, width:30}}>
+                                             <input type="checkbox" checked={isAllSelected} onChange={toggleSelectAll} style={{cursor:'pointer'}} title="Selecionar todas desta fazenda" />
+                                          </th>
                                           <th style={{padding:8}}>Status</th>
                                           <th style={{padding:8}}>IP (Duplo clique p/ abrir)</th>
                                           <th style={{padding:8}}>Modelo da Máquina</th>
@@ -2914,13 +3069,25 @@ function DataCenterPage({ctx}) {
                                              const isDummy = m.sn && m.sn.startsWith("FARM-");
                                              const isMining = stat && stat.status === 'mining';
                                              const isIdle = stat && stat.status !== 'offline' && !isMining;
+                                             const isChecked = selectedMachineIds.includes(m._id);
                                              
                                              // Pedido 4: Nome amigável substituindo AutoSlot pelo Modelo da Máquina
                                              const machineModelName = stat?.model || m.model || "Whatsminer";
                                              const shelfLabel = m.shelf ? m.shelf.replace(/AutoSlot/gi, "Prateleira") : "Prateleira";
 
                                              return (
-                                                 <tr key={m._id} style={{borderBottom:"1px solid " + C.border + "44", background: isMining ? '#091c13' : 'transparent'}}>
+                                                 <tr key={m._id} style={{borderBottom:"1px solid " + C.border + "44", background: isChecked ? C.accent + "18" : isMining ? '#091c13' : 'transparent'}}>
+                                                     <td style={{padding:8}}>
+                                                        <input 
+                                                          type="checkbox" 
+                                                          checked={isChecked} 
+                                                          onChange={e => {
+                                                             if (e.target.checked) setSelectedMachineIds(prev => [...prev, m._id]);
+                                                             else setSelectedMachineIds(prev => prev.filter(id => id !== m._id));
+                                                          }} 
+                                                          style={{cursor:'pointer'}}
+                                                        />
+                                                     </td>
                                                      <td style={{padding:8}}>
                                                          {isMining ? (
                                                              <span style={{background:'#0e3925', color:C.green, border:'1px solid ' + C.green, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🟢 MINANDO</span>
