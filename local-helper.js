@@ -28,10 +28,10 @@ let lastIPReports = [];
 
 // Setup UDP Listeners for Bitmain and Whatsminer IP Reports
 const setupUDPServer = (port) => {
-    const server = dgram.createSocket('udp4');
+    const server = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     server.on('error', (err) => {
         console.error(`UDP Server error on port ${port}:`, err);
-        server.close();
+        try { server.close(); } catch(e){}
     });
     server.on('message', (msg, rinfo) => {
         console.log(`Received IP Report broadcast from ${rinfo.address} on port ${port}`);
@@ -44,13 +44,13 @@ const setupUDPServer = (port) => {
             timestamp: Date.now(),
             source_port: port
         });
-        if (lastIPReports.length > 20) lastIPReports.pop();
+        if (lastIPReports.length > 25) lastIPReports.pop();
     });
     server.on('listening', () => {
-        console.log(`UDP Listener active for IP Reports on port ${port}`);
+        console.log(`UDP Listener active for IP Reports on port ${port} (shared reuseAddr)`);
     });
     try {
-        server.bind(port);
+        server.bind({ port: port, exclusive: false });
     } catch (e) {
         console.error(`Could not bind UDP on port ${port}:`, e.message);
     }
@@ -110,6 +110,76 @@ app.get('/api/ipreport', (req, res) => {
     // Keep only reports from the last 2 minutes
     lastIPReports = lastIPReports.filter(r => Date.now() - r.timestamp < 120000);
     res.json(lastIPReports);
+});
+
+// Endpoint to scan a range of IPs (BTC Tools style scanner)
+app.post('/api/scan-range', async (req, res) => {
+    let { start, end, subnet } = req.body;
+    let ipList = [];
+    
+    if (subnet) {
+        for (let i = 1; i <= 254; i++) ipList.push(`${subnet}.${i}`);
+    } else if (start && end) {
+        const ipToLong = ip => ip.split('.').reduce((acc, oct) => (acc << 8) + parseInt(oct, 10), 0) >>> 0;
+        const longToIp = long => [(long >>> 24) & 255, (long >>> 16) & 255, (long >>> 8) & 255, long & 255].join('.');
+        const startLong = ipToLong(start);
+        const endLong = ipToLong(end);
+        for (let l = startLong; l <= endLong && ipList.length < 256; l++) {
+            ipList.push(longToIp(l));
+        }
+    } else {
+        return res.status(400).json({ error: 'Informe start/end ou subnet' });
+    }
+
+    console.log(`BTC Tools Scanner: Scanning ${ipList.length} IPs...`);
+    const results = [];
+    const batchSize = 35;
+    for (let i = 0; i < ipList.length; i += batchSize) {
+        const batch = ipList.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (ip) => {
+            try {
+                const summaryData = await queryMinerAPI(ip, 'summary').catch(() => null);
+                if (!summaryData) return;
+                const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
+                
+                const sum = summaryData?.SUMMARY?.[0] || {};
+                const stat = statsData?.STATS?.[1] || {};
+                
+                let hashrate = 0;
+                if (sum['MHS av']) hashrate = sum['MHS av'] / 1000000;
+                if (sum['GHS av']) hashrate = sum['GHS av'] / 1000;
+                if (sum['THS av']) hashrate = sum['THS av'];
+                
+                let maxTemp = 0;
+                for(let t=1; t<=4; t++) {
+                    if(stat[`temp${t}`] > maxTemp) maxTemp = stat[`temp${t}`];
+                    if(stat[`temp_chip${t}`]) {
+                        const temps = String(stat[`temp_chip${t}`]).split('-').map(Number);
+                        temps.forEach(tp => { if(tp > maxTemp) maxTemp = tp; });
+                    }
+                }
+
+                results.push({
+                    ip,
+                    status: hashrate > 0 ? 'mining' : 'idle',
+                    model: stat.Type || stat.Miner || stat['Miner Type'] || 'Whatsminer/Bitmain',
+                    sn: stat.Miner_SN || stat.miner_sn || stat.SN || '',
+                    uptime: sum.Elapsed || 0,
+                    hashrate: hashrate,
+                    temp: maxTemp,
+                    slots: [
+                        stat.chain_sn0 || stat.pcb_sn0 || stat['hash board 0 sn'] || stat['board_sn0'] || null,
+                        stat.chain_sn1 || stat.pcb_sn1 || stat['hash board 1 sn'] || stat['board_sn1'] || null,
+                        stat.chain_sn2 || stat.pcb_sn2 || stat['hash board 2 sn'] || stat['board_sn2'] || null
+                    ]
+                });
+            } catch (e) {
+                // Ignore non-responsive IPs
+            }
+        }));
+    }
+
+    res.json({ count: results.length, miners: results });
 });
 
 // Endpoint to get miner details (Model, SN, MAC, Hashboard SNs, Hashrate, Uptime)
