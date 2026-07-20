@@ -2315,7 +2315,8 @@ function DataCenterPage({ctx}) {
     const [activeFarm, setActiveFarm] = useState("Fazenda Principal");
     const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
     const [squareSize, setSquareSize] = useState("medium"); // "small" | "medium" | "large"
-    const [hideEmpty, setHideEmpty] = useState(true); // Ocultar vagos por padrão (estilo BTC Tools)
+    const [hideEmpty, setHideEmpty] = useState(false); // Exibe a prateleira virtual completa com slots metálicos elegantes
+    const [selectedSubnet, setSelectedSubnet] = useState('ALL');
 
     // List of unique farms
     const farmsList = useMemo(() => {

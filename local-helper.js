@@ -42,15 +42,17 @@ const setupUDPServer = (port) => {
         lastIPReports.unshift({
             ip: rinfo.address,
             timestamp: Date.now(),
-            source_port: port
+            source_port: port,
+            raw_hex: msg.toString('hex')
         });
-        if (lastIPReports.length > 25) lastIPReports.pop();
+        if (lastIPReports.length > 30) lastIPReports.pop();
     });
     server.on('listening', () => {
-        console.log(`UDP Listener active for IP Reports on port ${port} (shared reuseAddr)`);
+        const addr = server.address();
+        console.log(`UDP Listener active for IP Reports on ${addr.address}:${addr.port} (reuseAddr shared)`);
     });
     try {
-        server.bind({ port: port, exclusive: false });
+        server.bind({ port: port, address: '0.0.0.0', exclusive: false });
     } catch (e) {
         console.error(`Could not bind UDP on port ${port}:`, e.message);
     }
@@ -107,6 +109,10 @@ const queryMinerAPI = (ip, cmd) => {
 app.get('/api/ping', (req, res) => res.json({ status: 'ok' }));
 
 app.get('/api/ipreport', (req, res) => {
+    if (req.query.clear === 'true') {
+        lastIPReports = [];
+        return res.json([]);
+    }
     // Keep only reports from the last 2 minutes
     lastIPReports = lastIPReports.filter(r => Date.now() - r.timestamp < 120000);
     res.json(lastIPReports);
