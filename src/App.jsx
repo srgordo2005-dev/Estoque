@@ -4994,7 +4994,37 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         }
     };
 
+    const [udpErrors, setUdpErrors] = useState([]);
+    useEffect(() => {
+        const checkUdpDiagnostics = async () => {
+            try {
+                const res = await fetch('http://localhost:3001/api/ipreport-status');
+                if (res.ok) {
+                    const status = await res.json();
+                    const errors = [];
+                    for (const port in status) {
+                        if (status[port].startsWith('erro')) {
+                            errors.push(`Porta ${port} (${port === '4000' ? 'Bitmain' : 'Whatsminer'}): ${status[port]}`);
+                        }
+                    }
+                    setUdpErrors(errors);
+                }
+            } catch(e) {}
+        };
+        checkUdpDiagnostics();
+        const interval = setInterval(checkUdpDiagnostics, 6000);
+        return () => clearInterval(interval);
+    }, []);
+
     return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px solid ${listening ? C.green : C.border}`}}>
+        {udpErrors.length > 0 && (
+            <div style={{background: C.red + "22", border: "1px solid " + C.red, color: C.red, borderRadius: 8, padding: 8, fontSize: 11, marginBottom: 10, fontWeight: 700}}>
+                ⚠️ Conflito no IP Report local:
+                <ul style={{margin:'4px 0 0 16px', padding:0}}>
+                    {udpErrors.map(err => <li key={err}>{err}. Feche outros aplicativos de IP Reporter/BTC Tools!</li>)}
+                </ul>
+            </div>
+        )}
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
            <div>
               <div style={{fontWeight:800, color: listening ? C.green : C.subtle, fontSize:13}}>

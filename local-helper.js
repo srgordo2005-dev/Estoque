@@ -61,8 +61,45 @@ const PORT = 3001;
 // IP Report state
 let lastIPReports = [];
 
+// Status tracking for UDP ports
+let udpStatuses = {};
+
 // Setup UDP Listeners for Bitmain and Whatsminer IP Reports
 const setupUDPServer = (port) => {
+    const server = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    udpStatuses[port] = 'iniciando';
+
+    server.on('error', (err) => {
+        console.error(`UDP Server error on port ${port}:`, err);
+        udpStatuses[port] = `erro: ${err.message}`;
+        try { server.close(); } catch(e){}
+    });
+    server.on('message', (msg, rinfo) => {
+        console.log(`Received IP Report broadcast from ${rinfo.address} on port ${port}`);
+        const existingIdx = lastIPReports.findIndex(x => x.ip === rinfo.address);
+        if (existingIdx !== -1) {
+            lastIPReports.splice(existingIdx, 1);
+        }
+        lastIPReports.unshift({
+            ip: rinfo.address,
+            timestamp: Date.now(),
+            source_port: port,
+            raw_hex: msg.toString('hex')
+        });
+        if (lastIPReports.length > 30) lastIPReports.pop();
+    });
+    server.on('listening', () => {
+        const addr = server.address();
+        udpStatuses[port] = 'ativo';
+        console.log(`UDP Listener active for IP Reports on ${addr.address}:${addr.port} (reuseAddr shared)`);
+    });
+    try {
+        server.bind({ port: port, address: '0.0.0.0', exclusive: false });
+    } catch (e) {
+        udpStatuses[port] = `erro bind: ${e.message}`;
+        console.error(`Could not bind UDP on port ${port}:`, e.message);
+    }
+};
     const server = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     server.on('error', (err) => {
         console.error(`UDP Server error on port ${port}:`, err);
@@ -531,6 +568,11 @@ setInterval(() => {
         }
     }
 }, 5 * 60 * 1000);
+
+
+app.get('/api/ipreport-status', (req, res) => {
+    res.json(udpStatuses);
+});
 
 app.listen(PORT, () => {
     console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT}`);
