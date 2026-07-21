@@ -2343,6 +2343,49 @@ function DataCenterPage({ctx}) {
     const [selectedMachineIds, setSelectedMachineIds] = useState([]);
     const [isScanning, setIsScanning] = useState(false);
 
+    // Execute action locally first, fallback to Supabase Realtime broadcast globally
+    const executeRemoteAction = useCallback(async (ip, actionName, args = {}) => {
+        // Try locally first
+        try {
+            const res = await fetch(`http://localhost:3001/api/${actionName}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ip, ...args })
+            });
+            if (res.ok) return true;
+        } catch(e) {}
+
+        // Fallback to Supabase Realtime broadcast
+        console.log(`[HashStock Client] Local helper offline. Relay command "${actionName}" to Cloud Realtime...`);
+        const channelName = `farm-${activeFarm.replace(/\s+/g, '_')}`;
+        const channel = supabase.channel(channelName);
+        channel.send({
+            type: 'broadcast',
+            event: 'command',
+            payload: { type: actionName, ip, ...args }
+        });
+        return true;
+    }, [activeFarm]);
+
+    // Subscribe to Cloud Realtime status broadcasts when local helper is unreachable
+    useEffect(() => {
+        if (activeFarm === "ALL") return;
+        const channelName = `farm-${activeFarm.replace(/\s+/g, '_')}`;
+        const channel = supabase.channel(channelName);
+
+        channel.on('broadcast', { event: 'status-update' }, ({ payload }) => {
+            if (payload && payload.statusCache) {
+                console.log("[HashStock Client] Received live status update from cloud relay:", payload);
+                setFarmStatus(prev => ({ ...prev, ...payload.statusCache }));
+            }
+        });
+
+        channel.subscribe();
+        return () => {
+            channel.unsubscribe();
+        };
+    }, [activeFarm]);
+
     // Fetch farm status (manual + 5s loop)
     const fetchFarmStatus = useCallback(async () => {
        try {
@@ -2514,11 +2557,7 @@ function DataCenterPage({ctx}) {
         if (!m.ip) return;
         const nextState = !currentState;
         try {
-          await fetch('http://localhost:3001/api/blink', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ip: m.ip, firmware: m.firmware || 'vnish', on: nextState })
-          });
+          await executeRemoteAction(m.ip, 'blink', { on: nextState });
         } catch (e) {
           alert("Erro ao acionar LED: " + e.message);
         }
@@ -2581,11 +2620,7 @@ function DataCenterPage({ctx}) {
         let success = 0;
         for (const m of targets) {
            try {
-              await fetch('http://localhost:3001/api/reboot', {
-                 method: 'POST',
-                 headers: {'Content-Type': 'application/json'},
-                 body: JSON.stringify({ ip: m.ip })
-              });
+              await executeRemoteAction(m.ip, 'reboot');
               success++;
            } catch(e) {}
         }
@@ -2601,11 +2636,7 @@ function DataCenterPage({ctx}) {
 
         for (const m of targets) {
            try {
-              await fetch('http://localhost:3001/api/blink', {
-                 method: 'POST',
-                 headers: {'Content-Type': 'application/json'},
-                 body: JSON.stringify({ ip: m.ip, on: turnOn })
-              });
+              await executeRemoteAction(m.ip, 'blink', { on: turnOn });
            } catch(e) {}
         }
         alert(`LEDs ${turnOn ? 'ativados' : 'desativados'} para ${targets.length} mineradores!`);
@@ -2632,11 +2663,7 @@ function DataCenterPage({ctx}) {
                     let ok = 0;
                     for (const m of targets) {
                        try {
-                          await fetch('http://localhost:3001/api/set-pool', {
-                             method: 'POST',
-                             headers: {'Content-Type': 'application/json'},
-                             body: JSON.stringify({ ip: m.ip, url: poolUrl, worker, password: pwd })
-                          });
+                          await executeRemoteAction(m.ip, 'set-pool', { url: poolUrl, worker, password: pwd });
                           ok++;
                        } catch(e) {}
                     }
