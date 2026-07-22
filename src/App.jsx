@@ -5004,7 +5004,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         setListening(true);
     };
 
-    // Auto-fill board SNs from miner info
+    // Auto-fill board SNs, model, and components from miner info
     const applyMinerDetailsToSession = (info, ip) => {
         if (!session || !saveSession) return;
         let updatedSlots = [...session.slots];
@@ -5012,17 +5012,43 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         
         if (info.slots && Array.isArray(info.slots)) {
             info.slots.forEach((boardSN, idx) => {
-                if (boardSN && idx < 3 && (!updatedSlots[idx].hashSN || updatedSlots[idx].hashSN.trim() === '')) {
-                    updatedSlots[idx] = { ...updatedSlots[idx], hashSN: String(boardSN).toUpperCase().trim() };
-                    hasChanges = true;
+                if (boardSN && idx < 3) {
+                    const cleanSN = String(boardSN).toUpperCase().trim();
+                    if (!updatedSlots[idx].hashSN || updatedSlots[idx].hashSN.trim() === '') {
+                        updatedSlots[idx] = { 
+                            ...updatedSlots[idx], 
+                            hashSN: cleanSN,
+                            status: info.status === 'mining' ? 'good' : updatedSlots[idx].status
+                        };
+                        hasChanges = true;
+                    }
                 }
             });
+        }
+
+        let updatedModel = session.model;
+        if (info.model && info.model.trim()) {
+            const detected = info.model.trim();
+            const matched = ctx?.allModels?.()?.find(m => m.m.toLowerCase() === detected.toLowerCase()) || 
+                            ctx?.allModels?.()?.find(m => detected.toLowerCase().includes(m.m.toLowerCase()));
+            if (matched) {
+                updatedModel = matched.m;
+                hasChanges = true;
+            } else if (detected) {
+                updatedModel = detected;
+                hasChanges = true;
+            }
         }
 
         const newSession = {
             ...session,
             ip: ip || session.ip,
+            model: updatedModel,
+            th: ctx?.gTH?.(updatedModel) || session.th,
             slots: updatedSlots,
+            controladora: info.status === 'mining' ? 'ON' : (session.controladora || 'ON'),
+            fonte: info.status === 'mining' ? 'ON' : (session.fonte || 'ON'),
+            fans: info.status === 'mining' ? 'ON' : (session.fans || 'ON'),
             updatedAt: stamp()
         };
         
@@ -5124,14 +5150,26 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                             // 1. Take screenshot
                             const photoUrl = await capturePrintAndUpload(ip);
                             
-                            // 2. Submit session to review
+                            // 2. Prepare automatic slots & components
+                            const autoSlots = session.slots.map(s => ({
+                                ...s,
+                                status: s.status || (s.hashSN ? "good" : "")
+                            }));
+
+                            // 3. Submit session to review
                             const updatedSess = {
                                 ...session,
+                                slots: autoSlots,
+                                controladora: session.controladora || "ON",
+                                fonte: session.fonte || "ON",
+                                fans: session.fans || "ON",
+                                isAutomatic: true,
+                                autoSubmitted: true,
                                 photoKey: photoUrl || session.photoKey,
-                                adminNotes: [...(session.adminNotes || []), `Uptime atingido: ${uptimeHours.toFixed(1)}h (Alvo: ${targetUptimeHours}h). Print tirado automaticamente.`]
+                                adminNotes: [...(session.adminNotes || []), `⚡ AUTOMÁTICO (${uptimeHours.toFixed(1)}h Uptime / Alvo: ${targetUptimeHours}h)`]
                             };
                             await doSubmit(updatedSess);
-                            alert(`🎉 UPTIME DE ${targetUptimeHours}h ALCANÇADO COM SUCESSO!\n\n📸 Print do Dashboard e Logs capturado e salvo na máquina.\n✅ Enviada para REVISÃO!\n\n🔌 PODE DESLIGAR A MÁQUINA DA BANCADA AGORA.`);
+                            alert(`🎉 UPTIME DE ${targetUptimeHours}h ALCANÇADO COM SUCESSO!\n\n⚡ Teste marcado como AUTOMÁTICO (3h Uptime).\n📸 Print do Dashboard + Logs salvo.\n✅ Enviada para REVISÃO!\n\n🔌 PODE DESLIGAR A MÁQUINA DA BANCADA AGORA.`);
                         }
                     }
                 }
@@ -5876,6 +5914,56 @@ function TestePage({ctx}){
       <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
         <PhotoCapture label="📸 Foto da Tela / App Fabricante (opcional)" photoKey={session.photoKey||null} onChange={k=>saveSession({...session,photoKey:k,updatedAt:stamp()})} folder="testes" snHint={session.machineSN}/>
       </div>
+
+      {/* Pending & Automatic Tests Section for Tester Review/Edit */}
+      {data.approvals.filter(a => a.status === "pending" && (a.employeeId === user._id || user.code === "019")).length > 0 && (
+        <div style={{background: C.card, borderRadius: 14, padding: 14, marginTop: 16, border: "1px solid " + C.border}}>
+          <SL>⚡ TESTES PENDENTES & AUTOMÁTICOS (Aguardando Aprovação)</SL>
+          <div style={{fontSize: 11, color: C.subtle, marginBottom: 10}}>
+            Você pode verificar e editar qualquer dado dessas máquinas enquanto o Admin ainda não aprovou.
+          </div>
+          <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+            {data.approvals.filter(a => a.status === "pending" && (a.employeeId === user._id || user.code === "019")).map(appr => {
+               const isAuto = appr.isAutomatic || appr.adminNote?.includes("AUTOMÁTICO");
+               const testRec = data.tests.find(t => t._id === appr.testId);
+               return (
+                 <Card key={appr._id} accent={isAuto ? C.green : C.blue} style={{marginBottom: 0}}>
+                   <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8}}>
+                     <div>
+                       <div style={{fontWeight: 800, fontSize: 13, color: isAuto ? C.green : C.text, display: 'flex', alignItems: 'center', gap: 6}}>
+                         <span>🖥️ {appr.machineSN}</span>
+                         <span style={{color: C.subtle, fontSize: 11}}>({appr.model} · {appr.th}TH)</span>
+                         {isAuto && (
+                           <span style={{background: C.green + "22", border: "1px solid " + C.green, color: C.green, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 900}}>
+                             ⚡ AUTOMÁTICO (3h)
+                           </span>
+                         )}
+                       </div>
+                       <div style={{fontSize: 11, color: C.muted, marginTop: 2}}>
+                         👷 {appr.employeeName} · {fmtTS(appr._at || appr.date)}
+                       </div>
+                       {appr.adminNote && (
+                         <div style={{fontSize: 10, color: C.subtle, marginTop: 2}}>📝 {appr.adminNote}</div>
+                       )}
+                     </div>
+
+                     <button 
+                       onClick={() => setModal(
+                         <Modal title={"✏️ Editar Teste Pendente — " + appr.machineSN} onClose={() => setModal(null)}>
+                           <EditPendingTestForm ctx={ctx} appr={appr} test={testRec} onSaved={() => setModal(null)} />
+                         </Modal>
+                       )}
+                       style={{background: C.accent, color: '#000', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer'}}
+                     >
+                       ✏️ Editar Teste
+                     </button>
+                   </div>
+                 </Card>
+               );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Vinculação de palete imediata */}
       <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
