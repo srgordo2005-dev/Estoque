@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -102,7 +102,6 @@ app.on('activate', () => {
 });
 
 
-const { dialog, shell } = require('electron');
 const pkgInfo = require('./package.json');
 
 async function checkForUpdates() {

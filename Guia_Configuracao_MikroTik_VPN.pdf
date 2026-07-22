@@ -1,0 +1,978 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 6924
+>>
+stream
+0.5670000000000001 w
+0 G
+0.05 0.08 0.13 rg
+0. 841.8899999999999864 595.2755905511811534 -79.3700787401574814 re
+f
+BT
+/F2 16 Tf
+18.3999999999999986 TL
+1. g
+42.5196850393700814 807.8742519685039269 Td
+(GUIA AVANÇADO DE CONFIGURAÇÃO DE REDE) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+1. g
+42.5196850393700814 790.8663779527558972 Td
+(MikroTik RB750Gr3 · Dual WAN Failover · VPN WireGuard · n8n Topology) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 28.3466929133857093 Td
+(HashStock VPN & MikroTik Guide | Página 1) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+42.5196850393700814 734.1734645669291695 Td
+(1. Arquitetura da Rede e Plano de IPs) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 717.1655905511811397 Td
+(Para monitorar múltiplas fazendas de mineração de forma centralizada e sem a necessidade de manter computadores ligados) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 704.4096850393700606 Td
+(em cada local físico, adotamos uma topologia Hub-and-Spoke. O servidor central \(ou VPS\) atua como o concentrador \(Hub\)) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 691.6537795275589815 Td
+(VPN WireGuard, e cada roteador MikroTik RB750Gr3 nas fazendas atua como cliente \(Spoke\) VPN.) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 673.2285826771653774 Td
+(Cada fazenda deve possuir uma faixa de endereços IP local \(subrede\) diferente para evitar conflitos de rota. O tráfego para os) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 660.4726771653542983 Td
+(mineradores é roteado de forma transparente pelo túnel criptografado da VPN.) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.118 0.161 0.231 rg
+42.5196850393700814 642.0474803149605805 Td
+(Plano de Distribuição de IPs:) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 627.8742519685039269 Td
+(- Servidor Central \(HashStock/n8n\): IP Local 192.168.1.100 | IP Túnel VPN: 10.0.0.1) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 615.1183464566928478 Td
+(- Fazenda 1 \(MikroTik A\): Subrede Local 192.168.10.0/24 | IP Túnel VPN: 10.0.0.2) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 602.3624409448818824 Td
+(- Fazenda 2 \(MikroTik B\): Subrede Local 192.168.20.0/24 | IP Túnel VPN: 10.0.0.3) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 589.6065354330708033 Td
+(- Fazenda 3 \(MikroTik C\): Subrede Local 192.168.30.0/24 | IP Túnel VPN: 10.0.0.4) Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+42.5196850393700814 571.1813385826771992 Td
+(2. Configuração de Failover Dual WAN \(ether1 e ether2\)) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 554.1734645669291695 Td
+(Para garantir que a fazenda não fique offline se uma das conexões de internet cair, configuramos um sistema de failover) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 541.4175590551180903 Td
+(automático na MikroTik. O link primário é conectado na porta ether1 e o link secundário \(backup, ex. modem 4G\) na porta) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 528.6616535433070112 Td
+(ether2.) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 510.2364566929133503 Td
+(Utilizamos checagem recursiva de rota \(check-gateway=ping\) disparando pings para servidores DNS públicos \(como do) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 497.480551181102328 Td
+(Cloudflare 1.1.1.1 e Google 8.8.8.8\) para garantir que a rota caia se houver perda de internet real, e não apenas se o cabo físico) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 484.7246456692913057 Td
+(for desconectado.) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.118 0.161 0.231 rg
+42.5196850393700814 466.2994488188975879 Td
+(Comandos para Configuração do Failover:) Tj
+ET
+0.95 0.96 0.98 rg
+42.5196850393700814 452.1262204724408775 510.2362204724410049 -151.6535433070866361 re
+f
+0.06 0.09 0.16 rg
+42.5196850393700814 452.1262204724408775 4.2519685039370083 -151.6535433070866361 re
+f
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 435.1183464566928478 Td
+(# 1. Configurar os DHCP Clientes nas portas WAN \(caso usem IP Dinâmico\)) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 425.1970866141731449 Td
+(/ip dhcp-client) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 415.2758267716534988 Td
+(add interface=ether1 disabled=no use-peer-dns=yes use-peer-ntp=yes default-route-distance=10) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 405.3545669291337958 Td
+(add interface=ether2 disabled=no use-peer-dns=yes use-peer-ntp=yes default-route-distance=20) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 385.5120472440944468 Td
+(# 2. Criar marcação de rotas e IPs estáticos de monitoramento para failover recursivo) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 375.5907874015747439 Td
+(/ip route) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 365.6695275590550409 Td
+(add dst-address=1.1.1.1 gateway=GW_DA_WAN1 scope=10 target-scope=10 check-gateway=ping comment="Testador Link 1") Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 355.7482677165353948 Td
+(add dst-address=8.8.8.8 gateway=GW_DA_WAN2 scope=10 target-scope=10 check-gateway=ping comment="Testador Link 2") Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 335.9057480314959889 Td
+(# 3. Criar as rotas padrão que respondem ao estado dos testadores) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 325.9844881889763428 Td
+(add dst-address=0.0.0.0/0 gateway=1.1.1.1 distance=1 check-gateway=ping comment="Rota Principal via WAN 1") Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 316.0632283464566399 Td
+(add dst-address=0.0.0.0/0 gateway=8.8.8.8 distance=2 check-gateway=ping comment="Rota de Backup via WAN 2") Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+42.5196850393700814 291.9687401574802834 Td
+(3. Configuração do Cliente VPN WireGuard) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 274.9608661417322537 Td
+(O WireGuard é configurado na MikroTik para conectar de volta ao servidor central da VPN. Toda a comunicação com os) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 262.2049606299211746 Td
+(mineradores passará de forma segura por dentro do túnel.) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.118 0.161 0.231 rg
+42.5196850393700814 243.7797637795274568 Td
+(Código de Inicialização da VPN na MikroTik:) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 8790
+>>
+stream
+0.5670000000000001 w
+0 G
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 28.3466929133857093 Td
+(HashStock VPN & MikroTik Guide | Página 2) Tj
+ET
+0.95 0.96 0.98 rg
+42.5196850393700814 799.3703149606299121 510.2362204724410049 -191.3385826771653626 re
+f
+0.06 0.09 0.16 rg
+42.5196850393700814 799.3703149606299121 4.2519685039370083 -191.3385826771653626 re
+f
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 782.3624409448818824 Td
+(# 1. Criar a interface WireGuard) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 772.4411811023621794 Td
+(/interface wireguard) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 762.5199212598424765 Td
+(add name=wg-hashstock listen-port=13231 comment="Conexao VPN HashStock") Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 742.6774015748030706 Td
+(# 2. Adicionar o endereço IP de túnel correspondente a esta fazenda \(Ex: Fazenda 1\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 732.7561417322834814 Td
+(/ip address) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 722.8348818897637784 Td
+(add address=10.0.0.2/24 interface=wg-hashstock network=10.0.0.0) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 702.9923622047243725 Td
+(# 3. Configurar o Peer \(Servidor Central VPN\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 693.0711023622046696 Td
+(/interface wireguard peers) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 683.1498425196850803 Td
+(add interface=wg-hashstock public-key="INSIRA_AQUI_A_PUBLIC_KEY_DO_SERVIDOR_VPN" \\) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 673.2285826771653774 Td
+(    endpoint-address="IP_PUBLICO_OU_DDNS_DO_SERVIDOR" endpoint-port=51820 \\) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 663.3073228346456744 Td
+(    allowed-address=10.0.0.1/32,192.168.1.0/24 keepalive=25s comment="Conexao com Hub Central") Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 643.4648031496062686 Td
+(# 4. Adicionar a rota estática para enviar tráfego ao servidor central) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 633.5435433070865656 Td
+(/ip route) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+53.8582677165354369 623.6222834645668627 Td
+(add dst-address=192.168.1.0/24 gateway=wg-hashstock comment="Rota para Servidor Central via VPN") Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+42.5196850393700814 599.5277952755905062 Td
+(4. Hardening de Segurança e Otimização do Firewall) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 582.5199212598424765 Td
+(Para proteger as controladoras e a rede interna da fazenda contra acessos externos maliciosos, desativamos serviços) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 569.7640157480313974 Td
+(desnecessários da MikroTik, mudamos as portas de acesso padrão e configuramos o firewall para bloquear tudo que venha da) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 557.0081102362204319 Td
+(internet, permitindo apenas tráfego interno e da VPN.) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 538.5829133858267141 Td
+(Usamos a regra de 'Fasttrack' para conexões estabelecidas, garantindo que o roteamento local de alta velocidade entre as) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 525.827007874015635 Td
+(mineradoras e a rede não consuma CPU desnecessária do roteador RB750Gr3, mantendo o throughput máximo.) Tj
+ET
+BT
+/F2 10 Tf
+11.5 TL
+0.118 0.161 0.231 rg
+42.5196850393700814 507.4018110236219741 Td
+(Script de Segurança e Firewall:) Tj
+ET
+0.95 0.96 0.98 rg
+42.5196850393700814 493.2285826771653205 510.2362204724410049 -350.0787401574803539 re
+f
+0.06 0.09 0.16 rg
+42.5196850393700814 493.2285826771653205 4.2519685039370083 -350.0787401574803539 re
+f
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 476.2207086614172908 Td
+(# 1. Desativar serviços inseguros e não utilizados) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 466.2994488188975879 Td
+(/ip service) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 456.378188976377885 Td
+(set telnet disabled=yes) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 446.4569291338582389 Td
+(set ftp disabled=yes) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 436.5356692913385359 Td
+(set www disabled=yes) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 426.614409448818833 Td
+(set api disabled=yes) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 416.69314960629913 Td
+(set api-ssl disabled=yes) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 396.850629921259781 Td
+(# 2. Alterar portas de acesso seguro \(SSH e Winbox\)) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 386.929370078740078 Td
+(set ssh port=2222 disabled=no) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 377.0081102362204319 Td
+(set winbox port=8291 disabled=no) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 357.1655905511810261 Td
+(# 3. Configuração do Firewall \(Seguro e Rápido\)) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 347.24433070866138 Td
+(/ip firewall filter) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 337.323070866141677 Td
+(# Permitir conexões já estabelecidas e relacionadas \(Fasttrack - Mantém a CPU livre\)) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 327.4018110236220309 Td
+(add action=fasttrack-connection chain=forward connection-state=established,related comment="Fasttrack") Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 317.480551181102328 Td
+(add action=accept chain=forward connection-state=established,related) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 307.559291338582625 Td
+(add action=accept chain=input connection-state=established,related) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 287.7167716535432191 Td
+(# Permitir tráfego vindo da interface da VPN) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 277.7955118110235162 Td
+(add action=accept chain=forward in-interface=wg-hashstock comment="Aceitar trafego da VPN") Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 267.8742519685038133 Td
+(add action=accept chain=input in-interface=wg-hashstock comment="Aceitar conexoes da VPN para a MikroTik") Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 248.0317322834645211 Td
+(# Bloquear tudo o que vier das interfaces de Internet \(WANs\) para o roteador) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 238.1104724409448181 Td
+(add action=drop chain=input in-interface=ether1 comment="Bloquear WAN1") Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 228.1892125984251152 Td
+(add action=drop chain=input in-interface=ether2 comment="Bloquear WAN2") Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 208.3466929133857093 Td
+(# Bloquear pacotes inválidos) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 198.4254330708660063 Td
+(add action=drop chain=input connection-state=invalid) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 188.5041732283464171 Td
+(add action=drop chain=forward connection-state=invalid) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 168.6616535433070112 Td
+(# 4. Alterar a senha de administrador \(Altere 'MINHA_NOVA_SENHA_SEGURA'\)) Tj
+ET
+BT
+/F5 7.5 Tf
+8.625 TL
+0.118 0.161 0.231 rg
+53.8582677165354369 158.7403937007873083 Td
+(/user set admin password="MINHA_NOVA_SENHA_SEGURA") Tj
+ET
+BT
+/F2 12 Tf
+13.7999999999999989 TL
+0.059 0.09 0.165 rg
+42.5196850393700814 134.6459055118109518 Td
+(5. Topologia n8n e Monitoramento Sem Sobrecarga) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 117.6380314960629221 Td
+(O n8n atua como o orquestrador de monitoramento inteligente. Ele roda de forma independente na nuvem ou no servidor central) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.2 0.255 0.333 rg
+42.5196850393700814 104.882125984251843 Td
+(e faz varreduras diretas nos blocos de IP de cada fazenda através da rota da VPN.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 8 0 R
+>>
+endobj
+8 0 obj
+<<
+/Length 1734
+>>
+stream
+0.5670000000000001 w
+0 G
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 28.3466929133857093 Td
+(HashStock VPN & MikroTik Guide | Página 3) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 799.3703149606299121 Td
+(Para evitar sobrecarga no banco de dados Supabase, o workflow executa a seguinte lógica:) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 786.614409448818833 Td
+(1. Consulta Inicial \(Leitura Estática\): O n8n faz um GET rápido na lista de IPs mapeados ativos no banco. Isso é feito apenas) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 773.8585039370078675 Td
+(uma vez por ciclo.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 761.1025984251967884 Td
+(2. Varredura Direta \(Ping/Status API\): O n8n envia consultas HTTP diretamente aos mineradores usando o túnel VPN. Ele não) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 748.346692913385823 Td
+(grava esses resultados no banco de dados!) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 735.5907874015747439 Td
+(3. Alerta Condicional: O n8n compara o estado atual da máquina com o cache local da execução anterior. Se o estado mudou) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 722.8348818897637784 Td
+(de Online para Offline, ele dispara um alerta para o Telegram Bot.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.431 0.471 rg
+42.5196850393700814 710.0789763779526993 Td
+(4. Resultado: O banco de dados Supabase permanece 100% limpo de logs repetitivos e você recebe alertas em tempo real.) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R 7 0 R ]
+/Count 3
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+21 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+22 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 9 0 R
+/F2 10 0 R
+/F3 11 0 R
+/F4 12 0 R
+/F5 13 0 R
+/F6 14 0 R
+/F7 15 0 R
+/F8 16 0 R
+/F9 17 0 R
+/F10 18 0 R
+/F11 19 0 R
+/F12 20 0 R
+/F13 21 0 R
+/F14 22 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+23 0 obj
+<<
+/Producer (jsPDF 2.5.2)
+/CreationDate (D:20260722104850-03'00')
+>>
+endobj
+24 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 25
+0000000000 65535 f 
+0000018030 00000 n 
+0000019863 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000007128 00000 n 
+0000007265 00000 n 
+0000016107 00000 n 
+0000016244 00000 n 
+0000018099 00000 n 
+0000018224 00000 n 
+0000018355 00000 n 
+0000018489 00000 n 
+0000018627 00000 n 
+0000018751 00000 n 
+0000018880 00000 n 
+0000019012 00000 n 
+0000019148 00000 n 
+0000019276 00000 n 
+0000019403 00000 n 
+0000019532 00000 n 
+0000019665 00000 n 
+0000019767 00000 n 
+0000020115 00000 n 
+0000020201 00000 n 
+trailer
+<<
+/Size 25
+/Root 24 0 R
+/Info 23 0 R
+/ID [ <F8504A676FEF737F2FB01CC9B756A494> <F8504A676FEF737F2FB01CC9B756A494> ]
+>>
+startxref
+20305
+%%EOF
