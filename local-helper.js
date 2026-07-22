@@ -33,15 +33,15 @@ function detectMinerDetails(stat = {}, summary = {}, version = {}) {
     return { model, sn };
 }
 
-import express from 'express';
-import cors from 'cors';
-import dgram from 'dgram';
-import net from 'net';
-import fs from 'fs';
-import path from 'path';
-import { exec } from 'child_process';
-import TelegramBot from 'node-telegram-bot-api';
-import puppeteer from 'puppeteer-core';
+const express = require('express');
+const cors = require('cors');
+const dgram = require('dgram');
+const net = require('net');
+const fs = require('fs');
+const path = require('path');
+const { exec } = require('child_process');
+const TelegramBot = require('node-telegram-bot-api');
+const puppeteer = require('puppeteer-core');
 
 const botToken = '8627853322:AAEwVrIwNz3vPejxiaUFGR0sb2I6bBRieyo';
 const bot = new TelegramBot(botToken, {polling: true});
@@ -53,10 +53,10 @@ bot.onText(/\/start/, (msg) => {
 });
 
 
-import ws from 'ws';
+const ws = require('ws');
 globalThis.WebSocket = ws;
 
-import { createClient } from '@supabase/supabase-js';
+const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = 'https://paelbarlmayswqilhoxa.supabase.co';
 const supabaseKey = 'sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h';
@@ -520,7 +520,16 @@ app.post('/api/blink', async (req, res) => {
 
 // Farm Monitoring and Status Caching
 let farmMachines = []; // array of { ip, sn, location }
+const cacheFile = path.join(__dirname, 'miner_status_cache.json');
 let minerStatusCache = {};
+try {
+    if (fs.existsSync(cacheFile)) {
+        minerStatusCache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+        console.log(`[Cache] Loaded ${Object.keys(minerStatusCache).length} cached miner statuses from file.`);
+    }
+} catch(e) {
+    console.error("[Cache] Failed to load miner status cache from file:", e.message);
+}
 
 app.post('/api/set-farm', (req, res) => {
     if (req.body.machines) {
@@ -599,6 +608,11 @@ const updateFarmStatus = async () => {
                 // Non-responsive IP
             }
         }));
+        
+        // Save cache to disk
+        try {
+            fs.writeFileSync(cacheFile, JSON.stringify(minerStatusCache, null, 2), 'utf8');
+        } catch(e) {}
     }
 };
 

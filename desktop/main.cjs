@@ -9,8 +9,8 @@ let forceQuit = false;
 async function startHelperNatively() {
     console.log("Starting local-helper natively inside Electron...");
     try {
-        // Dynamically import the ES Module helper
-        await import('./local-helper.mjs');
+        // Require the CommonJS helper (perfect for ASAR packaging)
+        require('./local-helper.js');
         console.log("Local helper started successfully!");
     } catch (err) {
         console.error("Failed to load local-helper natively:", err);
