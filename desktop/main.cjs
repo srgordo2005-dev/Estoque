@@ -1,28 +1,20 @@
 const { app, BrowserWindow, Tray, Menu } = require('electron');
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-let helperProcess = null;
 let mainWindow = null;
 let tray = null;
 let forceQuit = false;
 
-function startHelper() {
-    console.log("Starting local-helper process silently...");
-    const helperPath = path.join(__dirname, 'local-helper.js');
-    
-    // Spawn Node silently in background with no window
-    helperProcess = spawn('node', [helperPath], {
-        cwd: __dirname,
-        env: { ...process.env },
-        stdio: 'ignore', // Hides output/console window completely
-        windowsHide: true // Hides the console window on Windows
-    });
-
-    helperProcess.on('error', (err) => {
-        console.error('Failed to start helper process:', err);
-    });
+async function startHelperNatively() {
+    console.log("Starting local-helper natively inside Electron...");
+    try {
+        // Dynamically import the ES Module helper
+        await import('./local-helper.js');
+        console.log("Local helper started successfully!");
+    } catch (err) {
+        console.error("Failed to load local-helper natively:", err);
+    }
 }
 
 function createWindow() {
@@ -45,7 +37,7 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadURL('https://estoque-zeta-one.vercel.app/');
 
-    // When closing, intercept and just hide the window (runs in tray)
+    // Hide window on close instead of exiting
     mainWindow.on('close', (event) => {
         if (!forceQuit) {
             event.preventDefault();
@@ -74,9 +66,6 @@ function createTray() {
             label: 'Sair e Encerrar Servidor', 
             click: () => {
                 forceQuit = true;
-                if (helperProcess) {
-                    helperProcess.kill();
-                }
                 app.quit();
             } 
         }
@@ -85,14 +74,13 @@ function createTray() {
     tray.setToolTip('HashStock · Servidor Ativo');
     tray.setContextMenu(contextMenu);
 
-    // Double click tray icon opens the window
     tray.on('double-click', () => {
         createWindow();
     });
 }
 
-app.whenReady().then(() => {
-    startHelper();
+app.whenReady().then(async () => {
+    await startHelperNatively();
     createTray();
     createWindow();
 });
