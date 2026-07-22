@@ -4920,9 +4920,14 @@ function ConsertaPage({ctx}){
 // da leitura por causa de um re-render disparado a cada letra.
 function TestSlotSNInput({slotRefs,i,value,onCommit,listId}){
   const[local,setLocal]=useState(value);
+  const[sc,setSc]=useState(false);
   useEffect(()=>{setLocal(value)},[value]);
   const commit=()=>{if(local.toUpperCase().trim()!==value)onCommit(local.toUpperCase().trim())};
-  return<input ref={el=>slotRefs.current[i]=el} value={local} onChange={e=>setLocal(e.target.value.toUpperCase())} onBlur={commit} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();commit();setTimeout(()=>slotRefs.current[i+1]?.focus(),30)}}} placeholder="Bipe o SN da HASH..." list={listId} style={{...inp,marginBottom:6}}/>;
+  return<div style={{display:"flex",gap:8,marginBottom:6}}>
+    <input ref={el=>slotRefs.current[i]=el} value={local} onChange={e=>setLocal(e.target.value.toUpperCase())} onBlur={commit} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();commit();setTimeout(()=>slotRefs.current[i+1]?.focus(),30)}}} placeholder="Bipe o SN da HASH..." list={listId} style={{...inp,flex:1,marginBottom:0}}/>
+    <button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:10,padding:"10px 14px",cursor:"pointer",fontSize:18,flexShrink:0}} title="Escanear SN da HASH com Câmera">📷</button>
+    {sc&&<BarcodeScanner onScan={v=>{const u=v.toUpperCase();setLocal(u);setSc(false);onCommit(u)}} onClose={()=>setSc(false)}/>}
+  </div>;
 }
 
 // Características (modelo/material/chips) que vão valer pra TODAS as HASHs
@@ -5143,7 +5148,8 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                         const uptimeHours = info.uptime / 3600;
                         
                         // If target uptime is reached and autoSubmit not yet triggered
-                        if (uptimeHours >= targetUptimeHours && !autoSubmitTriggered && session && doSubmit) {
+                        const isAutoOn = session?.autoEnabled !== false;
+                        if (isAutoOn && uptimeHours >= targetUptimeHours && !autoSubmitTriggered && session && doSubmit) {
                             setAutoSubmitTriggered(true);
                             console.log(`Target Uptime of ${targetUptimeHours}h reached (${uptimeHours.toFixed(2)}h). Triggering auto-print & review submit.`);
                             
@@ -5287,7 +5293,31 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
               ) : (
                  <Btn v="s" onClick={()=>setListening(false)}>❌ Cancelar Escuta</Btn>
               )}
-              <Btn v="s" onClick={toggleBlink}>
+              <button
+                  onClick={() => {
+                     const currentVal = session?.autoEnabled !== false;
+                     const nextVal = !currentVal;
+                     if (session && saveSession) saveSession({ ...session, autoEnabled: nextVal });
+                  }}
+                  style={{
+                     background: (session?.autoEnabled !== false) ? C.green + "22" : C.card2,
+                     border: "1px solid " + ((session?.autoEnabled !== false) ? C.green : C.border),
+                     color: (session?.autoEnabled !== false) ? C.green : C.subtle,
+                     borderRadius: 8,
+                     padding: "5px 10px",
+                     fontSize: 11,
+                     fontWeight: 800,
+                     cursor: "pointer",
+                     display: "inline-flex",
+                     alignItems: "center",
+                     gap: 6
+                  }}
+                  title="Configuração por máquina: Ligar ou desligar envio automático de teste desta máquina ao atingir o tempo alvo"
+               >
+                  {(session?.autoEnabled !== false) ? "⚡ Automação: LIGADA" : "⏸️ Automação: DESLIGADA"}
+               </button>
+
+               <Btn v="s" onClick={toggleBlink}>
                  🔦 {blinkOn ? "Parar de Piscar" : "Piscar LED"}
               </Btn>
            </div>
@@ -6275,6 +6305,8 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
   const[ctr,setCtr]=useState(test?.controladora||"OFF");
   const[fonte,setFonte]=useState(test?.fonte||"OFF");
   const[fans,setFans]=useState(test?.fans||"OFF");
+  const[scSlot,setScSlot]=useState(null);
+  const[scMac,setScMac]=useState(false);
   const setSlot=(i,k,v)=>setSlots(s=>s.map((sl,idx)=>idx===i?{...sl,[k]:v}:sl));
   const save=async()=>{
     const cleanSN=machineSN.toUpperCase().trim();
@@ -6292,7 +6324,13 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
   };
   const exMac=machineSN.trim()?data.machines.find(m=>m.sn===machineSN.toUpperCase().trim()):null;
   return<div>
-    <Inp label="SN DA MÁQUINA" value={machineSN} onChange={e=>setMachineSN(e.target.value.toUpperCase())} placeholder="Digite o SN da máquina"/>
+    <div style={{display:"flex",gap:8,marginBottom:12}}>
+      <div style={{flex:1}}>
+        <Inp label="SN DA MÁQUINA" value={machineSN} onChange={e=>setMachineSN(e.target.value.toUpperCase())} placeholder="Digite o SN da máquina" style={{marginBottom:0}}/>
+      </div>
+      <button onClick={()=>setScMac(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"10px 14px",cursor:"pointer",fontSize:18,alignSelf:"flex-end",marginBottom:0}} title="Escanear SN da Máquina com Câmera">📷</button>
+    </div>
+    {scMac&&<BarcodeScanner onScan={v=>{setMachineSN(v.toUpperCase());setScMac(false)}} onClose={()=>setScMac(false)}/>}
     {exMac&&<div style={{background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:10,padding:12,marginBottom:12,fontSize:12,color:C.green}}>
       ✅ Esse SN já pertence a uma máquina no estoque ({exMac.model} · {exMac.situacao}). O teste será vinculado e atualizará essa máquina.
     </div>}
@@ -6311,7 +6349,10 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
       const slotPhoto=i===0?test?.slot0Photo:i===1?test?.slot1Photo:test?.slot2Photo;
       return<div key={i} style={{background:C.card2,borderRadius:10,padding:10,marginBottom:8}}>
         <div style={{fontSize:11,fontWeight:800,color:C.subtle,marginBottom:6}}>SLOT {i+1}</div>
-        <input value={slots[i].hashSN} onChange={e=>setSlot(i,"hashSN",e.target.value.toUpperCase())} placeholder="SN da HASH" style={{...inp,marginBottom:6,fontSize:12,padding:"7px 8px"}}/>
+        <div style={{display:"flex",gap:8,marginBottom:6}}>
+          <input value={slots[i].hashSN} onChange={e=>setSlot(i,"hashSN",e.target.value.toUpperCase())} placeholder="SN da HASH" style={{...inp,flex:1,marginBottom:0,fontSize:12,padding:"7px 8px"}}/>
+          <button onClick={()=>setScSlot(i)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:16,flexShrink:0}} title="Escanear HASH SN com Câmera">📷</button>
+        </div>
         {h&&<div style={{fontSize:11,color:C.blue,marginBottom:6}}>⚡ {h.model}{gChips(h.model,h.material)?` · ${gChips(h.model,h.material)} chips`:""}</div>}
         {slotPhoto&&<PhotoView photoKey={slotPhoto} style={{maxHeight:120,marginBottom:6}}/>}
         <div style={{display:"flex",gap:6}}>
@@ -6319,6 +6360,7 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
         </div>
       </div>;
     })}
+    {scSlot!==null&&<BarcodeScanner onScan={v=>{setSlot(scSlot,"hashSN",v.toUpperCase());setScSlot(null)}} onClose={()=>setScSlot(null)}/>}
     <SL mt={8}>COMPONENTES</SL>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
       {[["CTR",ctr,setCtr],["FONTE",fonte,setFonte],["FANS",fans,setFans]].map(([l,v,setV])=><Sel key={l} label={l} value={v} onChange={e=>setV(e.target.value)} style={{marginBottom:0}}><option value="ON">ON</option><option value="OFF">OFF</option></Sel>)}
