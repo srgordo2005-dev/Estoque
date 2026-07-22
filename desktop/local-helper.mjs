@@ -150,6 +150,13 @@ const setupUDPServer = (port) => {
     });
     server.on('message', (msg, rinfo) => {
         console.log(`Received IP Report broadcast from ${rinfo.address} on port ${port}`);
+        
+        // Log to a permanent file to debug firewall issues
+        try {
+            const logLine = `[${new Date().toISOString()}] Port ${port}: Received packet from ${rinfo.address} - Hex: ${msg.toString('hex')}\n`;
+            fs.appendFileSync(path.join(__dirname, 'ipreport_debug.log'), logLine);
+        } catch(e) {}
+
         const existingIdx = lastIPReports.findIndex(x => x.ip === rinfo.address);
         if (existingIdx !== -1) {
             lastIPReports.splice(existingIdx, 1);
@@ -166,6 +173,12 @@ const setupUDPServer = (port) => {
         const addr = server.address();
         udpStatuses[port] = 'ativo';
         console.log(`UDP Listener active for IP Reports on ${addr.address}:${addr.port} (reuseAddr shared)`);
+        try {
+            server.setBroadcast(true);
+            console.log(`Enabled UDP broadcast mode on port ${port}`);
+        } catch(e) {
+            console.error(`Failed to setBroadcast on port ${port}:`, e.message);
+        }
     });
     try {
         server.bind({ port: port, address: '0.0.0.0', exclusive: false });

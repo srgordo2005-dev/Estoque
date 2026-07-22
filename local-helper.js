@@ -53,6 +53,9 @@ bot.onText(/\/start/, (msg) => {
 });
 
 
+import ws from 'ws';
+globalThis.WebSocket = ws;
+
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = 'https://paelbarlmayswqilhoxa.supabase.co';
@@ -147,6 +150,13 @@ const setupUDPServer = (port) => {
     });
     server.on('message', (msg, rinfo) => {
         console.log(`Received IP Report broadcast from ${rinfo.address} on port ${port}`);
+        
+        // Log to a permanent file to debug firewall issues
+        try {
+            const logLine = `[${new Date().toISOString()}] Port ${port}: Received packet from ${rinfo.address} - Hex: ${msg.toString('hex')}\n`;
+            fs.appendFileSync(path.join(__dirname, 'ipreport_debug.log'), logLine);
+        } catch(e) {}
+
         const existingIdx = lastIPReports.findIndex(x => x.ip === rinfo.address);
         if (existingIdx !== -1) {
             lastIPReports.splice(existingIdx, 1);
@@ -163,6 +173,12 @@ const setupUDPServer = (port) => {
         const addr = server.address();
         udpStatuses[port] = 'ativo';
         console.log(`UDP Listener active for IP Reports on ${addr.address}:${addr.port} (reuseAddr shared)`);
+        try {
+            server.setBroadcast(true);
+            console.log(`Enabled UDP broadcast mode on port ${port}`);
+        } catch(e) {
+            console.error(`Failed to setBroadcast on port ${port}:`, e.message);
+        }
     });
     try {
         server.bind({ port: port, address: '0.0.0.0', exclusive: false });
@@ -171,35 +187,7 @@ const setupUDPServer = (port) => {
         console.error(`Could not bind UDP on port ${port}:`, e.message);
     }
 };
-    const server = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-    server.on('error', (err) => {
-        console.error(`UDP Server error on port ${port}:`, err);
-        try { server.close(); } catch(e){}
-    });
-    server.on('message', (msg, rinfo) => {
-        console.log(`Received IP Report broadcast from ${rinfo.address} on port ${port}`);
-        const existingIdx = lastIPReports.findIndex(x => x.ip === rinfo.address);
-        if (existingIdx !== -1) {
-            lastIPReports.splice(existingIdx, 1);
-        }
-        lastIPReports.unshift({
-            ip: rinfo.address,
-            timestamp: Date.now(),
-            source_port: port,
-            raw_hex: msg.toString('hex')
-        });
-        if (lastIPReports.length > 30) lastIPReports.pop();
-    });
-    server.on('listening', () => {
-        const addr = server.address();
-        console.log(`UDP Listener active for IP Reports on ${addr.address}:${addr.port} (reuseAddr shared)`);
-    });
-    try {
-        server.bind({ port: port, address: '0.0.0.0', exclusive: false });
-    } catch (e) {
-        console.error(`Could not bind UDP on port ${port}:`, e.message);
-    }
-};
+
 
 setupUDPServer(4000); // Bitmain
 setupUDPServer(3456); // Whatsminer
