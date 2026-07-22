@@ -7,18 +7,21 @@
   "type": "commonjs",
   "scripts": {
     "start": "electron .",
-    "package": "electron-packager . HashStock --platform=win32 --arch=x64 --out=dist --overwrite --icon=icon.ico"
+    "package": "electron-packager . HashStock --platform=win32 --arch=x64 --out=dist --overwrite --icon=icon.ico",
+    "build-installer": "node build-installer.cjs"
   },
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "node-fetch": "^3.3.2",
     "node-telegram-bot-api": "^1.1.2",
-    "puppeteer-core": "^25.3.0"
+    "puppeteer-core": "^25.3.0",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "electron": "^31.3.1",
     "electron-packager": "^17.1.2",
+    "electron-winstaller": "^5.4.4",
     "png-to-ico": "^3.0.2"
   }
 }

@@ -10,7 +10,7 @@ async function startHelperNatively() {
     console.log("Starting local-helper natively inside Electron...");
     try {
         // Dynamically import the ES Module helper
-        await import('./local-helper.js');
+        await import('./local-helper.mjs');
         console.log("Local helper started successfully!");
     } catch (err) {
         console.error("Failed to load local-helper natively:", err);
@@ -59,6 +59,7 @@ function createTray() {
             label: 'Abrir Painel HashStock', 
             click: () => {
                 createWindow();
+    setTimeout(checkForUpdates, 3000);
             } 
         },
         { type: 'separator' },
@@ -90,3 +91,47 @@ app.on('activate', () => {
         createWindow();
     }
 });
+
+
+const { dialog, shell } = require('electron');
+const pkgInfo = require('./package.json');
+
+async function checkForUpdates() {
+    console.log("Verificando atualizações...");
+    try {
+        const res = await fetch('https://estoque-zeta-one.vercel.app/version.json');
+        if (!res.ok) return;
+        const latest = await res.json();
+        
+        const currentVersion = pkgInfo.version;
+        const latestVersion = latest.version;
+
+        if (compareVersions(latestVersion, currentVersion) > 0) {
+            const { response } = await dialog.showMessageBox(mainWindow, {
+                type: 'question',
+                buttons: ['Atualizar Agora', 'Mais Tarde'],
+                defaultId: 0,
+                title: 'Atualização Disponível',
+                message: `Uma nova versão do HashStock (${latestVersion}) está disponível!`,
+                detail: 'Deseja abrir o link para baixar o instalador da nova versão?'
+            });
+            
+            if (response === 0) {
+                shell.openExternal(latest.url);
+                app.quit();
+            }
+        }
+    } catch (err) {
+        console.error("Erro na verificação de atualizações:", err.message);
+    }
+}
+
+function compareVersions(v1, v2) {
+    const parts1 = v1.split('.').map(Number);
+    const parts2 = v2.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        if (parts1[i] > parts2[i]) return 1;
+        if (parts1[i] < parts2[i]) return -1;
+    }
+    return 0;
+}
