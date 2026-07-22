@@ -40,7 +40,7 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
-const TelegramBot = require('node-telegram-bot-api');
+const TelegramBot = require('node-telegram-bot-api').default || require('node-telegram-bot-api');
 // puppeteer-core is dynamically imported inside /api/screenshot handler to support ESM packaging
 
 const botToken = '8627853322:AAEwVrIwNz3vPejxiaUFGR0sb2I6bBRieyo';

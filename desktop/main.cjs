@@ -99,7 +99,12 @@ function createTray() {
 app.whenReady().then(async () => {
     await startHelperNatively();
     createTray();
-    createWindow();
+    
+    // Abrir painel no navegador padrão do usuário de forma automática
+    shell.openExternal('https://estoque-zeta-one.vercel.app/');
+    
+    // Verificar atualizações após a inicialização
+    setTimeout(checkForUpdates, 3000);
 });
 
 app.on('activate', () => {
