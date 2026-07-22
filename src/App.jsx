@@ -5992,6 +5992,56 @@ function TestePage({ctx}){
       {hasEmptyBadSlot&&<div style={{color:C.amber,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Tem slot RUIM sem HASH substituta — pode mandar assim, mas vai pedir confirmação</div>}
     </>}
 
+    {/* Pending & Automatic Tests Section for Tester Review/Edit */}
+    {data.approvals.filter(a => a.status === "pending" && (a.employeeId === user._id || user.code === "019")).length > 0 && (
+      <div style={{background: C.card, borderRadius: 14, padding: 14, marginTop: 16, marginBottom: 16, border: "1px solid " + C.border}}>
+        <SL>⚡ TESTES PENDENTES & AUTOMÁTICOS (Aguardando Aprovação)</SL>
+        <div style={{fontSize: 11, color: C.subtle, marginBottom: 10}}>
+          Você pode verificar e editar qualquer dado dessas máquinas enquanto o Admin ainda não aprovou.
+        </div>
+        <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+          {data.approvals.filter(a => a.status === "pending" && (a.employeeId === user._id || user.code === "019")).map(appr => {
+             const isAuto = appr.isAutomatic || (appr.adminNote && appr.adminNote.includes("AUTOMÁTICO"));
+             const testRec = data.tests.find(t => t._id === appr.testId);
+             return (
+               <Card key={appr._id} accent={isAuto ? C.green : C.blue} style={{marginBottom: 0}}>
+                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8}}>
+                   <div>
+                     <div style={{fontWeight: 800, fontSize: 13, color: isAuto ? C.green : C.text, display: 'flex', alignItems: 'center', gap: 6}}>
+                       <span>🖥️ {appr.machineSN}</span>
+                       <span style={{color: C.subtle, fontSize: 11}}>({appr.model} · {appr.th}TH)</span>
+                       {isAuto && (
+                         <span style={{background: C.green + "22", border: "1px solid " + C.green, color: C.green, padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 900}}>
+                           ⚡ AUTOMÁTICO (3h)
+                         </span>
+                       )}
+                     </div>
+                     <div style={{fontSize: 11, color: C.muted, marginTop: 2}}>
+                       👷 {appr.employeeName} · {fmtTS(appr._at || appr.date)}
+                     </div>
+                     {appr.adminNote && (
+                       <div style={{fontSize: 10, color: C.subtle, marginTop: 2}}>📝 {appr.adminNote}</div>
+                     )}
+                   </div>
+
+                   <button 
+                     onClick={() => setModal(
+                       <Modal title={"✏️ Editar Teste Pendente — " + appr.machineSN} onClose={() => setModal(null)}>
+                         <EditPendingTestForm ctx={ctx} appr={appr} test={testRec} onSaved={() => setModal(null)} />
+                       </Modal>
+                     )}
+                     style={{background: C.accent, color: '#000', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer'}}
+                   >
+                     ✏️ Editar Teste
+                   </button>
+                 </div>
+               </Card>
+             );
+          })}
+        </div>
+      </div>
+    )}
+
     {/* Pergunta de desvincular HASH que já está em outra máquina */}
     {unlinkPrompt&&<Modal title={unlinkPrompt.hash.status==="SAIDA"?"⚠️ HASH já foi vendida":"⚠️ HASH já está em uma máquina"} onClose={()=>setUnlinkPrompt(null)}>
       <div style={{marginBottom:16}}>
