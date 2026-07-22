@@ -378,6 +378,23 @@ app.get('/api/miner-info', async (req, res) => {
             if (pcb1) result.slots[1] = pcb1;
             if (pcb2) result.slots[2] = pcb2;
         }
+
+        // Try querying miner log command or estats to extract SNs for chain#1, chain#2, chain#3 (e.g. Vnish/Bitmain logs)
+        if (!result.slots[0] || !result.slots[1] || !result.slots[2]) {
+            const logData = await queryMinerAPI(ip, 'log').catch(() => null) || await queryMinerAPI(ip, 'estats').catch(() => null);
+            const logStr = typeof logData === 'string' ? logData : JSON.stringify(logData || '');
+            
+            // Match pattern like "chain#1 ... sn: NGSBYI4883AAD9217" or "chain 1 ... sn: XYZ"
+            const chainMatches = [...logStr.matchAll(/chain#?(\d+)[^\n]*?sn:\s*([A-Za-z0-9_-]+)/gi)];
+            chainMatches.forEach(match => {
+                const chainNum = parseInt(match[1], 10);
+                const snVal = match[2].trim();
+                const slotIdx = chainNum - 1; // chain 1 -> slot 0
+                if (slotIdx >= 0 && slotIdx < 3 && !result.slots[slotIdx] && snVal) {
+                    result.slots[slotIdx] = snVal;
+                }
+            });
+        }
         
         // Look into Devs for Whatsminer specific info
         if (devsData && devsData.DEVS) {
@@ -410,9 +427,13 @@ app.get('/api/miner-log', async (req, res) => {
         const estatsData = await queryMinerAPI(ip, 'estats').catch(e => null);
         const configData = await queryMinerAPI(ip, 'config').catch(e => null);
         const statsData = await queryMinerAPI(ip, 'stats').catch(e => null);
+        const logData = await queryMinerAPI(ip, 'log').catch(e => null);
         
         // Try to gather any relevant errors
         let logs = [];
+        if (logData) {
+            logs.push(typeof logData === 'string' ? logData : JSON.stringify(logData, null, 2));
+        }
         if (estatsData && estatsData.STATS) {
             logs.push(JSON.stringify(estatsData.STATS, null, 2));
         }
@@ -460,17 +481,31 @@ app.post('/api/screenshot', async (req, res) => {
         });
         
         const page = await browser.newPage();
+        await page.setViewport({ width: 1400, height: 900 });
+        
         const creds = [
             {username: user || 'root', password: pass || 'root'},
             {username: user || 'admin', password: pass || 'admin'},
             {username: user || 'root', password: pass || 'admin'}
         ];
 
-        let screenshotBuffer = null;
         await page.authenticate({ username: creds[0].username, password: creds[0].password });
         await page.goto(`http://${ip}`, { waitUntil: 'networkidle0', timeout: 15000 }).catch(e => console.log('Goto timeout/error:', e.message));
-        screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
+        
+        // Wait 1.5 seconds for graphs and logs to render
+        await new Promise(r => setTimeout(r, 1500));
 
+        // Try clicking on Logs tab if present
+        try {
+            await page.evaluate(() => {
+                const elements = Array.from(document.querySelectorAll('button, a, div, span'));
+                const logTab = elements.find(el => el.textContent.trim().toUpperCase() === 'LOGS' || el.textContent.trim().toUpperCase() === 'LOG');
+                if (logTab) logTab.click();
+            });
+            await new Promise(r => setTimeout(r, 800));
+        } catch(e) {}
+
+        const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 75, fullPage: true });
         const base64 = screenshotBuffer.toString('base64');
         res.json({ success: true, image: `data:image/jpeg;base64,${base64}` });
 

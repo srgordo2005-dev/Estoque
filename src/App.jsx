@@ -4989,17 +4989,63 @@ function LinkNewHashTechForm({ctx, sn, initialModel, onSave, onClose}){
   </div>;
 }
 
-function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession}) {
-    const [listening, setListening] = useState(false); // Default FALSE - Modo 100% Manual!
+function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession, doSubmit}) {
+    const [listening, setListening] = useState(false);
     const [lastCapturedIP, setLastCapturedIP] = useState(session?.ip || "");
     const [blinkOn, setBlinkOn] = useState(false);
+    const [isTakingPrint, setIsTakingPrint] = useState(false);
+    const [targetUptimeHours, setTargetUptimeHours] = useState(session?.targetUptimeHours || 3);
+    const [autoSubmitTriggered, setAutoSubmitTriggered] = useState(false);
 
     const startManualCapture = async () => {
-        // Clear old IP reports first so only a NEW button press is captured
         try {
             await fetch('http://localhost:3001/api/ipreport?clear=true');
         } catch(e) {}
         setListening(true);
+    };
+
+    // Auto-fill board SNs from miner info
+    const applyMinerDetailsToSession = (info, ip) => {
+        if (!session || !saveSession) return;
+        let updatedSlots = [...session.slots];
+        let hasChanges = false;
+        
+        if (info.slots && Array.isArray(info.slots)) {
+            info.slots.forEach((boardSN, idx) => {
+                if (boardSN && idx < 3 && (!updatedSlots[idx].hashSN || updatedSlots[idx].hashSN.trim() === '')) {
+                    updatedSlots[idx] = { ...updatedSlots[idx], hashSN: String(boardSN).toUpperCase().trim() };
+                    hasChanges = true;
+                }
+            });
+        }
+
+        const newSession = {
+            ...session,
+            ip: ip || session.ip,
+            slots: updatedSlots,
+            updatedAt: stamp()
+        };
+        
+        if (hasChanges || session.ip !== ip) {
+            saveSession(newSession);
+        }
+    };
+
+    const fetchAndApplyMinerInfo = async (ip) => {
+        if (!ip) return;
+        try {
+            const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${ip}`);
+            if (infoRes.ok) {
+                const info = await infoRes.json();
+                if (info.sn) {
+                    setMacInput(info.sn);
+                    loadMachine(info.sn);
+                }
+                applyMinerDetailsToSession(info, ip);
+                return info;
+            }
+        } catch(e) {}
+        return null;
     };
 
     useEffect(() => {
@@ -5011,33 +5057,91 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                 const reports = await res.json();
                 if (reports && reports.length > 0) {
                     const latest = reports[0];
-                    // Capture report and turn off listening (manual one-shot capture)
                     setListening(false);
                     setLastCapturedIP(latest.ip);
                     
-                    // Fetch details for this IP
-                    try {
-                        const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${latest.ip}`);
-                        if (infoRes.ok) {
-                            const info = await infoRes.json();
-                            if (info.sn) {
-                                setMacInput(info.sn);
-                                loadMachine(info.sn);
-                            }
-                        }
-                    } catch(e) {}
-
-                    // Link IP to active test session
-                    if (saveSession && session) {
-                        saveSession({ ...session, ip: latest.ip });
-                    }
-
-                    alert(`✅ IP REPORT CAPTURADO MANUALMENTE!\n🌐 IP: ${latest.ip}\nApertado com sucesso no teste!`);
+                    const info = await fetchAndApplyMinerInfo(latest.ip);
+                    const slotsFound = info?.slots?.filter(Boolean)?.length || 0;
+                    alert(`✅ IP REPORT CAPTURADO!\n🌐 IP: ${latest.ip}\n${slotsFound > 0 ? `📋 ${slotsFound} HASH SNs importados automaticamente!` : ''}`);
                 }
             } catch(e) {}
         }, 1000);
         return () => clearInterval(interval);
     }, [listening, loadMachine, saveSession, session, setMacInput]);
+
+    const capturePrintAndUpload = async (targetIP) => {
+        const ip = targetIP || session?.ip || lastCapturedIP;
+        if (!ip) {
+            alert("Informe o IP da máquina na bancada para tirar o print.");
+            return null;
+        }
+        setIsTakingPrint(true);
+        try {
+            const res = await fetch('http://localhost:3001/api/screenshot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ip })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success && data.image) {
+                    // Upload screenshot to Google Drive
+                    const driveUrl = await ctx.uploadPhoto(data.image, `testes/print_${session?.machineSN || ip}_${uid()}.jpg`);
+                    if (driveUrl && session && saveSession) {
+                        saveSession({ ...session, photoKey: driveUrl, testPhoto: driveUrl, updatedAt: stamp() });
+                    }
+                    setIsTakingPrint(false);
+                    return driveUrl || data.image;
+                }
+            }
+        } catch(e) {
+            console.error("Erro ao tirar print da tela:", e);
+        }
+        setIsTakingPrint(false);
+        return null;
+    };
+
+    // Live Uptime Check & Auto-Submit on Target Reached (e.g., 3 Hours)
+    const [currentUptimeSec, setCurrentUptimeSec] = useState(0);
+    useEffect(() => {
+        const ip = session?.ip || lastCapturedIP;
+        if (!ip) return;
+
+        const checkUptime = async () => {
+            try {
+                const r = await fetch(`http://localhost:3001/api/miner-info?ip=${ip}`);
+                if (r.ok) {
+                    const info = await r.json();
+                    if (info.uptime) {
+                        setCurrentUptimeSec(info.uptime);
+                        const uptimeHours = info.uptime / 3600;
+                        
+                        // If target uptime is reached and autoSubmit not yet triggered
+                        if (uptimeHours >= targetUptimeHours && !autoSubmitTriggered && session && doSubmit) {
+                            setAutoSubmitTriggered(true);
+                            console.log(`Target Uptime of ${targetUptimeHours}h reached (${uptimeHours.toFixed(2)}h). Triggering auto-print & review submit.`);
+                            
+                            // 1. Take screenshot
+                            const photoUrl = await capturePrintAndUpload(ip);
+                            
+                            // 2. Submit session to review
+                            const updatedSess = {
+                                ...session,
+                                photoKey: photoUrl || session.photoKey,
+                                adminNotes: [...(session.adminNotes || []), `Uptime atingido: ${uptimeHours.toFixed(1)}h (Alvo: ${targetUptimeHours}h). Print tirado automaticamente.`]
+                            };
+                            await doSubmit(updatedSess);
+                            alert(`🎉 UPTIME DE ${targetUptimeHours}h ALCANÇADO COM SUCESSO!\n\n📸 Print do Dashboard e Logs capturado e salvo na máquina.\n✅ Enviada para REVISÃO!\n\n🔌 PODE DESLIGAR A MÁQUINA DA BANCADA AGORA.`);
+                        }
+                    }
+                }
+            } catch(e) {}
+        };
+
+        checkUptime();
+        const interval = setInterval(checkUptime, 15000); // Check every 15s
+        return () => clearInterval(interval);
+    }, [session?.ip, lastCapturedIP, targetUptimeHours, autoSubmitTriggered, session, doSubmit]);
 
     const toggleBlink = async () => {
         const ip = session?.ip || lastCapturedIP || prompt("Digite o IP da máquina na bancada para piscar:");
@@ -5079,7 +5183,10 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         return () => clearInterval(interval);
     }, []);
 
-    return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px solid ${listening ? C.green : C.border}`}}>
+    const uptimeHoursCalc = (currentUptimeSec / 3600).toFixed(1);
+    const targetUptimeReached = currentUptimeSec / 3600 >= targetUptimeHours;
+
+    return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px solid ${targetUptimeReached ? C.green : listening ? C.blue : C.border}`}}>
         {udpErrors.length > 0 && (
             <div style={{background: C.red + "22", border: "1px solid " + C.red, color: C.red, borderRadius: 8, padding: 8, fontSize: 11, marginBottom: 10, fontWeight: 700}}>
                 ⚠️ Conflito no IP Report local:
@@ -5088,26 +5195,62 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                 </ul>
             </div>
         )}
+
+        {targetUptimeReached && (
+            <div style={{background: C.green + "22", border: "2px solid " + C.green, color: C.green, borderRadius: 10, padding: 12, marginBottom: 12, textAlign: 'center', fontWeight: 900, fontSize: 14}}>
+                🎉 MÁQUINA ATINGIU {targetUptimeHours}H DE UPTIME! (Atual: {uptimeHoursCalc}h)<br/>
+                📸 Print capturado automaticamente & Enviado para Revisão.<br/>
+                <span style={{fontSize: 16, color: '#fff', background: C.green, padding: '4px 12px', borderRadius: 6, display: 'inline-block', marginTop: 6}}>
+                    🔌 PODE DESLIGAR A MÁQUINA DA BANCADA
+                </span>
+            </div>
+        )}
+
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
            <div>
-              <div style={{fontWeight:800, color: listening ? C.green : C.subtle, fontSize:13}}>
-                 {listening ? "📡 AGUARDANDO BOTÃO IP REPORT... (Aperte o botão na máquina)" : "🔌 Automação de Bancada (Captura Manual de IP)"}
+              <div style={{fontWeight:800, color: listening ? C.blue : C.subtle, fontSize:13}}>
+                 {listening ? "📡 AGUARDANDO BOTÃO IP REPORT... (Aperte o botão na máquina)" : "🔌 Automação de Bancada & IP Report"}
               </div>
               {session?.ip && (
-                 <div style={{fontSize:11, color:C.green, marginTop:4, fontWeight:700}}>
-                    🌐 IP CAPTURADO NA BANCADA: {session.ip}
+                 <div style={{fontSize:11, color:C.green, marginTop:4, fontWeight:700, display: 'flex', alignItems: 'center', gap: 10}}>
+                    <span>🌐 IP: {session.ip}</span>
+                    <span>⏱️ Uptime: {formatUptime(currentUptimeSec)} / {targetUptimeHours}h</span>
                  </div>
               )}
            </div>
            
-           <div style={{display:'flex', gap:8}}>
+           <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+              <div style={{display:'flex', alignItems:'center', gap:4, background:C.card2, padding:'4px 8px', borderRadius:8, border:"1px solid " + C.border}}>
+                 <span style={{fontSize:10, color:C.subtle, fontWeight:700}}>⏱️ Alvo (Horas):</span>
+                 <input 
+                   type="number" 
+                   value={targetUptimeHours} 
+                   onChange={e => {
+                       const v = Number(e.target.value);
+                       setTargetUptimeHours(v);
+                       if (session && saveSession) saveSession({ ...session, targetUptimeHours: v });
+                   }} 
+                   style={{width:45, background:'transparent', color:C.accent, border:'none', fontWeight:900, fontSize:12, textAlign:'center'}} 
+                 />
+              </div>
+
+              {session?.ip && (
+                 <Btn v="s" onClick={() => fetchAndApplyMinerInfo(session.ip)} title="Extrair HASH SNs do log do minerador">
+                    📋 Extrair HASH SNs
+                 </Btn>
+              )}
+
+              <Btn v="s" onClick={() => capturePrintAndUpload(session?.ip)} disabled={isTakingPrint}>
+                 📸 {isTakingPrint ? "Tirando Print..." : "Print Dashboard + Logs"}
+              </Btn>
+
               {!listening ? (
-                 <Btn v="b" onClick={startManualCapture}>📡 Capturar IP Report (Manual)</Btn>
+                 <Btn v="b" onClick={startManualCapture}>📡 Capturar IP Report</Btn>
               ) : (
                  <Btn v="s" onClick={()=>setListening(false)}>❌ Cancelar Escuta</Btn>
               )}
               <Btn v="s" onClick={toggleBlink}>
-                 🔦 {blinkOn ? "Parar de Piscar" : "Piscar LED Máquina"}
+                 🔦 {blinkOn ? "Parar de Piscar" : "Piscar LED"}
               </Btn>
            </div>
         </div>
@@ -5656,7 +5799,7 @@ function TestePage({ctx}){
       <Alrt type="ok">📋 Vinculada ao Pedido #{session.orderRef.orderNumber} — {session.orderRef.clientName}. Status já está PREPARANDO. Quando o Admin aprovar, a máquina vai direto pra esse cliente (SAIDA). Se cancelar essa sessão, volta pro status de antes e devolve a vaga do pedido.</Alrt>
       :session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — status já está PREPARANDO (planilha atualizada). Quando o Admin aprovar, permanece PREPARANDO. Se cancelar essa sessão, volta pro status de antes.</Alrt>}
 
-    <BenchConnectionPanel ctx={ctx} session={session} setMacInput={setMacInput} loadMachine={loadMachine} saveSession={saveSession} />
+    <BenchConnectionPanel ctx={ctx} session={session} setMacInput={setMacInput} loadMachine={loadMachine} saveSession={saveSession} doSubmit={doSubmit} />
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
