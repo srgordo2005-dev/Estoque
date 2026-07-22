@@ -41,7 +41,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const TelegramBot = require('node-telegram-bot-api');
-const puppeteer = require('puppeteer-core');
+// puppeteer-core is dynamically imported inside /api/screenshot handler to support ESM packaging
 
 const botToken = '8627853322:AAEwVrIwNz3vPejxiaUFGR0sb2I6bBRieyo';
 const bot = new TelegramBot(botToken, {polling: true});
@@ -452,6 +452,7 @@ app.post('/api/screenshot', async (req, res) => {
     let browser;
     try {
         console.log(`Taking screenshot of http://${ip} ...`);
+        const { default: puppeteer } = await import('puppeteer-core');
         browser = await puppeteer.launch({
             executablePath,
             headless: 'new',
