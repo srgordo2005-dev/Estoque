@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -36,6 +36,15 @@ function createWindow() {
 
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadURL('https://estoque-zeta-one.vercel.app/');
+
+    // Intercept window.open to launch system default browser instead of Electron child window
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('http:') || url.startsWith('https:')) {
+            shell.openExternal(url);
+            return { action: 'deny' };
+        }
+        return { action: 'allow' };
+    });
 
     // Hide window on close instead of exiting
     mainWindow.on('close', (event) => {

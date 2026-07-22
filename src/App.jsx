@@ -2235,33 +2235,45 @@ function AddFarmForm({ctx, onClose}) {
     const [matchSlotWithIP, setMatchSlotWithIP] = useState(true);
     const [slotsQty, setSlotsQty] = useState(254);
     const [saving, setSaving] = useState(false);
+    const [machinesPerVao, setMachinesPerVao] = useState(6);
+    const [vaosQty, setVaosQty] = useState(10);
+    const [shelvesQty, setShelvesQty] = useState(1);
 
     const handleSave = async () => {
         const farmName = selectedFarm === "NEW_FARM" ? newFarmName.trim() : selectedFarm;
         if(!farmName) return alert("Digite ou selecione o nome da fazenda.");
         if(!name) return alert("Digite o nome da prateleira.");
-        if(slotsQty <= 0) return alert("Digite uma quantidade de lugares válida.");
         
         setSaving(true);
+                // Save layout metadata to localStorage for each generated shelf
+        for (let s = 1; s <= shelvesQty; s++) {
+            const currentShelfName = shelvesQty > 1 ? name + " " + s : name;
+            localStorage.setItem("hs_layout_" + currentShelfName, JSON.stringify({ machinesPerLevel: machinesPerVao }));
+        }
+
         const machines = [];
         let currentIp = startIp;
-        let count = 0;
-
-        while(count < slotsQty && currentIp <= 254) {
-            const slotNumber = matchSlotWithIP ? String(currentIp) : String(startSlotNum + count);
-            const m = {
-                _id: uid(),
-                sn: "FARM-" + Date.now() + "-" + currentIp,
-                model: "Antminer S19j Pro", 
-                location: farmName,
-                shelf: name,
-                notes: slotNumber, // Slot number equal to IP final octet if requested
-                ip: ipBase + currentIp,
-                status: "MAPPED"
-            };
-            machines.push(m);
-            currentIp++;
-            count++;
+        
+        for (let s = 1; s <= shelvesQty; s++) {
+            const currentShelfName = shelvesQty > 1 ? name + " " + s : name;
+            const slotsPerShelf = machinesPerVao * vaosQty;
+            
+            for (let i = 1; i <= slotsPerShelf; i++) {
+                if (currentIp > 254) break;
+                const slotNumber = matchSlotWithIP ? String(currentIp) : String(startSlotNum + (s - 1) * slotsPerShelf + (i - 1));
+                const m = {
+                    _id: uid(),
+                    sn: "FARM-" + Date.now() + "-" + s + "-" + i,
+                    model: "Antminer S19j Pro", 
+                    location: farmName,
+                    shelf: currentShelfName,
+                    notes: slotNumber,
+                    ip: ipBase + currentIp,
+                    status: "MAPPED"
+                };
+                machines.push(m);
+                currentIp++;
+            }
         }
         
         const res = await fbBatch(machines.map(m => ({c:"farmMachines", id: m._id, d: m})));
@@ -2287,7 +2299,19 @@ function AddFarmForm({ctx, onClose}) {
             <Inp label="Nome da Nova Fazenda" value={newFarmName} onChange={e=>setNewFarmName(e.target.value)} placeholder="Ex: Galpão 2, Fazenda Sul"/>
         )}
 
-        <Inp label="Nome da Prateleira" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Prateleira 1"/>
+        <Inp label="Nome da Prateleira Base" value={name} onChange={e=>setName(e.target.value)} placeholder="Ex: Prateleira 1"/>
+        
+        <div style={{display:"flex", gap:8}}>
+            <Inp label="Máquinas por Vão" type="number" value={machinesPerVao} onChange={e=>setMachinesPerVao(Math.max(1, Number(e.target.value)))}/>
+            <Inp label="Quantidade de Vãos (Alt.)" type="number" value={vaosQty} onChange={e=>setVaosQty(Math.max(1, Number(e.target.value)))}/>
+        </div>
+        
+        <div style={{display:"flex", gap:8}}>
+            <Inp label="Quantidade de Prateleiras" type="number" value={shelvesQty} onChange={e=>setShelvesQty(Math.max(1, Number(e.target.value)))}/>
+            <div style={{flex:1, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:C.accent, fontWeight:800, background:C.card, borderRadius:6, marginTop:18}}>
+               💡 Total: {machinesPerVao * vaosQty * shelvesQty} Máquinas
+            </div>
+        </div>
 
         <div style={{display:'flex', gap:8}}>
             <Inp label="Subrede / IP Base" value={ipBase} onChange={e=>setIpBase(e.target.value)} placeholder="Ex: 192.168.1."/>
@@ -2330,13 +2354,25 @@ function DataCenterPage({ctx}) {
     const [recentIPs, setRecentIPs] = useState([]);
     
     // Global Status Cache fetched from local server helper
-    const [farmStatus, setFarmStatus] = useState({});
+    const [farmStatus, setFarmStatus] = useState(() => {
+        try {
+            const cached = localStorage.getItem("hs_farm_status");
+            return cached ? JSON.parse(cached) : {};
+        } catch(e) {
+            return {};
+        }
+     });
     const [activeFarm, setActiveFarm] = useState("ALL");
     const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
     const [viewType, setViewType] = useState("btc"); // Default "btc" ou "rack"
     const [squareSize, setSquareSize] = useState("medium");
     const [hideEmpty, setHideEmpty] = useState(false);
-    const [onlyOnline, setOnlyOnline] = useState(false);
+    const [onlyOnline, setOnlyOnline] = useState(() => localStorage.getItem("hs_only_online") === "true");
+
+    const handleSetOnlyOnline = useCallback((val) => {
+        setOnlyOnline(val);
+        localStorage.setItem("hs_only_online", String(val));
+    }, []);
     const [autoScan, setAutoScan] = useState(true);
     const [selectedSubnet, setSelectedSubnet] = useState('ALL');
     const [searchQuery, setSearchQuery] = useState('');

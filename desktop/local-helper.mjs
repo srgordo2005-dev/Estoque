@@ -520,7 +520,16 @@ app.post('/api/blink', async (req, res) => {
 
 // Farm Monitoring and Status Caching
 let farmMachines = []; // array of { ip, sn, location }
+const cacheFile = path.join(__dirname, 'miner_status_cache.json');
 let minerStatusCache = {};
+try {
+    if (fs.existsSync(cacheFile)) {
+        minerStatusCache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+        console.log(`[Cache] Loaded ${Object.keys(minerStatusCache).length} cached miner statuses from file.`);
+    }
+} catch(e) {
+    console.error("[Cache] Failed to load miner status cache from file:", e.message);
+}
 
 app.post('/api/set-farm', (req, res) => {
     if (req.body.machines) {
@@ -599,6 +608,11 @@ const updateFarmStatus = async () => {
                 // Non-responsive IP
             }
         }));
+        
+        // Save cache to disk
+        try {
+            fs.writeFileSync(cacheFile, JSON.stringify(minerStatusCache, null, 2), 'utf8');
+        } catch(e) {}
     }
 };
 
