@@ -14,6 +14,13 @@ async function startHelperNatively() {
         console.log("Local helper started successfully!");
     } catch (err) {
         console.error("Failed to load local-helper natively:", err);
+        try {
+            const errorMsg = `[${new Date().toISOString()}] Error: ${err.message}\nStack: ${err.stack}\n\n`;
+            // Write to app data folder
+            fs.appendFileSync(path.join(app.getPath('userData'), 'helper_crash.log'), errorMsg);
+            // Write to desktop/workspace folder if accessible
+            fs.appendFileSync('C:\\\\Users\\\\Felip\\\\.gemini\\\\antigravity\\\\scratch\\\\Estoque-main\\\\desktop\\\\helper_crash.log', errorMsg);
+        } catch (e) {}
     }
 }
 
