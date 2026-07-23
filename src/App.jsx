@@ -3314,158 +3314,179 @@ function DataCenterPage({ctx}) {
                           Object.keys(shelfGroups).length === 0 ? (
                              <div style={{textAlign:'center', padding:20, color:C.subtle}}>Nenhuma máquina encontrada nesta visualização.</div>
                           ) : (
-                             Object.keys(shelfGroups).map(shelfName => {
-                                const list = shelfGroups[shelfName];
-                                const shelfTH = list.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
-                                const shelfOnline = list.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
-                                const cleanedShelfName = shelfName.replace(/^ao\s*-\s*/gi, "").replace(/^AutoSlot\s*/gi, "Prateleira ").replace(/AutoSlot/gi, "Prateleira").trim();
+                                                           Object.keys(shelfGroups).map(shelfName => {
+                                 const list = shelfGroups[shelfName];
+                                 const shelfTH = list.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
+                                 const shelfOnline = list.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
+                                 const cleanedShelfName = shelfName.replace(/^ao\s*-\s*/gi, "").replace(/^AutoSlot\s*/gi, "Prateleira ").replace(/AutoSlot/gi, "Prateleira").trim();
 
-                                return (
-                                   <div key={shelfName} className="shelf-rack-cabinet">
-                                       <div className="shelf-rack-header">
-                                           <div>
-                                               <span style={{fontWeight:900, fontSize:14, color:C.text}}>{cleanedShelfName}</span>
-                                               <span style={{fontSize:11, color:C.subtle, marginLeft:10}}>({shelfOnline}/{list.length} Online)</span>
-                                           </div>
-                                           <div style={{display:'flex', alignItems:'center', gap:12}}>
-                                               <div style={{background:C.accent + "15", border:"1px solid " + C.accent + "44", color:C.accent, padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:800}}>
-                                                   ⛏️ {shelfTH.toFixed(1)} TH/s
-                                               </div>
-                                               <button onClick={() => handleDeleteShelf(shelfName, farmName)} style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}>
-                                                   Apagar Prateleira
-                                               </button>
-                                           </div>
-                                       </div>
+                                 const layoutMeta = (() => {
+                                   try { return JSON.parse(localStorage.getItem("hs_layout_" + shelfName) || "{}"); } catch(e) { return {}; }
+                                 })();
+                                 const slotsPerVao = layoutMeta.machinesPerLevel || 6;
+                                 const vaosCount = layoutMeta.levelsCount || Math.max(1, Math.ceil(list.length / slotsPerVao));
+                                 const totalSlotsNeeded = vaosCount * slotsPerVao;
 
-                                        {(() => {
-                                           const layoutMeta = (() => {
-                                             try { return JSON.parse(localStorage.getItem("hs_layout_" + shelfName) || "{}"); } catch(e) { return {}; }
-                                           })();
-                                           const slotsPerVao = layoutMeta.machinesPerLevel || 6;
-                                           const vaos = [];
-                                           for (let i = 0; i < list.length; i += slotsPerVao) {
-                                             vaos.push(list.slice(i, i + slotsPerVao));
-                                           }
+                                 // Pad shelf slots so every level renders a complete metal tray row
+                                 const fullSlots = [];
+                                 for (let i = 1; i <= totalSlotsNeeded; i++) {
+                                   const existing = list.find(m => String(m.notes) === String(i));
+                                   if (existing) {
+                                     fullSlots.push(existing);
+                                   } else {
+                                     fullSlots.push({
+                                       _id: "dummy-" + shelfName + "-" + i,
+                                       sn: "FARM-VAGO-" + i,
+                                       model: "Antminer S19",
+                                       shelf: shelfName,
+                                       notes: String(i),
+                                       location: farmName,
+                                       status: "MAPPED"
+                                     });
+                                   }
+                                 }
 
-                                           // Real physical rack display: Top Vão on top, Vão #1 at bottom (Slot #1 bottom-left)
-                                           const reversedVaos = vaos.map((list, idx) => ({ list, realVaoNum: idx + 1 })).reverse();
+                                 const vaos = [];
+                                 for (let i = 0; i < fullSlots.length; i += slotsPerVao) {
+                                   vaos.push(fullSlots.slice(i, i + slotsPerVao));
+                                 }
 
-                                           return (
-                                             <div style={{display:'flex', flexDirection:'column', gap:12, background:'#0b1120', padding:12, borderRadius:12, border:'2px solid #1e293b', boxShadow:'inset 0 0 20px rgba(0,0,0,0.8)'}}>
-                                               {reversedVaos.map(({ list: vaoList, realVaoNum }) => (
-                                                 <div key={realVaoNum} style={{background:'#111827', borderRadius:10, padding:12, border:'1px solid #1f2937'}}>
-                                                   <div style={{fontSize:11, fontWeight:800, color:C.subtle, marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                                     <span>📍 VÃO #{realVaoNum} ({realVaoNum === 1 ? "Base / Chão · Slot #1 à esquerda" : realVaoNum === vaos.length ? "Topo" : "Nível " + realVaoNum}) — {vaoList.length} posições</span>
-                                                     <span style={{fontSize:10, color:C.muted}}>Slots #{vaoList[0]?.notes || 1} - #{vaoList[vaoList.length-1]?.notes || (realVaoNum * slotsPerVao)}</span>
-                                                   </div>
-                                                   <div className="shelf-rack-grid" style={{display:'flex', flexWrap:'wrap', gap:8}}>
-                                                     {vaoList.map(m => {
-                                                       const stat = farmStatus[m.ip] || null;
-                                                       const isDummy = m.sn && m.sn.startsWith("FARM-");
-                                                       const isOnline = stat && stat.status !== 'offline';
-                                                       const isMining = isOnline && stat.status === 'mining';
-                                                       const machineModelName = (m.model && m.model !== "Antminer S19j Pro") ? m.model : (stat?.model || m.model || "Whatsminer M30S");
-                                                       
-                                                       let bg = '#17202e'; 
-                                                       let textColor = '#94a3b8'; 
-                                                       let borderStyle = '1px solid #334155';
-                                                       let ledColor = '#475569';
-                                                       let borderGlow = 'none';
+                                 // Bottom-up display (Vão 1 at bottom, Top Vão on top)
+                                 const reversedVaos = vaos.map((vaoList, idx) => ({ vaoList, realVaoNum: idx + 1 })).reverse();
 
-                                                       if (m.ip) {
-                                                           if (isMining) {
-                                                               bg = '#064e3b';
-                                                               textColor = '#6ee7b7';
-                                                               borderStyle = '1px solid #10b981';
-                                                               borderGlow = '0 0 12px rgba(16,185,129,0.4)';
-                                                               ledColor = '#10b981';
-                                                           } else if (isOnline) {
-                                                               bg = '#451a03';
-                                                               textColor = '#fde68a';
-                                                               borderStyle = '1px solid #f59e0b';
-                                                               borderGlow = '0 0 10px rgba(245,158,11,0.3)';
-                                                               ledColor = '#f59e0b';
-                                                           } else {
-                                                               bg = '#1e1b2e';
-                                                               textColor = '#cbd5e1';
-                                                               borderStyle = '1px solid #475569';
-                                                               ledColor = '#ef4444';
-                                                           }
-                                                       }
+                                 return (
+                                    <div key={shelfName} style={{
+                                       background: '#090d16',
+                                       border: '3px solid #334155',
+                                       borderRadius: 14,
+                                       padding: 16,
+                                       marginBottom: 24,
+                                       boxShadow: '0 10px 30px rgba(0,0,0,0.7), inset 0 0 40px rgba(0,0,0,0.9)',
+                                       position: 'relative'
+                                    }}>
+                                        {/* Rack Metallic Beams Header */}
+                                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'2px solid #334155', paddingBottom:12, marginBottom:16}}>
+                                            <div style={{display:'flex', alignItems:'center', gap:10}}>
+                                                <span style={{fontSize:18}}>🗄️</span>
+                                                <div>
+                                                   <div style={{fontWeight:900, fontSize:15, color:'#f8fafc'}}>{cleanedShelfName}</div>
+                                                   <div style={{fontSize:11, color:'#94a3b8'}}>{shelfOnline} de {fullSlots.length} slots ocupados/online</div>
+                                                </div>
+                                            </div>
+                                            <div style={{display:'flex', alignItems:'center', gap:12}}>
+                                                <div style={{background:C.green + "15", border:"1px solid " + C.green + "44", color:C.green, padding:'4px 12px', borderRadius:8, fontSize:12, fontWeight:900}}>
+                                                    ⛏️ {shelfTH.toFixed(1)} TH/s
+                                                </div>
+                                                <button onClick={() => handleDeleteShelf(shelfName, farmName)} style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}>
+                                                    🗑️ Apagar Prateleira
+                                                </button>
+                                            </div>
+                                        </div>
 
-                                                       const shortIP = m.ip ? m.ip.split('.').slice(2).join('.') : null;
-                                                       const slotNumStr = (m.notes && m.notes !== "null" && m.notes !== "undefined" && !String(m.notes).includes("$")) ? m.notes : (vaoList.indexOf(m) + 1 + (realVaoNum - 1) * slotsPerVao);
-                                                       let valToShow = "Slot #" + slotNumStr;
-                                                       if (viewMode === 'temp') {
-                                                           valToShow = isOnline && stat.temp ? stat.temp + '°C' : '--';
-                                                       } else if (viewMode === 'hashrate') {
-                                                           valToShow = isOnline && stat.hashrate ? stat.hashrate.toFixed(0) + ' TH' : '--';
-                                                       }
+                                        {/* Metal Rack Tray Structure (Levels / Vãos) */}
+                                        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+                                           {reversedVaos.map(({ vaoList, realVaoNum }) => {
+                                              const startSlot = (realVaoNum - 1) * slotsPerVao + 1;
+                                              const endSlot = realVaoNum * slotsPerVao;
+                                              return (
+                                                 <div key={realVaoNum} style={{
+                                                    background: '#0f172a',
+                                                    borderRadius: 10,
+                                                    border: '1px solid #1e293b',
+                                                    padding: 12,
+                                                    borderBottom: '4px solid #475569',
+                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
+                                                 }}>
+                                                    <div style={{fontSize:11, fontWeight:800, color:'#94a3b8', marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                                                      <span>📍 VÃO #{realVaoNum} ({realVaoNum === 1 ? "Base / Chão · Slot #1 à esquerda" : realVaoNum === vaos.length ? "Topo" : "Nível " + realVaoNum})</span>
+                                                      <span style={{fontSize:10, color:'#64748b'}}>Slots #{startSlot} ao #{endSlot}</span>
+                                                    </div>
 
-                                                       const snMismatch = isOnline && stat.sn && m.sn && !isDummy && stat.sn.trim().toUpperCase() !== m.sn.trim().toUpperCase();
+                                                    {/* Machine Grid Resting on Metal Shelf Bar */}
+                                                    <div style={{display:'grid', gridTemplateColumns:`repeat(${slotsPerVao}, 1fr)`, gap:10}}>
+                                                      {vaoList.map((m, slotIndex) => {
+                                                        const stat = farmStatus[m.ip] || null;
+                                                        const isDummy = m.sn && m.sn.startsWith("FARM-");
+                                                        const isOnline = stat && stat.status !== 'offline';
+                                                        const isMining = isOnline && stat.status === 'mining';
+                                                        const slotNumStr = m.notes || (startSlot + slotIndex);
+                                                        const machineModelName = stat?.model || m.model || "Antminer S19";
 
-                                                       return (
-                                                           <div 
-                                                              key={m._id} 
-                                                              className="shelf-slot-box"
-                                                              onDoubleClick={(e) => { e.stopPropagation(); if (m.ip) window.open('http://' + m.ip, '_blank'); }}
-                                                              onClick={() => openSlotDetailsModal(m)}
-                                                              style={{
-                                                                  minWidth: 85,
-                                                                  height: 56,
-                                                                  padding: '6px 8px',
-                                                                  fontSize: 11,
-                                                                  background: bg,
-                                                                  color: textColor,
-                                                                  boxShadow: borderGlow,
-                                                                  border: snMismatch ? "2px solid " + C.amber : borderStyle,
-                                                                  display: 'flex',
-                                                                  flexDirection: 'column',
-                                                                  justifyContent: 'center',
-                                                                  alignItems: 'center',
-                                                                  borderRadius: 8,
-                                                                  position: 'relative'
-                                                              }}
-                                                           >
-                                                               <div style={{position:'absolute', top:4, right:4, width:6, height:6, borderRadius:'50%', background: ledColor}} />
-                                                               <div style={{fontWeight: 900, fontSize: 11}}>{valToShow}</div>
-                                                               <div style={{fontSize: 10, color: shortIP ? C.accent : C.muted, marginTop: 3, fontWeight: 800}}>
-                                                                 {shortIP ? "🌐 " + shortIP : "🌐 Sem IP"}
-                                                               </div>
+                                                        let bg = '#182232'; 
+                                                        let textColor = '#64748b'; 
+                                                        let borderStyle = '1px solid #1e293b';
+                                                        let ledColor = '#334155';
+                                                        let borderGlow = 'none';
 
-                                                               {/* Tooltip Card */}
-                                                               <div className="shelf-slot-tooltip">
-                                                                   <div style={{fontWeight:900, color:C.accent, fontSize:12, marginBottom:4, display:'flex', justifyContent:'space-between'}}>
-                                                                       <span>Slot #{m.notes} · {machineModelName}</span>
-                                                                       <span style={{color: isOnline ? C.green : C.red}}>{isOnline ? (isMining ? 'MINANDO' : 'OCIOSO') : 'OFFLINE'}</span>
-                                                                   </div>
-                                                                   <div style={{height:1, background:C.border, margin:'4px 0'}} />
-                                                                   <div>🌐 IP: {m.ip || 'Sem IP (Clique para configurar)'}</div>
-                                                                   <div>💻 Modelo: {machineModelName}</div>
-                                                                   <div>📦 SN Carcaça: {isDummy ? '(Vazio)' : m.sn}</div>
-                                                                   {isOnline && (
-                                                                       <>
-                                                                           <div>📦 SN Físico: {stat.sn || '--'}</div>
-                                                                           <div>⏱️ Uptime: {formatUptime(stat.uptime)}</div>
-                                                                           <div>⛏️ Hashrate: {stat.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '--'}</div>
-                                                                           <div>🌡️ Temp: {stat.temp ? stat.temp + '°C' : '--'}</div>
-                                                                       </>
-                                                                   )}
-                                                                    <div style={{fontSize:9, color:C.subtle, marginTop:4}}>(Clique para gerenciar IP e SN)</div>
+                                                        if (m.ip) {
+                                                            if (isMining) {
+                                                                bg = '#064e3b';
+                                                                textColor = '#6ee7b7';
+                                                                borderStyle = '1px solid #10b981';
+                                                                borderGlow = '0 0 12px rgba(16,185,129,0.4)';
+                                                                ledColor = '#10b981';
+                                                            } else if (isOnline) {
+                                                                bg = '#451a03';
+                                                                textColor = '#fde68a';
+                                                                borderStyle = '1px solid #f59e0b';
+                                                                borderGlow = '0 0 10px rgba(245,158,11,0.3)';
+                                                                ledColor = '#f59e0b';
+                                                            } else {
+                                                                bg = '#1e1b2e';
+                                                                textColor = '#cbd5e1';
+                                                                borderStyle = '1px solid #475569';
+                                                                ledColor = '#ef4444';
+                                                            }
+                                                        }
+
+                                                        let valToShow = "Slot #" + slotNumStr;
+                                                        if (viewMode === 'temp') {
+                                                            valToShow = isOnline && stat.temp ? stat.temp + '°C' : '--';
+                                                        } else if (viewMode === 'hashrate') {
+                                                            valToShow = isOnline && stat.hashrate ? stat.hashrate.toFixed(0) + ' TH' : '--';
+                                                        }
+
+                                                        return (
+                                                            <div 
+                                                               key={m._id || slotIndex} 
+                                                               onDoubleClick={(e) => { e.stopPropagation(); if (m.ip) window.open('http://' + m.ip, '_blank'); }}
+                                                               onClick={() => openSlotDetailsModal(m)}
+                                                               title={`Slot #${slotNumStr} · ${machineModelName} ${m.ip ? '· IP: ' + m.ip : '· (Vago)'}`}
+                                                               style={{
+                                                                   height: 58,
+                                                                   padding: '6px 8px',
+                                                                   fontSize: 11,
+                                                                   background: bg,
+                                                                   color: textColor,
+                                                                   boxShadow: borderGlow,
+                                                                   border: borderStyle,
+                                                                   display: 'flex',
+                                                                   flexDirection: 'column',
+                                                                   justifyContent: 'center',
+                                                                   alignItems: 'center',
+                                                                   borderRadius: 8,
+                                                                   position: 'relative',
+                                                                   cursor: 'pointer',
+                                                                   transition: 'all 0.15s ease'
+                                                               }}
+                                                            >
+                                                                <div style={{position:'absolute', top:4, right:4, width:6, height:6, borderRadius:'50%', background: ledColor}} />
+                                                                <div style={{fontWeight: 900, fontSize: 11}}>{valToShow}</div>
+                                                                <div style={{fontSize: 9, color: m.ip ? C.blue : '#475569', marginTop: 2, fontWeight: 700, overflow:'hidden', textOverflow:'ellipsis', maxWidth:'100%', whiteSpace:'nowrap'}}>
+                                                                    {m.ip ? m.ip : "Vago"}
                                                                 </div>
                                                             </div>
                                                         );
                                                       })}
                                                     </div>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            );
-                                         })()}
+                                                 </div>
+                                              );
+                                           })}
+                                        </div>
                                     </div>
-                                );
-                             })
-                          )
+                                 );
+                              })
+                           )
                        )}
                    </div>
                );
@@ -5264,7 +5285,7 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
 }
 
 
-function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession, doSubmit}) {
+function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession, doSubmit, triggerToast}) {
     const [listening, setListening] = useState(false);
     const [lastCapturedIP, setLastCapturedIP] = useState(session?.ip || "");
     const [blinkOn, setBlinkOn] = useState(false);
@@ -6154,7 +6175,7 @@ function TestePage({ctx}){
       <Alrt type="ok">📋 Vinculada ao Pedido #{session.orderRef.orderNumber} — {session.orderRef.clientName}. Status já está PREPARANDO. Quando o Admin aprovar, a máquina vai direto pra esse cliente (SAIDA). Se cancelar essa sessão, volta pro status de antes e devolve a vaga do pedido.</Alrt>
       :session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — status já está PREPARANDO (planilha atualizada). Quando o Admin aprovar, permanece PREPARANDO. Se cancelar essa sessão, volta pro status de antes.</Alrt>}
 
-    <BenchConnectionPanel ctx={ctx} session={session} setMacInput={setMacInput} loadMachine={loadMachine} saveSession={saveSession} doSubmit={doSubmit} />
+    <BenchConnectionPanel ctx={ctx} session={session} setMacInput={setMacInput} loadMachine={loadMachine} saveSession={saveSession} doSubmit={doSubmit} triggerToast={triggerToast} />
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
