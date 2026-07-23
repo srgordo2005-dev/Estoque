@@ -2371,12 +2371,16 @@ function DataCenterPage({ctx}) {
     const [viewType, setViewType] = useState("btc"); // Default "btc" ou "rack"
     const [squareSize, setSquareSize] = useState("medium");
     const [hideEmpty, setHideEmpty] = useState(false);
-    const [onlyOnline, setOnlyOnline] = useState(() => localStorage.getItem("hs_only_online") === "true");
+    const [onlyOnline, setOnlyOnline] = useState(() => {
+        const key = user?._id ? "hs_only_online_" + user._id : "hs_only_online";
+        return localStorage.getItem(key) === "true";
+    });
 
     const handleSetOnlyOnline = useCallback((val) => {
         setOnlyOnline(val);
-        localStorage.setItem("hs_only_online", String(val));
-    }, []);
+        const key = user?._id ? "hs_only_online_" + user._id : "hs_only_online";
+        localStorage.setItem(key, String(val));
+    }, [user?._id]);
     const [autoScan, setAutoScan] = useState(true);
     const [selectedSubnet, setSelectedSubnet] = useState('ALL');
     const [searchQuery, setSearchQuery] = useState('');
@@ -5082,16 +5086,15 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
   }, [autoRefresh, fetchMiners]);
 
   const handleLinkToBench = async (miner) => {
-    if (session && saveSession) {
-      saveSession({ ...session, ip: miner.ip, updatedAt: stamp() });
-    }
+    onClose();
     if (miner.sn) {
       setMacInput(miner.sn);
       loadMachine(miner.sn);
     }
-    await fetchAndApplyMinerInfo(miner.ip);
-    alert("✅ Máquina " + miner.ip + " (" + (miner.model || "Minerador") + ") vinculada à bancada!");
-    onClose();
+    const info = await fetchAndApplyMinerInfo(miner.ip);
+    if (triggerToast) {
+      triggerToast("⚡ IP " + miner.ip + " (" + (miner.model || info?.model || "Minerador") + ") vinculado à bancada!");
+    }
   };
 
   return (
@@ -5216,11 +5219,11 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
             info.slots.forEach((boardSN, idx) => {
                 if (boardSN && idx < 3) {
                     const cleanSN = String(boardSN).toUpperCase().trim();
-                    if (!updatedSlots[idx].hashSN || updatedSlots[idx].hashSN.trim() === '') {
+                    if (cleanSN && updatedSlots[idx].hashSN !== cleanSN) {
                         updatedSlots[idx] = { 
                             ...updatedSlots[idx], 
                             hashSN: cleanSN,
-                            status: info.status === 'mining' ? 'good' : updatedSlots[idx].status
+                            status: info.status === 'mining' ? 'good' : (updatedSlots[idx].status || 'good')
                         };
                         hasChanges = true;
                     }
@@ -5493,7 +5496,8 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                      setMacInput={setMacInput} 
                      loadMachine={loadMachine} 
                      saveSession={saveSession} 
-                     fetchAndApplyMinerInfo={fetchAndApplyMinerInfo} 
+                     fetchAndApplyMinerInfo={fetchAndApplyMinerInfo}
+                     triggerToast={triggerToast} 
                      onClose={() => ctx.setModal(null)} 
                    />
                  </Modal>
