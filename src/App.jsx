@@ -1,3 +1,59 @@
+
+function ServerSelfUpdateModal({ctx, updateInfo, onClose}) {
+  const [updating, setUpdating] = useState(false);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+
+  const handleUpdate = async () => {
+    setUpdating(true);
+    setStatus("⬇️ Baixando nova versão do código e atualizando arquivos locais...");
+    try {
+      const res = await fetch("http://localhost:3001/api/self-update", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setStatus("⚡ Arquivos atualizados! Reiniciando o serviço local...");
+        setTimeout(() => {
+          setStatus("✅ Servidor local atualizado com sucesso para v" + data.newVersion + "!");
+          setTimeout(() => {
+            onClose();
+          }, 2000);
+        }, 2000);
+      } else {
+        setError(data.error || "Erro ao aplicar atualização.");
+        setUpdating(false);
+      }
+    } catch(e) {
+      setError("Erro ao se comunicar com o servidor local: " + e.message);
+      setUpdating(false);
+    }
+  };
+
+  return (
+    <div style={{display:'flex', flexDirection:'column', gap:14}}>
+       <div style={{fontWeight:900, fontSize:14, color:C.accent}}>
+          🚀 Nova Versão do Servidor / App Local Disponível!
+       </div>
+       <div style={{background:C.card2, borderRadius:10, padding:12, border:"1px solid " + C.border, fontSize:12}}>
+          <div>📌 Versão em execução no servidor local: <b>v{updateInfo.localVersion}</b></div>
+          <div>✨ Nova versão disponível no servidor remoto: <b style={{color:C.green}}>v{updateInfo.remoteVersion}</b></div>
+          <div style={{fontSize:11, color:C.subtle, marginTop:8}}>
+             💡 O app/servidor local pode se auto-atualizar agora mesmo sem precisar rodar nenhum instalador .exe!
+          </div>
+       </div>
+
+       {status && <div style={{background:C.green + "15", border:"1px solid " + C.green + "44", color:C.green, borderRadius:8, padding:10, fontSize:12, fontWeight:700}}>{status}</div>}
+       {error && <Alrt type="err">{error}</Alrt>}
+
+       <div style={{display:'flex', gap:10, marginTop:6}}>
+          <Btn v="s" onClick={onClose} disabled={updating} style={{flex:1}}>Lembrar Mais Tarde</Btn>
+          <Btn v="g" onClick={handleUpdate} disabled={updating} style={{flex:1.5}}>
+             {updating ? "⚡ Atualizando..." : "⚡ Atualizar Agora (Sem Instalador)"}
+          </Btn>
+       </div>
+    </div>
+  );
+}
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { jsPDF } from 'jspdf';

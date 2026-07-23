@@ -679,10 +679,58 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 
+const HELPER_VERSION = "1.0.1";
+
+app.get('/api/version', (req, res) => {
+    res.json({
+        version: HELPER_VERSION,
+        name: 'HashStock Local Helper & Bridge',
+        uptime: Math.floor(process.uptime()),
+        platform: process.platform,
+        arch: process.arch
+    });
+});
+
+app.post('/api/self-update', async (req, res) => {
+    console.log('[Self-Update] Solicitação de atualização sem instalador recebida...');
+    try {
+        const pkgRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/desktop/package.json');
+        if (!pkgRes.ok) throw new Error('Não foi possível verificar a versão remota.');
+        const remotePkg = await pkgRes.json();
+        
+        const helperRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/desktop/local-helper.js');
+        if (!helperRes.ok) throw new Error('Falha ao baixar a nova versão do código.');
+        const newCode = await helperRes.text();
+        
+        if (newCode && newCode.includes('app.listen')) {
+            const helperPath = path.join(__dirname, 'local-helper.js');
+            fs.writeFileSync(helperPath, newCode, 'utf8');
+            console.log(`[Self-Update] local-helper.js atualizado no disco para v${remotePkg.version || 'nova'}!`);
+            
+            res.json({
+                success: true,
+                message: `Servidor local atualizado para v${remotePkg.version || 'nova'}! Reiniciando serviço...`,
+                newVersion: remotePkg.version
+            });
+
+            setTimeout(() => {
+                console.log('[Self-Update] Reiniciando processo para carregar novo código...');
+                process.exit(0);
+            }, 1200);
+            return;
+        } else {
+            throw new Error('Código baixado inválido.');
+        }
+    } catch (e) {
+        console.error('[Self-Update] Erro na atualização:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.get('/api/ipreport-status', (req, res) => {
     res.json(udpStatuses);
 });
 
 app.listen(PORT, () => {
-    console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT}`);
+    console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT} (v${HELPER_VERSION})`);
 });
