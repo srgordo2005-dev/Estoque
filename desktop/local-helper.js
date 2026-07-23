@@ -2,12 +2,16 @@
 // Helper to accurately extract Miner Model and SN from Stats/Summary/Version
 function detectMinerDetails(stat = {}, summary = {}, version = {}) {
     let rawModel = version?.VERSION?.[0]?.Miner || version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware || 
-                   stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
-                   stat.system_miner_type || summary?.STATUS?.[0]?.Description || '';
+                   summary?.SUMMARY?.[0]?.Type || summary?.SUMMARY?.[0]?.Hardware ||
+                   stat?.STATS?.[1]?.Type || stat?.STATS?.[0]?.Type || stat?.Type || stat?.Miner || 
+                   stat?.['Miner Type'] || stat?.hardware || stat?.product || 
+                   stat?.system_miner_type || summary?.STATUS?.[0]?.Description || '';
 
+    let cleanStr = String(rawModel).replace(/cgminers*[d.]*/gi, '').replace(/bmminers*[d.]*/gi, '').trim();
     let model = 'Antminer S19';
-    if (rawModel) {
-        const lower = String(rawModel).toLowerCase();
+
+    if (cleanStr) {
+        const lower = cleanStr.toLowerCase();
         if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
         else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
         else if (lower.includes('s19 xp') || lower.includes('s19xp')) model = 'Antminer S19 XP';
@@ -19,7 +23,7 @@ function detectMinerDetails(stat = {}, summary = {}, version = {}) {
         else if (lower.includes('m31s')) model = 'Whatsminer M31S';
         else if (lower.includes('m50')) model = 'Whatsminer M50';
         else if (lower.includes('whatsminer') || lower.includes('m20') || lower.includes('m32')) model = 'Whatsminer M30S';
-        else model = String(rawModel).replace(/bmminer/gi, '').trim() || 'Antminer S19';
+        else model = cleanStr || 'Antminer S19';
     } else if (stat.chain_acn || stat.chain_acs || stat.BMMiner || stat['hash board 0 sn']) {
         model = 'Antminer S19';
     }

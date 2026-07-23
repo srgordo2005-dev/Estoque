@@ -3137,7 +3137,7 @@ function DataCenterPage({ctx}) {
            </div>
         </div>
 
-        {/* LISTA VERTICAL DE TODAS AS FAZENDAS */}
+        {/* FAZENDAS COM PRATELEIRAS SIDE-BY-SIDE (LADO A LADO) */}
         {displayedFarms.length === 0 ? (
            <div style={{textAlign:'center', padding:40, color:C.subtle, border: "2px dashed " + C.border, borderRadius:10, width:'100%'}}>
                Nenhuma fazenda encontrada. Clique em "+ Nova Fazenda" para começar.
@@ -3198,6 +3198,7 @@ function DataCenterPage({ctx}) {
 
                return (
                    <div key={farmName} style={{background:C.card, borderRadius:14, border:"1px solid " + C.border, padding:16, marginBottom:24}}>
+                        <style>{`.shelves-side-by-side-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; align-items: start; }`}</style>
                        {/* Farm Section Header */}
                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, borderBottom:"2px solid " + C.border, paddingBottom:12, marginBottom:16}}>
                           <div>
@@ -3314,7 +3315,8 @@ function DataCenterPage({ctx}) {
                           Object.keys(shelfGroups).length === 0 ? (
                              <div style={{textAlign:'center', padding:20, color:C.subtle}}>Nenhuma máquina encontrada nesta visualização.</div>
                           ) : (
-                                                           Object.keys(shelfGroups).map(shelfName => {
+                                                           <div className="shelves-side-by-side-grid">
+                              {Object.keys(shelfGroups).map(shelfName => {
                                  const list = shelfGroups[shelfName];
                                  const shelfTH = list.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
                                  const shelfOnline = list.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
@@ -3384,7 +3386,7 @@ function DataCenterPage({ctx}) {
                                         </div>
 
                                         {/* Metal Rack Tray Structure (Levels / Vãos) */}
-                                        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+                                        <div style={{display:'flex', flexDirection:'column', gap:12}}>
                                            {reversedVaos.map(({ vaoList, realVaoNum }) => {
                                               const startSlot = (realVaoNum - 1) * slotsPerVao + 1;
                                               const endSlot = realVaoNum * slotsPerVao;
@@ -3483,19 +3485,17 @@ function DataCenterPage({ctx}) {
                                               );
                                            })}
                                         </div>
-                                    </div>
-                                 );
-                              })
-                           )
-                       )}
+                                     </div>
+                                  );
+                               })}
+                            </div>
+                         )
+                      )}
                    </div>
-               );
-           })
-        )}
-    </div>;
-}
-
-function AddModeSelect({ctx,onClose,initialMode=null}){
+                );
+             })
+          )}
+      </div>;
   const[mode,setMode]=useState(initialMode);
   if(!mode)return<div><div style={{color:C.subtle,fontSize:13,marginBottom:18,textAlign:"center"}}>Como deseja adicionar?</div><div style={{display:"flex",flexDirection:"column",gap:10}}><Btn onClick={()=>setMode("single")} style={{justifyContent:"center",padding:"14px 0"}}>🖥️ Individual</Btn><Btn v="b" onClick={()=>setMode("batch-sn")} style={{justifyContent:"center",padding:"14px 0"}}>📋 Lote COM SN</Btn><Btn v="p" onClick={()=>setMode("batch-nosn")} style={{justifyContent:"center",padding:"14px 0"}}>📦 Lote SEM SN</Btn></div></div>;
   if(mode==="single")return<AddMachineForm ctx={ctx} onClose={onClose}/>;
