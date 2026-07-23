@@ -3090,15 +3090,7 @@ function DataCenterPage({ctx}) {
                  {isScanning ? "⏳ Escaneando..." : "🔄 Escanear Frota Agora"}
               </Btn>
               
-               <Btn v="d" onClick={async () => {
-                  if (!confirm("Deseja APAGAR TODAS as prateleiras atuais e recriar a Prateleira do zero?")) return;
-                  const allFm = data.farmMachines || [];
-                  mutate("farmMachines", []);
-                  await Promise.all(allFm.map(m => fbDel("farmMachines", m._id)));
-                  setModal(<Modal title="📐 Criar Nova Prateleira Física do Zero" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
-               }}>
-                  🗑️ Recriar Prateleira do Zero
-               </Btn>
+               
                <Btn v="b" onClick={() => setModal(<Modal title="📐 Criar Nova Prateleira Física" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
 
            </div>
@@ -3408,7 +3400,7 @@ function DataCenterPage({ctx}) {
                                                          )}
                                                      </td>
                                                      <td 
-                                                       onDoubleClick={() => m.ip && window.open('http://' + m.ip, '_blank')}
+                                                       
                                                        style={{padding:8, fontWeight:800, color: m.ip ? C.blue : C.subtle, cursor: m.ip ? 'pointer' : 'default'}}
                                                        title={m.ip ? "Clique duplo para abrir no navegador (http://" + m.ip + ")" : "Sem IP"}
                                                      >
@@ -3611,7 +3603,7 @@ function DataCenterPage({ctx}) {
                                                         return (
                                                             <div 
                                                                key={m._id || slotIndex} 
-                                                               onDoubleClick={(e) => { e.stopPropagation(); if (m.ip) window.open('http://' + m.ip, '_blank'); }}
+                                                               
                                                                onClick={() => openSlotDetailsModal(m)}
                                                                title={`Slot #${slotNumStr} · ${machineModelName} ${m.ip ? '· IP: ' + m.ip : '· (Vago)'} ${stat?.pool ? '· Pool: ' + stat.pool : ''}`}
                                                                style={{
