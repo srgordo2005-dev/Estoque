@@ -3095,56 +3095,7 @@ function DataCenterPage({ctx}) {
                  <h2 style={{margin:0}}>⚡ HASHSTOCK · Data Center & Monitor de Fazenda</h2>
                  <span style={{background:C.accent, color:'#000', padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:900}}>V2.0 LIVE</span>
               </div>
-              <div style={{display:'flex', gap:6, marginTop:8, overflowX:'auto', maxWidth:'75vw', paddingBottom:4}}>
-                 <button
-                    onClick={() => setActiveFarm("ALL")}
-                    style={{
-                       background: activeFarm === "ALL" ? C.accent : C.card,
-                       color: activeFarm === "ALL" ? '#000' : C.text,
-                       border: "1px solid " + C.border,
-                       borderBottom: activeFarm === "ALL" ? "3px solid " + C.accent : "1px solid " + C.border,
-                       borderRadius: '6px 6px 0 0',
-                       padding: '8px 16px',
-                       fontSize: 12,
-                       fontWeight: 800,
-                       cursor: 'pointer',
-                       whiteSpace: 'nowrap'
-                    }}
-                 >
-                    🌐 TODAS AS FAZENDAS (LISTA COMPLETA)
-                 </button>
-                 {farmsList.map(f => (
-                    <button 
-                       key={f} 
-                       onClick={() => setActiveFarm(f)}
-                       style={{
-                          background: activeFarm === f ? C.accent : C.card,
-                          color: activeFarm === f ? '#000' : C.text,
-                          border: "1px solid " + C.border,
-                          borderBottom: activeFarm === f ? "3px solid " + C.accent : "1px solid " + C.border,
-                          borderRadius: '6px 6px 0 0',
-                          padding: '8px 16px',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap'
-                       }}
-                    >
-                       🏠 {f}
-                    </button>
-                 ))}
-                 <button 
-                    onClick={() => {
-                       const name = prompt("Nome da Nova Fazenda:");
-                       if(name && name.trim()) {
-                          setActiveFarm(name.trim());
-                       }
-                    }}
-                    style={{ background: C.card2, color: C.subtle, border: "1px dashed " + C.border, borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                 >
-                    + Nova Fazenda
-                 </button>
-              </div>
+              
            </div>
            
            <div style={{display:'flex', gap:8, alignItems:'center'}}>
