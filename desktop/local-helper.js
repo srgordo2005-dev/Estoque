@@ -1,19 +1,16 @@
 
 // Helper to accurately extract Miner Model and SN from Stats/Summary/Version
 function detectMinerDetails(stat = {}, summary = {}, version = {}) {
-    let rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
-                   version?.VERSION?.[0]?.Miner || version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware || '';
-    
-    if (!rawModel && summary?.STATUS?.[0]?.Description) {
-        rawModel = summary.STATUS[0].Description;
-    }
+    let rawModel = version?.VERSION?.[0]?.Miner || version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware || 
+                   stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
+                   stat.system_miner_type || summary?.STATUS?.[0]?.Description || '';
 
-    let model = 'Antminer S19j Pro'; // Default clean fallback if miner detected but model string is empty
+    let model = 'Antminer S19';
     if (rawModel) {
         const lower = String(rawModel).toLowerCase();
         if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
         else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
-        else if (lower.includes('s19 xp')) model = 'Antminer S19 XP';
+        else if (lower.includes('s19 xp') || lower.includes('s19xp')) model = 'Antminer S19 XP';
         else if (lower.includes('s19')) model = 'Antminer S19';
         else if (lower.includes('s21')) model = 'Antminer S21';
         else if (lower.includes('t21')) model = 'Antminer T21';
@@ -22,11 +19,9 @@ function detectMinerDetails(stat = {}, summary = {}, version = {}) {
         else if (lower.includes('m31s')) model = 'Whatsminer M31S';
         else if (lower.includes('m50')) model = 'Whatsminer M50';
         else if (lower.includes('whatsminer') || lower.includes('m20') || lower.includes('m32')) model = 'Whatsminer M30S';
-        else model = String(rawModel).replace(/bmminer/gi, '').trim() || 'Antminer S19j Pro';
+        else model = String(rawModel).replace(/bmminer/gi, '').trim() || 'Antminer S19';
     } else if (stat.chain_acn || stat.chain_acs || stat.BMMiner || stat['hash board 0 sn']) {
-        model = 'Antminer S19j Pro';
-    } else if (stat['system_miner_type']) {
-        model = stat['system_miner_type'];
+        model = 'Antminer S19';
     }
 
     let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';

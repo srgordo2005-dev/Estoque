@@ -3250,7 +3250,7 @@ function DataCenterPage({ctx}) {
                                              const isIdle = stat && stat.status !== 'offline' && !isMining;
                                              const isChecked = selectedMachineIds.includes(m._id);
                                              
-                                             const machineModelName = (m.model && m.model !== "Antminer S19j Pro") ? m.model : (stat?.model || m.model || "Whatsminer M30S");
+                                             const machineModelName = stat?.model || m.model || "Antminer S19";
                                              const shelfLabel = m.shelf ? m.shelf.replace(/AutoSlot/gi, "Prateleira") : "Prateleira";
 
                                              return (
@@ -3283,7 +3283,7 @@ function DataCenterPage({ctx}) {
                                                          {m.ip ? `🌐 ${m.ip}` : "Sem IP"}
                                                      </td>
                                                      {/* Modelo Prominente */}
-                                                     <td style={{padding:8, fontWeight:800, color:C.accent}}>{machineModelName}</td>
+                                                     <td style={{padding:8, fontWeight:800, color:C.accent}}>{stat?.model || m.model || "Antminer S19"}</td>
                                                      <td style={{padding:8, color:C.green, fontWeight:800}}>{stat?.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '-'}</td>
                                                      <td style={{padding:8, color: stat?.temp > 85 ? C.red : C.text, fontWeight:700}}>{stat?.temp ? stat.temp + '°C' : '-'}</td>
                                                      <td style={{padding:8, color:C.subtle}}>{stat?.uptime ? formatUptime(stat.uptime) : '-'}</td>
@@ -3318,7 +3318,7 @@ function DataCenterPage({ctx}) {
                                 const list = shelfGroups[shelfName];
                                 const shelfTH = list.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
                                 const shelfOnline = list.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
-                                const cleanedShelfName = shelfName.replace(/AutoSlot/gi, "Prateleira");
+                                const cleanedShelfName = shelfName.replace(/^ao\s*-\s*/gi, "").replace(/^AutoSlot\s*/gi, "Prateleira ").replace(/AutoSlot/gi, "Prateleira").trim();
 
                                 return (
                                    <div key={shelfName} className="shelf-rack-cabinet">
@@ -3355,8 +3355,8 @@ function DataCenterPage({ctx}) {
                                                {reversedVaos.map(({ list: vaoList, realVaoNum }) => (
                                                  <div key={realVaoNum} style={{background:'#111827', borderRadius:10, padding:12, border:'1px solid #1f2937'}}>
                                                    <div style={{fontSize:11, fontWeight:800, color:C.subtle, marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                                     <span>📍 VÃO #${realVaoNum} (${realVaoNum === 1 ? "Base / Chão · Slot #1 à esquerda" : realVaoNum === vaos.length ? "Topo" : "Nível " + realVaoNum}) — ${vaoList.length} slots</span>
-                                                     <span style={{fontSize:10, color:C.muted}}>Slots #${vaoList[0]?.notes} - #${vaoList[vaoList.length-1]?.notes}</span>
+                                                     <span>📍 VÃO #{realVaoNum} ({realVaoNum === 1 ? "Base / Chão · Slot #1 à esquerda" : realVaoNum === vaos.length ? "Topo" : "Nível " + realVaoNum}) — {vaoList.length} posições</span>
+                                                     <span style={{fontSize:10, color:C.muted}}>Slots #{vaoList[0]?.notes || 1} - #{vaoList[vaoList.length-1]?.notes || (realVaoNum * slotsPerVao)}</span>
                                                    </div>
                                                    <div className="shelf-rack-grid" style={{display:'flex', flexWrap:'wrap', gap:8}}>
                                                      {vaoList.map(m => {
@@ -3394,7 +3394,8 @@ function DataCenterPage({ctx}) {
                                                        }
 
                                                        const shortIP = m.ip ? m.ip.split('.').slice(2).join('.') : null;
-                                                       let valToShow = "Slot #" + m.notes;
+                                                       const slotNumStr = (m.notes && m.notes !== "null" && m.notes !== "undefined" && !String(m.notes).includes("$")) ? m.notes : (vaoList.indexOf(m) + 1 + (realVaoNum - 1) * slotsPerVao);
+                                                       let valToShow = "Slot #" + slotNumStr;
                                                        if (viewMode === 'temp') {
                                                            valToShow = isOnline && stat.temp ? stat.temp + '°C' : '--';
                                                        } else if (viewMode === 'hashrate') {
@@ -5105,7 +5106,7 @@ function LinkNewHashTechForm({ctx, sn, initialModel, onSave, onClose}){
 }
 
 
-function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession, fetchAndApplyMinerInfo, onClose}){
+function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession, fetchAndApplyMinerInfo, triggerToast, onClose}){
   const { data, mutate } = ctx || {};
   const [subnet, setSubnet] = useState("192.168.1");
   const [isScanning, setIsScanning] = useState(false);
@@ -5160,8 +5161,9 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
       loadMachine(miner.sn);
     }
     const info = await fetchAndApplyMinerInfo(miner.ip);
-    if (triggerToast) {
-      triggerToast("⚡ IP " + miner.ip + " (" + (miner.model || info?.model || "Minerador") + ") vinculado à bancada!");
+    const toastFn = triggerToast || ctx?.triggerToast;
+    if (toastFn) {
+      toastFn("⚡ IP " + miner.ip + " (" + (miner.model || info?.model || "Minerador") + ") vinculado à bancada!");
     }
   };
 
