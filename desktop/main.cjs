@@ -6,20 +6,51 @@ let mainWindow = null;
 let tray = null;
 let forceQuit = false;
 
-async function startHelperNatively() {
-    console.log("Starting local-helper natively inside Electron...");
+// 1. Single Instance Lock: impede que o aplicativo seja executado várias vezes em segundo plano
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    console.log("Uma instância do HashStock já está em execução. Abrindo apenas o painel Web...");
+    shell.openExternal('https://estoque-zeta-one.vercel.app/');
+    app.quit();
+} else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        console.log("Tentativa de abrir 2ª instância detectada. Focando aplicativo existente...");
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        } else {
+            shell.openExternal('https://estoque-zeta-one.vercel.app/');
+        }
+    });
+}
+
+// Verification to prevent duplicate local servers on port 3001
+async function isServerRunning() {
     try {
-        // Require the CommonJS helper (perfect for ASAR packaging)
+        const res = await fetch('http://localhost:3001/api/version');
+        return res.ok;
+    } catch (e) {
+        return false;
+    }
+}
+
+async function startHelperNatively() {
+    const running = await isServerRunning();
+    if (running) {
+        console.log("✅ Servidor local (local-helper) já está online na porta 3001. Não abrirá outro servidor!");
+        return;
+    }
+    console.log("Iniciando local-helper nativamente dentro do Electron...");
+    try {
         require('./local-helper.js');
-        console.log("Local helper started successfully!");
+        console.log("Local helper iniciado com sucesso!");
     } catch (err) {
-        console.error("Failed to load local-helper natively:", err);
+        console.error("Falha ao carregar local-helper:", err);
         try {
             const errorMsg = `[${new Date().toISOString()}] Error: ${err.message}\nStack: ${err.stack}\n\n`;
-            // Write to app data folder
             fs.appendFileSync(path.join(app.getPath('userData'), 'helper_crash.log'), errorMsg);
-            // Write to desktop/workspace folder if accessible
-            fs.appendFileSync('C:\\\\Users\\\\Felip\\\\.gemini\\\\antigravity\\\\scratch\\\\Estoque-main\\\\desktop\\\\helper_crash.log', errorMsg);
         } catch (e) {}
     }
 }
@@ -44,7 +75,6 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
     mainWindow.loadURL('https://estoque-zeta-one.vercel.app/');
 
-    // Intercept window.open to launch system default browser instead of Electron child window
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (url.startsWith('http:') || url.startsWith('https:')) {
             shell.openExternal(url);
@@ -53,7 +83,6 @@ function createWindow() {
         return { action: 'allow' };
     });
 
-    // Hide window on close instead of exiting
     mainWindow.on('close', (event) => {
         if (!forceQuit) {
             event.preventDefault();
@@ -75,7 +104,6 @@ function createTray() {
             label: 'Abrir Painel HashStock', 
             click: () => {
                 createWindow();
-    setTimeout(checkForUpdates, 3000);
             } 
         },
         { type: 'separator' },
@@ -100,11 +128,8 @@ app.whenReady().then(async () => {
     await startHelperNatively();
     createTray();
     
-    // Abrir painel no navegador padrão do usuário de forma automática
+    // Abrir painel no navegador padrão de forma limpa
     shell.openExternal('https://estoque-zeta-one.vercel.app/');
-    
-    // Verificar atualizações após a inicialização
-    setTimeout(checkForUpdates, 3000);
 });
 
 app.on('activate', () => {
@@ -112,46 +137,3 @@ app.on('activate', () => {
         createWindow();
     }
 });
-
-
-const pkgInfo = require('./package.json');
-
-async function checkForUpdates() {
-    console.log("Verificando atualizações...");
-    try {
-        const res = await fetch('https://estoque-zeta-one.vercel.app/version.json');
-        if (!res.ok) return;
-        const latest = await res.json();
-        
-        const currentVersion = pkgInfo.version;
-        const latestVersion = latest.version;
-
-        if (compareVersions(latestVersion, currentVersion) > 0) {
-            const { response } = await dialog.showMessageBox(mainWindow, {
-                type: 'question',
-                buttons: ['Atualizar Agora', 'Mais Tarde'],
-                defaultId: 0,
-                title: 'Atualização Disponível',
-                message: `Uma nova versão do HashStock (${latestVersion}) está disponível!`,
-                detail: 'Deseja abrir o link para baixar o instalador da nova versão?'
-            });
-            
-            if (response === 0) {
-                shell.openExternal(latest.url);
-                app.quit();
-            }
-        }
-    } catch (err) {
-        console.error("Erro na verificação de atualizações:", err.message);
-    }
-}
-
-function compareVersions(v1, v2) {
-    const parts1 = v1.split('.').map(Number);
-    const parts2 = v2.split('.').map(Number);
-    for (let i = 0; i < 3; i++) {
-        if (parts1[i] > parts2[i]) return 1;
-        if (parts1[i] < parts2[i]) return -1;
-    }
-    return 0;
-}
