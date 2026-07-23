@@ -3347,12 +3347,15 @@ function DataCenterPage({ctx}) {
                                              vaos.push(list.slice(i, i + slotsPerVao));
                                            }
 
+                                           // Real physical rack display: Top Vão on top, Vão #1 at bottom (Slot #1 bottom-left)
+                                           const reversedVaos = vaos.map((list, idx) => ({ list, realVaoNum: idx + 1 })).reverse();
+
                                            return (
-                                             <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                                               {vaos.map((vaoList, vaoIdx) => (
+                                             <div style={{display:'flex', flexDirection:'column', gap:12, background:'#0b1120', padding:12, borderRadius:12, border:'2px solid #1e293b', boxShadow:'inset 0 0 20px rgba(0,0,0,0.8)'}}>
+                                               {reversedVaos.map(({ list: vaoList, realVaoNum }) => (
                                                  <div key={vaoIdx} style={{background:'#111827', borderRadius:10, padding:12, border:'1px solid #1f2937'}}>
                                                    <div style={{fontSize:11, fontWeight:800, color:C.subtle, marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                                     <span>📍 VÃO #${vaoIdx + 1} (${vaoList.length} posições)</span>
+                                                     <span>📍 VÃO #${realVaoNum} (${realVaoNum === 1 ? "Base / Chão · Slot #1 à esquerda" : realVaoNum === vaos.length ? "Topo" : "Nível " + realVaoNum}) — ${vaoList.length} slots</span>
                                                      <span style={{fontSize:10, color:C.muted}}>Slots #${vaoList[0]?.notes} - #${vaoList[vaoList.length-1]?.notes}</span>
                                                    </div>
                                                    <div className="shelf-rack-grid" style={{display:'flex', flexWrap:'wrap', gap:8}}>
