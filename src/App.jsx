@@ -2317,7 +2317,7 @@ function AddFarmForm({ctx, onClose}) {
                 // Save layout metadata to localStorage for each generated shelf
         for (let s = 1; s <= shelvesQty; s++) {
             const currentShelfName = shelvesQty > 1 ? name + " " + s : name;
-            localStorage.setItem("hs_layout_" + currentShelfName, JSON.stringify({ machinesPerLevel: machinesPerVao }));
+            localStorage.setItem("hs_layout_" + currentShelfName, JSON.stringify({ machinesPerLevel: machinesPerVao, levelsCount: vaosQty }));
         }
 
         const machines = [];
@@ -2415,6 +2415,126 @@ function AddFarmForm({ctx, onClose}) {
             <Btn onClick={handleSave} disabled={saving} style={{flex:1}}>{saving ? "Salvando..." : "Salvar Prateleira"}</Btn>
         </div>
     </div>;
+}
+
+
+function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose }) {
+  const { data, mutate, user } = ctx;
+  const farmMachines = data.farmMachines || [];
+  const [currentSlotNum, setCurrentSlotNum] = useState(1);
+  const [snInput, setSnInput] = useState("");
+  const [ipInput, setIpInput] = useState("");
+  const [statusMsg, setStatusMsg] = useState("");
+  const [isListening, setIsListening] = useState(true);
+
+  // Poll for IP report automatically
+  useEffect(() => {
+    if (!isListening) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('http://localhost:3001/api/ipreport');
+        if (res.ok) {
+          const report = await res.json();
+          if (report && report.ip && report.ip !== ipInput) {
+            setIpInput(report.ip);
+            setStatusMsg("⚡ IP " + report.ip + " capturado via IP Report!");
+          }
+        }
+      } catch(e) {}
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [isListening, ipInput]);
+
+  const handleSaveSlotAndAdvance = async () => {
+    if (!snInput.trim() && !ipInput.trim()) {
+      return alert("Bipe o SN da carcaça ou aguarde o IP Report antes de avançar.");
+    }
+
+    const cleanSN = snInput.trim().toUpperCase() || ("FARM-" + Date.now() + "-" + currentSlotNum);
+    const cleanIP = ipInput.trim();
+
+    // Check if slot already exists in DB
+    const existing = farmMachines.find(m => m.shelf === shelfName && (m.location || "Fazenda Principal") === farmName && String(m.notes) === String(currentSlotNum));
+    
+    const newMachine = {
+      _id: existing?._id || uid(),
+      sn: cleanSN,
+      model: "Antminer S19",
+      shelf: shelfName,
+      location: farmName,
+      notes: String(currentSlotNum),
+      ip: cleanIP,
+      status: "ACTIVE",
+      updatedAt: stamp()
+    };
+
+    mutate("farmMachines", prev => {
+      const filtered = prev.filter(x => x._id !== newMachine._id);
+      return [...filtered, newMachine];
+    });
+
+    const res = await fbSet("farmMachines", newMachine._id, newMachine);
+    if (!res.ok) alert("Erro ao salvar slot no banco.");
+
+    setStatusMsg("✅ Slot #" + currentSlotNum + " cadastrado com sucesso! Avançando para o Slot #" + (currentSlotNum + 1) + "...");
+    
+    // Clear inputs and advance to next slot automatically
+    setSnInput("");
+    setIpInput("");
+    try { await fetch('http://localhost:3001/api/ipreport?clear=true'); } catch(e) {}
+    
+    if (currentSlotNum < totalSlots) {
+      setCurrentSlotNum(prev => prev + 1);
+    } else {
+      alert("🎉 Todos os " + totalSlots + " slots desta prateleira foram cadastrados!");
+      onClose();
+    }
+  };
+
+  return (
+    <div style={{display:'flex', flexDirection:'column', gap:14}}>
+      <div style={{background:C.accent + "15", border:"1px solid " + C.accent + "44", color:C.accent, padding:12, borderRadius:10, fontSize:12, fontWeight:800, textAlign:'center'}}>
+        ⚡ MODO MAPPING RÁPIDO PARAFUNCIONÁRIO · {shelfName} ({farmName})
+      </div>
+
+      <div style={{background:C.card2, padding:14, borderRadius:10, border:"1px solid " + C.border, textAlign:'center'}}>
+        <div style={{fontSize:11, color:C.subtle, fontWeight:800}}>CADASTRANDO AGORA:</div>
+        <div style={{fontSize:24, fontWeight:900, color:C.text, margin:'4px 0'}}>SLOT #{currentSlotNum} <span style={{fontSize:14, color:C.muted}}>de {totalSlots}</span></div>
+        <div style={{fontSize:11, color:C.muted}}>Bipe o SN da máquina e pressione o IP Report no minerador</div>
+      </div>
+
+      <div>
+        <label style={{fontSize:11, color:C.subtle, fontWeight:800, display:'block', marginBottom:4}}>1. SN DA CARCAÇA (BIPE O CÓDIGO DE BARRAS)</label>
+        <input 
+          autoFocus 
+          value={snInput} 
+          onChange={e => setSnInput(e.target.value.toUpperCase())}
+          onKeyDown={e => { if (e.key === 'Enter') handleSaveSlotAndAdvance(); }} 
+          placeholder="Bipe o SN aqui..." 
+          style={{...inp, width:'100%', fontSize:14, fontWeight:700}}
+        />
+      </div>
+
+      <div>
+        <label style={{fontSize:11, color:C.subtle, fontWeight:800, display:'block', marginBottom:4}}>2. IP DA MÁQUINA (CAPTURADO VIA IP REPORT OU MANUAL)</label>
+        <input 
+          value={ipInput} 
+          onChange={e => setIpInput(e.target.value.trim())} 
+          placeholder="Aguardando aperto do botão IP Report..." 
+          style={{...inp, width:'100%', color: ipInput ? C.green : C.muted, fontWeight:700}}
+        />
+      </div>
+
+      {statusMsg && <div style={{fontSize:12, color:C.accent, fontWeight:800, textAlign:'center'}}>{statusMsg}</div>}
+
+      <div style={{display:'flex', gap:10, marginTop:10}}>
+        <Btn v="s" onClick={onClose} style={{flex:1}}>Sair</Btn>
+        <Btn onClick={handleSaveSlotAndAdvance} style={{flex:2, justifyContent:'center'}}>
+          ⚡ Confirmar & Pular pro Slot #{currentSlotNum + 1} ➔
+        </Btn>
+      </div>
+    </div>
+  );
 }
 
 function DataCenterPage({ctx}) {
@@ -2901,7 +3021,7 @@ function DataCenterPage({ctx}) {
         );
     };
 
-    const cssStyles = '.shelf-rack-cabinet { background: #0d1520; border: 3px solid #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; box-shadow: inset 0 0 30px rgba(0,0,0,0.8), 0 8px 24px rgba(0,0,0,0.5); border-bottom: 8px solid #0f172a; } .shelf-rack-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 10px; margin-bottom: 14px; } .shelf-rack-grid { display: flex; flex-wrap: wrap; gap: 8px; } .shelf-slot-box { display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 8px; font-weight: 800; cursor: pointer; transition: all 0.2s ease-in-out; position: relative; box-shadow: 0 2px 4px rgba(0,0,0,0.2); } .shelf-slot-box:hover { transform: scale(1.1); z-index: 10; box-shadow: 0 0 14px rgba(14,165,233,0.3); } .shelf-slot-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); background: rgba(13, 21, 32, 0.96); border: 1px solid #334155; color: #f1f5f9; padding: 10px; border-radius: 8px; width: 210px; font-size: 10px; font-weight: 500; z-index: 9999; transition: opacity 0.2s ease, visibility 0.2s ease; box-shadow: 0 10px 20px rgba(0,0,0,0.6), 0 0 15px rgba(14,165,233,0.2); backdrop-filter: blur(8px); pointer-events: none; text-align: left; } .shelf-slot-box:hover .shelf-slot-tooltip { visibility: visible; opacity: 1; }';
+    const cssStyles = '@keyframes alertPulseRed { 0%, 100% { border-color: #ef4444; box-shadow: 0 0 16px rgba(239,68,68,0.9); } 50% { border-color: #7f1d1d; box-shadow: 0 0 4px rgba(239,68,68,0.2); } } @keyframes alertPulseYellow { 0%, 100% { border-color: #f59e0b; box-shadow: 0 0 16px rgba(245,158,11,0.9); } 50% { border-color: #78350f; box-shadow: 0 0 4px rgba(245,158,11,0.2); } }  .shelf-rack-cabinet { background: #0d1520; border: 3px solid #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; box-shadow: inset 0 0 30px rgba(0,0,0,0.8), 0 8px 24px rgba(0,0,0,0.5); border-bottom: 8px solid #0f172a; } .shelf-rack-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 10px; margin-bottom: 14px; } .shelf-rack-grid { display: flex; flex-wrap: wrap; gap: 8px; } .shelf-slot-box { display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 8px; font-weight: 800; cursor: pointer; transition: all 0.2s ease-in-out; position: relative; box-shadow: 0 2px 4px rgba(0,0,0,0.2); } .shelf-slot-box:hover { transform: scale(1.1); z-index: 10; box-shadow: 0 0 14px rgba(14,165,233,0.3); } .shelf-slot-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); background: rgba(13, 21, 32, 0.96); border: 1px solid #334155; color: #f1f5f9; padding: 10px; border-radius: 8px; width: 210px; font-size: 10px; font-weight: 500; z-index: 9999; transition: opacity 0.2s ease, visibility 0.2s ease; box-shadow: 0 10px 20px rgba(0,0,0,0.6), 0 0 15px rgba(14,165,233,0.2); backdrop-filter: blur(8px); pointer-events: none; text-align: left; } .shelf-slot-box:hover .shelf-slot-tooltip { visibility: visible; opacity: 1; }';
 
     return <div style={{padding: 20}}>
         <style>{cssStyles}</style>
@@ -2969,7 +3089,18 @@ function DataCenterPage({ctx}) {
               <Btn v="b" onClick={handleManualRefresh} disabled={isScanning}>
                  {isScanning ? "⏳ Escaneando..." : "🔄 Escanear Frota Agora"}
               </Btn>
-              <Btn v="b" onClick={() => setModal(<Modal title="Nova Prateleira" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
+              
+               <Btn v="d" onClick={async () => {
+                  if (!confirm("Deseja APAGAR TODAS as prateleiras atuais e recriar a Prateleira do zero?")) return;
+                  const allFm = data.farmMachines || [];
+                  mutate("farmMachines", []);
+                  await Promise.all(allFm.map(m => fbDel("farmMachines", m._id)));
+                  setModal(<Modal title="📐 Criar Nova Prateleira Física do Zero" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+               }}>
+                  🗑️ Recriar Prateleira do Zero
+               </Btn>
+               <Btn v="b" onClick={() => setModal(<Modal title="📐 Criar Nova Prateleira Física" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
+
            </div>
         </div>
 
@@ -3379,9 +3510,21 @@ function DataCenterPage({ctx}) {
                                                 <div style={{background:C.green + "15", border:"1px solid " + C.green + "44", color:C.green, padding:'4px 12px', borderRadius:8, fontSize:12, fontWeight:900}}>
                                                     ⛏️ {shelfTH.toFixed(1)} TH/s
                                                 </div>
+                                                
+                                                <button 
+                                                  onClick={() => setModal(
+                                                    <Modal title="⚡ Cadastramento Sequencial Rápido" onClose={() => setModal(null)}>
+                                                      <SequentialMappingModal ctx={ctx} shelfName={shelfName} farmName={farmName} totalSlots={fullSlots.length} onClose={() => setModal(null)} />
+                                                    </Modal>
+                                                  )}
+                                                  style={{background:C.accent + "22", border:"1px solid " + C.accent + "66", color:C.accent, padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}
+                                                >
+                                                  ⚡ Cadastrar Bipando...
+                                                </button>
                                                 <button onClick={() => handleDeleteShelf(shelfName, farmName)} style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}>
                                                     🗑️ Apagar Prateleira
                                                 </button>
+
                                             </div>
                                         </div>
 
@@ -3448,12 +3591,29 @@ function DataCenterPage({ctx}) {
                                                             valToShow = isOnline && stat.hashrate ? stat.hashrate.toFixed(0) + ' TH' : '--';
                                                         }
 
+                                                        
+                                                        const isOverheating = isOnline && stat && stat.temp > 85;
+                                                        const isIdleError = isOnline && stat && (stat.status === 'idle' || stat.status === 'error' || (stat.slots && stat.slots.includes(0)));
+
+                                                        let warningAnimation = 'none';
+                                                        if (isOverheating) {
+                                                            warningAnimation = 'alertPulseRed 1s ease-in-out infinite';
+                                                            borderStyle = '2px solid #ef4444';
+                                                            bg = '#450a0a';
+                                                            textColor = '#fca5a5';
+                                                        } else if (isIdleError) {
+                                                            warningAnimation = 'alertPulseYellow 1.5s ease-in-out infinite';
+                                                            borderStyle = '2px solid #f59e0b';
+                                                            bg = '#451a03';
+                                                            textColor = '#fde68a';
+                                                        }
+
                                                         return (
                                                             <div 
                                                                key={m._id || slotIndex} 
                                                                onDoubleClick={(e) => { e.stopPropagation(); if (m.ip) window.open('http://' + m.ip, '_blank'); }}
                                                                onClick={() => openSlotDetailsModal(m)}
-                                                               title={`Slot #${slotNumStr} · ${machineModelName} ${m.ip ? '· IP: ' + m.ip : '· (Vago)'}`}
+                                                               title={`Slot #${slotNumStr} · ${machineModelName} ${m.ip ? '· IP: ' + m.ip : '· (Vago)'} ${stat?.pool ? '· Pool: ' + stat.pool : ''}`}
                                                                style={{
                                                                    height: 58,
                                                                    padding: '6px 8px',
@@ -3462,9 +3622,10 @@ function DataCenterPage({ctx}) {
                                                                    color: textColor,
                                                                    boxShadow: borderGlow,
                                                                    border: borderStyle,
+                                                                   animation: warningAnimation,
                                                                    display: 'flex',
                                                                    flexDirection: 'column',
-                                                                   justifyContent: 'center',
+                                                                   justify: 'center',
                                                                    alignItems: 'center',
                                                                    borderRadius: 8,
                                                                    position: 'relative',
