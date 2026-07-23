@@ -1097,6 +1097,16 @@ export default function App(){
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
     const[dbConnected,setDbConnected]=useState(true);
   const[localConnected,setLocalConnected]=useState(false);
+    
+    // Notification for App Update
+    useEffect(() => {
+       const timer = setTimeout(() => {
+          if (window.hs_triggerToast) {
+             window.hs_triggerToast("✅ Aplicativo Atualizado para a versão V2.3.0 Cloud Sync!", "ok");
+          }
+       }, 2000);
+       return () => clearTimeout(timer);
+    }, []);
   
   // Internet and Supabase DB check
   useEffect(() => {
@@ -3481,8 +3491,7 @@ function DataCenterPage({ctx}) {
 
                                  return (
                                     <div key={shelfName} style={{
-                                       background: '#090d16',
-                                       border: '3px solid #334155',
+                                       background: '#1a1f2b', border: '6px solid #475569', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.8), 0 10px 30px rgba(0,0,0,0.5)',
                                        borderRadius: 14,
                                        padding: 16,
                                        marginBottom: 24,
@@ -3513,9 +3522,7 @@ function DataCenterPage({ctx}) {
                                                 >
                                                   ⚡ Cadastrar Bipando...
                                                 </button>
-                                                <button onClick={() => handleDeleteShelf(shelfName, farmName)} style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}>
-                                                    🗑️ Apagar Prateleira
-                                                </button>
+                                                
 
                                             </div>
                                         </div>
