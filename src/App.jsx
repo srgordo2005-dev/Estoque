@@ -144,6 +144,7 @@ async function fbSet(c,id,obj){
     const table=tableName(c);
     const{_id,...cleanObj}=obj; // nunca manda o _id junto — o "id" já vai separado
     if (c === "sessions") {
+      delete cleanObj.ip;
       delete cleanObj.autoEnabled;
       delete cleanObj.targetUptimeHours;
     }
@@ -178,7 +179,15 @@ async function fbBatch(writes){
   incrementWrites();
   try {
     const byCol={};
-    for(const w of writes){const{_id,...cleanD}=w.d||{};(byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD)})}
+    for(const w of writes){
+      const{_id,...cleanD}=w.d||{};
+      if (w.c === "sessions") {
+        delete cleanD.ip;
+        delete cleanD.autoEnabled;
+        delete cleanD.targetUptimeHours;
+      }
+      (byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD)});
+    }
     const errors=[];
     for(const[c,rows]of Object.entries(byCol)){
       const table=tableName(c);
