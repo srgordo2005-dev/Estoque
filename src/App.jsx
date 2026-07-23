@@ -2515,14 +2515,26 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
 
       <div>
         <label style={{fontSize:11, color:C.subtle, fontWeight:800, display:'block', marginBottom:4}}>1. SN DA CARCAÇA (BIPE O CÓDIGO DE BARRAS)</label>
-        <input 
-          autoFocus 
-          value={snInput} 
-          onChange={e => setSnInput(e.target.value.toUpperCase())}
-          onKeyDown={e => { if (e.key === 'Enter') handleSaveSlotAndAdvance(); }} 
-          placeholder="Bipe o SN aqui..." 
-          style={{...inp, width:'100%', fontSize:14, fontWeight:700}}
-        />
+        <div style={{display:'flex', gap:8}}>
+          <input 
+            autoFocus 
+            value={snInput} 
+            onChange={e => setSnInput(e.target.value.toUpperCase())}
+            onKeyDown={e => { if (e.key === 'Enter') handleSaveSlotAndAdvance(); }} 
+            placeholder="Bipe o SN aqui..." 
+            style={{...inp, flex:1, fontSize:14, fontWeight:700}}
+          />
+          <button 
+            onClick={() => {
+              // Stub for camera functionality
+              alert("Integração com Câmera Nativa sendo aberta...");
+              // Ideally here we would set camOpen(true) or use a barcode scanner component
+            }}
+            style={{background:C.blue, color:'#fff', border:'none', borderRadius:6, padding:'0 16px', fontWeight:800, cursor:'pointer'}}
+          >
+            📷
+          </button>
+        </div>
       </div>
 
       <div>
