@@ -1,6 +1,6 @@
 {
   "name": "hashstock-app",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "HashStock Desktop App & Local Helper",
   "main": "main.cjs",
   "author": "HashStock",
