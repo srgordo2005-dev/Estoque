@@ -3088,192 +3088,89 @@ function DataCenterPage({ctx}) {
     return <div style={{padding: 20}}>
         <style>{cssStyles}</style>
 
-        {/* Top Header & Farm Filter Tabs */}
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, marginBottom:20}}>
-           <div>
-              <div style={{display:'flex', alignItems:'center', gap:10}}>
-                 <h2 style={{margin:0}}>⚡ HASHSTOCK · Data Center & Monitor de Fazenda</h2>
-                 <span style={{background:C.accent, color:'#000', padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:900}}>V2.0 LIVE</span>
-              </div>
-              
-           </div>
-           
-           <div style={{display:'flex', gap:8, alignItems:'center'}}>
-              <Btn v="b" onClick={handleManualRefresh} disabled={isScanning}>
-                 {isScanning ? "⏳ Escaneando..." : "🔄 Escanear Frota Agora"}
-              </Btn>
-              
-               
-               <Btn v="b" onClick={() => setModal(<Modal title="📐 Criar Nova Prateleira Física" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}>+ Adicionar Prateleira</Btn>
-
-           </div>
-        </div>
-
-        {recentIPs.filter(r => !farmMachines.some(fm => fm.ip === r.ip)).length > 0 && (
-           <div style={{background:C.purple + "15", border:"1px solid " + C.purple + "44", borderRadius:10, padding:14, marginBottom:20}}>
-              <div style={{fontWeight:800, fontSize:13, color:C.purple, display:'flex', alignItems:'center', gap:6, marginBottom:10}}>
-                 📢 IPs Detectados via IP Report (Bipados recentemente):
-              </div>
-              <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
-                 {recentIPs.filter(r => !farmMachines.some(fm => fm.ip === r.ip)).map(r => (
-                    <div key={r.ip} style={{background:C.card, padding:'8px 12px', borderRadius:8, display:'flex', alignItems:'center', gap:12, border:"1px solid " + C.border}}>
-                       <div style={{fontSize:12, fontWeight:700}}>{r.ip}</div>
-                       <button 
-                         onClick={() => handleBindIPReport(r.ip)}
-                         style={{ background: C.purple, color:'#fff', border:'none', borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:700, cursor:'pointer' }}
-                       >
-                          Vincular a Prateleira
-                       </button>
+        {activeFarm === "ALL" ? (
+        // --- 🚀 LOBBY DE FAZENDAS ---
+        <div style={{display:'flex', flexDirection:'column', gap:20, paddingBottom: 40}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <div>
+                    <div style={{fontSize:28, fontWeight:900, display:'flex', alignItems:'center', gap:12}}>
+                       🏭 Data Center / Fazendas <span style={{background:C.accent, color:'#000', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:900}}>V2.3 CLOUD</span>
                     </div>
-                 ))}
-              </div>
-           </div>
-        )}
+                    <div style={{color:C.subtle, fontSize:14, marginTop:4}}>Selecione uma Fazenda abaixo para acessar as Prateleiras</div>
+                </div>
+                <button 
+                    onClick={() => setModal(<Modal title="🏭 Criar Nova Fazenda" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}
+                    style={{background:C.blue, color:'#fff', padding:'10px 20px', borderRadius:8, fontWeight:800, border:'none', cursor:'pointer'}}
+                >
+                    + Criar Nova Fazenda
+                </button>
+            </div>
 
-        {/* Global Fleet Widgets */}
-        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10, marginBottom:20}}>
-           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
-              <div style={{fontSize:24, color:C.blue, fontWeight:'bold'}}>{totalSlotsGlobal}</div>
-              <div style={{color:C.subtle, fontSize:11}}>Total Posições (Slots)</div>
-           </div>
-           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
-              <div style={{fontSize:24, color:C.green, fontWeight:'bold'}}>{onlineCountGlobal}</div>
-              <div style={{color:C.subtle, fontSize:11}}>🟢 Minando (Online)</div>
-           </div>
-           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
-              <div style={{fontSize:24, color:C.amber, fontWeight:'bold'}}>{idleCountGlobal}</div>
-              <div style={{color:C.subtle, fontSize:11}}>🟡 Ociosos / Alerta</div>
-           </div>
-           <div style={{background:C.card, padding:14, borderRadius:8, textAlign:'center', border:"1px solid " + C.border}}>
-              <div style={{fontSize:24, color:C.accent, fontWeight:'bold'}}>{totalFarmTHGlobal.toFixed(1)} TH/s</div>
-              <div style={{color:C.subtle, fontSize:11}}>⚡ Hashrate Total da Frota</div>
-           </div>
+            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:20, marginTop:20}}>
+                {farmsList.map(f => {
+                    const fMachines = dbFarmMachines.filter(m => (m.location || "Fazenda Principal") === f);
+                    const onlineM = fMachines.filter(m => m.ip && farmStatus[m.ip] && farmStatus[m.ip].status !== 'offline').length;
+                    return (
+                        <div 
+                            key={f} 
+                            onClick={() => setActiveFarm(f)}
+                            style={{background:C.card, border:'1px solid '+C.border, borderRadius:12, padding:20, cursor:'pointer', transition:'all 0.2s'}}
+                            onMouseOver={e => Object.assign(e.currentTarget.style, {borderColor:C.accent, transform:'translateY(-2px)', boxShadow:'0 10px 20px rgba(0,0,0,0.4)'})}
+                            onMouseOut={e => Object.assign(e.currentTarget.style, {borderColor:C.border, transform:'translateY(0)', boxShadow:'none'})}
+                        >
+                            <div style={{fontSize:20, fontWeight:900, color:C.accent, marginBottom:10}}>🏭 {f}</div>
+                            <div style={{display:'flex', justifyContent:'space-between', color:C.subtle, fontSize:13}}>
+                                <span>{fMachines.length} Posições</span>
+                                <span style={{color:C.green}}>🟢 {onlineM} Online</span>
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
         </div>
-
-        {/* Mass Operations Bar */}
-        {selectedMachineIds.length > 0 && (
-           <div style={{background:C.accent + "22", border:"1px solid " + C.accent, borderRadius:10, padding:'10px 16px', marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
-              <div style={{fontWeight:900, color:C.accent, fontSize:13}}>
-                 ⚡ HASHSTOCK MASS OPERATIONS: {selectedMachineIds.length} MINERADORES SELECIONADOS
-              </div>
-              <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                 <button onClick={handleBulkReboot} style={{background:C.blue, color:'#fff', border:'none', padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}>
-                    🔄 Reiniciar em Massa
-                 </button>
-                 <button onClick={() => handleBulkLED(true)} style={{background:C.amber, color:'#000', border:'none', padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}>
-                    💡 Piscar LEDs
-                 </button>
-                 <button onClick={handleBulkChangePool} style={{background:C.green, color:'#000', border:'none', padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}>
-                    🌊 Trocar Pool em Lote
-                 </button>
-                 <button onClick={() => setSelectedMachineIds([])} style={{background:C.card2, color:C.text, border:"1px solid " + C.border, padding:'6px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer'}}>
-                    ❌ Cancelar Seleção
-                 </button>
-              </div>
-           </div>
-        )}
-
-        {/* View Controls & Filter Bar */}
-        <div style={{background:C.card, border: "1px solid " + C.border, borderRadius:8, padding:10, marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
-           <div style={{display:'flex', alignItems:'center', gap:12, flexWrap:'wrap'}}>
-              <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>VISÃO:</span>
-              <div style={{display:'flex', background:C.card2, padding:2, borderRadius:6}}>
-                 <button onClick={()=>setViewType('btc')} style={{background: viewType === 'btc' ? C.accent : 'transparent', color: viewType === 'btc' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:10}}>
-                     📊 Vista em Tabela
-                 </button>
-                 <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:10}}>
-                     🗄️ Prateleira Virtual
-                 </button>
-              </div>
-
-              {/* Global Search Bar */}
-              <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6}}>
-                 <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>🔍 BUSCA:</span>
-                 <input 
-                   type="text" 
-                   value={searchQuery} 
-                   onChange={e => setSearchQuery(e.target.value)} 
-                   placeholder="IP, SN, Modelo, Slot..." 
-                   style={{background:C.card2, color:C.text, border:"1px solid " + C.border, borderRadius:4, padding:'4px 8px', fontSize:11, width:140}}
-                 />
-              </div>
-
-              {availableSubnets.length > 0 && (
-                 <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6}}>
-                    <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>SUBREDE:</span>
-                    <select value={selectedSubnet} onChange={e=>setSelectedSubnet(e.target.value)} style={{background:C.card2, color:C.text, border:"1px solid " + C.border, borderRadius:4, padding:'4px 8px', fontSize:10, fontWeight:700}}>
-                       <option value="ALL">Todas as Faixas IP</option>
-                       {availableSubnets.map(sub => <option key={sub} value={sub}>{sub}.x</option>)}
-                    </select>
-                 </div>
-              )}
-
-              {/* Apenas máquinas online */}
-              <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6, background: onlyOnline ? C.green + "22" : 'transparent', padding:'2px 8px', borderRadius:4, border: onlyOnline ? "1px solid " + C.green : "1px solid transparent"}}>
-                 <input 
-                   type="checkbox" 
-                   id="only-online-check" 
-                   checked={onlyOnline} 
-                   onChange={e=>setOnlyOnline(e.target.checked)} 
-                   style={{cursor:'pointer'}}
-                 />
-                 <label htmlFor="only-online-check" style={{fontSize:11, color: onlyOnline ? C.green : C.subtle, fontWeight:800, cursor:'pointer'}}>
-                    🟢 Apenas Máquinas Online
-                 </label>
-              </div>
-
-              {/* Auto-scan 5s */}
-              <div style={{display:'flex', alignItems:'center', gap:6, marginLeft:6}}>
-                 <input 
-                   type="checkbox" 
-                   id="auto-scan-check" 
-                   checked={autoScan} 
-                   onChange={e=>setAutoScan(e.target.checked)} 
-                   style={{cursor:'pointer'}}
-                 />
-                 <label htmlFor="auto-scan-check" style={{fontSize:11, color: autoScan ? C.blue : C.subtle, fontWeight:700, cursor:'pointer'}}>
-                    ⏱️ Auto-Scan (5s)
-                 </label>
-              </div>
-           </div>
-
-           <div style={{display:'flex', alignItems:'center', gap:12}}>
-              <span style={{fontSize:11, color:C.subtle, fontWeight:700}}>EXIBIÇÃO:</span>
-              <div style={{display:'flex', background:C.card2, padding:2, borderRadius:6}}>
-                 {['number', 'temp', 'hashrate'].map(mode => (
-                    <button
-                      key={mode}
-                      onClick={() => setViewMode(mode)}
-                      style={{
-                         background: viewMode === mode ? C.accent : 'transparent',
-                         color: viewMode === mode ? '#000' : C.subtle,
-                         border: 'none',
-                         borderRadius: 4,
-                         padding: '4px 10px',
-                         fontSize: 10,
-                         fontWeight: 700,
-                         cursor: 'pointer'
-                      }}
-                    >
-                       {mode === 'number' ? 'Número' : mode === 'temp' ? 'Temperatura' : 'Hashrate'}
+    ) : (
+        // --- 🚀 DENTRO DA FAZENDA ESCOLHIDA ---
+        <div style={{display:'flex', flexDirection:'column', gap:20}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:C.card, padding:20, borderRadius:12, border:'1px solid '+C.border}}>
+                <div>
+                    <button onClick={() => setActiveFarm("ALL")} style={{background:'transparent', border:'none', color:C.subtle, cursor:'pointer', display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:800, marginBottom:10}}>
+                        ⬅️ Voltar para Todas as Fazendas
                     </button>
-                 ))}
-              </div>
+                    <div style={{fontSize:24, fontWeight:900, color:C.accent}}>🏭 FAZENDA: {activeFarm.toUpperCase()}</div>
+                </div>
 
-              <div style={{display:'flex', alignItems:'center', gap:6}}>
-                 <input 
-                   type="checkbox" 
-                   id="hide-empty-check" 
-                   checked={hideEmpty} 
-                   onChange={e=>setHideEmpty(e.target.checked)} 
-                   style={{cursor:'pointer'}}
-                 />
-                 <label htmlFor="hide-empty-check" style={{fontSize:11, color:C.subtle, fontWeight:700, cursor:'pointer'}}>Ocultar Vagos</label>
-              </div>
-           </div>
-        </div>
+                <div style={{display:'flex', gap:10}}>
+                    <button onClick={handleManualRefresh} disabled={isScanning} style={{background:C.card2, border:'1px solid '+C.border, color:C.text, padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer'}}>
+                        {isScanning ? "⏳ Escaneando..." : "📡 Escanear Frota"}
+                    </button>
+                    <button onClick={() => setModal(<Modal title="🏢 Adicionar Armário/Prateleira" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} isRack={true} farmName={activeFarm} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.blue, border:'none', color:'#fff', padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer'}}>
+                        + Adicionar Armário
+                    </button>
+                    {user?.role === 'admin' && (
+                        <button onClick={() => setModal(<Modal title="Configurações da Fazenda" onClose={()=>setModal(null)}><EditFarmModal ctx={ctx} farmName={activeFarm} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.amber, border:'none', color:'#000', padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer'}}>
+                            ⚙️ Configurar Fazenda
+                        </button>
+                    )}
+                </div>
+            </div>
 
-        {/* FAZENDAS COM PRATELEIRAS SIDE-BY-SIDE (LADO A LADO) */}
+            <div style={{display:'flex', gap:10, alignItems:'center', background:C.card, padding:'10px 20px', borderRadius:8, border:'1px solid '+C.border, flexWrap:'wrap'}}>
+                <span style={{fontSize:11, color:C.subtle, fontWeight:800}}>VISÃO:</span>
+                <button onClick={()=>setViewType('btc')} style={{background: viewType === 'btc' ? C.accent : 'transparent', color: viewType === 'btc' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>Tabela</button>
+                <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>Prateleira Virtual 2D</button>
+                
+                <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
+                
+                <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:C.subtle, cursor:'pointer', fontWeight:800}}>
+                    <input type="checkbox" checked={onlyOnline} onChange={e=>setOnlyOnline(e.target.checked)}/> Somente Online
+                </label>
+                
+                <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
+                
+                <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="🔍 Buscar IP, SN, Slot..." style={{background:C.card2, border:'1px solid '+C.border, color:C.text, padding:'4px 10px', borderRadius:4, fontSize:11, width:200}} />
+            </div>
+            
+            {/* INÍCIO DA RENDERIZAÇÃO DA FAZENDA SELECIONADA */}
         {displayedFarms.length === 0 ? (
            <div style={{textAlign:'center', padding:40, color:C.subtle, border: "2px dashed " + C.border, borderRadius:10, width:'100%'}}>
                Nenhuma fazenda encontrada. Clique em "+ Nova Fazenda" para começar.
@@ -3658,7 +3555,12 @@ function DataCenterPage({ctx}) {
                 );
              })
           )}
-      </div>;
+        </div>
+      )}
+    </div>;
+}
+
+function AddMachineModalWrapper({ctx, initialMode="single", onClose}) {
   const[mode,setMode]=useState(initialMode);
   if(!mode)return<div><div style={{color:C.subtle,fontSize:13,marginBottom:18,textAlign:"center"}}>Como deseja adicionar?</div><div style={{display:"flex",flexDirection:"column",gap:10}}><Btn onClick={()=>setMode("single")} style={{justifyContent:"center",padding:"14px 0"}}>🖥️ Individual</Btn><Btn v="b" onClick={()=>setMode("batch-sn")} style={{justifyContent:"center",padding:"14px 0"}}>📋 Lote COM SN</Btn><Btn v="p" onClick={()=>setMode("batch-nosn")} style={{justifyContent:"center",padding:"14px 0"}}>📦 Lote SEM SN</Btn></div></div>;
   if(mode==="single")return<AddMachineForm ctx={ctx} onClose={onClose}/>;
