@@ -1,19 +1,25 @@
 
 // Helper to accurately extract Miner Model and SN from Stats/Summary/Version
-function detectMinerDetails(stat = {}, summary = {}, version = {}) {
-    let rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
-                   version?.VERSION?.[0]?.Miner || version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware || '';
-    
-    if (!rawModel && summary?.STATUS?.[0]?.Description) {
-        rawModel = summary.STATUS[0].Description;
+function detectMinerDetails(stat = {}, summary = {}, version = {}, vnishInfo = null) {
+    if (vnishInfo) {
+        const raw = vnishInfo.miner || vnishInfo.model || vnishInfo.preset_name || vnishInfo.hardware || vnishInfo.type || '';
+        let model = raw ? (raw.toLowerCase().includes('vnish') ? raw : `${raw} (Vnish)`) : 'Antminer (Vnish)';
+        const sn = vnishInfo.serial || vnishInfo.sn || vnishInfo.mac || '';
+        return { model, sn };
     }
 
-    let model = 'Antminer S19j Pro'; // Default clean fallback if miner detected but model string is empty
+    let rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
+                   summary?.SUMMARY?.[0]?.Type || summary?.SUMMARY?.[0]?.Hardware ||
+                   stat?.system_miner_type || summary?.STATUS?.[0]?.Description || 
+                   version?.VERSION?.[0]?.Miner || version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware || '';
+    
+    let model = 'Antminer S19';
     if (rawModel) {
         const lower = String(rawModel).toLowerCase();
         if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
         else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
         else if (lower.includes('s19 xp')) model = 'Antminer S19 XP';
+        else if (lower.includes('s19k pro')) model = 'Antminer S19k Pro';
         else if (lower.includes('s19')) model = 'Antminer S19';
         else if (lower.includes('s21')) model = 'Antminer S21';
         else if (lower.includes('t21')) model = 'Antminer T21';
@@ -21,12 +27,41 @@ function detectMinerDetails(stat = {}, summary = {}, version = {}) {
         else if (lower.includes('m30s')) model = 'Whatsminer M30S';
         else if (lower.includes('m31s')) model = 'Whatsminer M31S';
         else if (lower.includes('m50')) model = 'Whatsminer M50';
-        else if (lower.includes('whatsminer') || lower.includes('m20') || lower.includes('m32')) model = 'Whatsminer M30S';
-        else model = String(rawModel).replace(/bmminer/gi, '').trim() || 'Antminer S19j Pro';
+        else if (lower.includes('whatsminer')) model = 'Whatsminer M30S';
+        else if (lower.includes('vnish')) model = String(rawModel).trim();
+        else model = String(rawModel).replace(/bmminer/gi, '').trim() || 'Antminer S19';
     } else if (stat.chain_acn || stat.chain_acs || stat.BMMiner || stat['hash board 0 sn']) {
-        model = 'Antminer S19j Pro';
-    } else if (stat['system_miner_type']) {
-        model = stat['system_miner_type'];
+        model = 'Antminer S19';
+    }
+
+    let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';
+    return { model, sn };
+}
+
+    let rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
+                   summary?.SUMMARY?.[0]?.Type || summary?.SUMMARY?.[0]?.Hardware ||
+                   stat?.system_miner_type || summary?.STATUS?.[0]?.Description || 
+                   version?.VERSION?.[0]?.Miner || version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware || '';
+    
+    let model = 'Antminer S19';
+    if (rawModel) {
+        const lower = String(rawModel).toLowerCase();
+        if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
+        else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
+        else if (lower.includes('s19 xp')) model = 'Antminer S19 XP';
+        else if (lower.includes('s19k pro')) model = 'Antminer S19k Pro';
+        else if (lower.includes('s19')) model = 'Antminer S19';
+        else if (lower.includes('s21')) model = 'Antminer S21';
+        else if (lower.includes('t21')) model = 'Antminer T21';
+        else if (lower.includes('m30s+')) model = 'Whatsminer M30S+';
+        else if (lower.includes('m30s')) model = 'Whatsminer M30S';
+        else if (lower.includes('m31s')) model = 'Whatsminer M31S';
+        else if (lower.includes('m50')) model = 'Whatsminer M50';
+        else if (lower.includes('whatsminer')) model = 'Whatsminer M30S';
+        else if (lower.includes('vnish')) model = String(rawModel).trim();
+        else model = String(rawModel).replace(/bmminer/gi, '').trim() || 'Antminer S19';
+    } else if (stat.chain_acn || stat.chain_acs || stat.BMMiner || stat['hash board 0 sn']) {
+        model = 'Antminer S19';
     }
 
     let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';
@@ -37,6 +72,7 @@ const express = require('express');
 const cors = require('cors');
 const dgram = require('dgram');
 const net = require('net');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
@@ -193,6 +229,24 @@ setupUDPServer(4000); // Bitmain
 setupUDPServer(3456); // Whatsminer
 setupUDPServer(14285); // Whatsminer alternate
 setupUDPServer(8888); // Braiins/Vnish alternate
+
+
+// Helper to query Vnish REST / OpenAPI (/api/v1/info, /api/v1/summary, /docs/)
+const queryVnishAPI = (ip, endpoint = '/api/v1/info') => {
+    return new Promise((resolve) => {
+        const req = http.get(`http://${ip}${endpoint}`, { timeout: 2000 }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data));
+                } catch(e) { resolve(null); }
+            });
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+    });
+};
 
 // Helper to query CGMiner/Whatsminer API over TCP port 4028
 const queryMinerAPI = (ip, cmd) => {
@@ -554,7 +608,6 @@ app.get('/api/farm-status', (req, res) => {
 const updateFarmStatus = async () => {
     let activeIPs = farmMachines.map(m => m.ip).filter(Boolean);
     
-    // Auto-discover local subnet 192.168.1.x if activeIPs is empty
     if (activeIPs.length === 0) {
         for (let i = 1; i <= 254; i++) {
             activeIPs.push("192.168.1." + i);
@@ -566,6 +619,29 @@ const updateFarmStatus = async () => {
         const batch = activeIPs.slice(i, i + batchSize);
         await Promise.all(batch.map(async (ip) => {
             try {
+                // Try Vnish HTTP API first
+                const vnishInfo = await queryVnishAPI(ip, '/api/v1/info');
+                const vnishSum = vnishInfo ? await queryVnishAPI(ip, '/api/v1/summary') : null;
+
+                if (vnishInfo || vnishSum) {
+                    const details = detectMinerDetails({}, {}, {}, vnishInfo);
+                    const hr = (vnishSum?.hashrate || vnishSum?.summary?.hashrate || 0) / (vnishSum?.hashrate > 1000 ? 1000000 : 1);
+                    const temp = vnishSum?.temp_chip || vnishSum?.temp_board || 0;
+                    minerStatusCache[ip] = {
+                        ip,
+                        status: hr > 0 || vnishInfo?.status === 'mining' ? 'mining' : 'idle',
+                        model: details.model,
+                        sn: details.sn,
+                        uptime: vnishSum?.elapsed || 0,
+                        hashrate: hr,
+                        temp: temp,
+                        slots: [null, null, null],
+                        lastUpdate: Date.now()
+                    };
+                    return;
+                }
+
+                // Fallback to standard CGMiner TCP 4028
                 const summaryData = await queryMinerAPI(ip, 'summary').catch(() => null);
                 if (!summaryData) return;
                 const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
@@ -610,7 +686,6 @@ const updateFarmStatus = async () => {
             }
         }));
         
-        // Save cache to disk
         try {
             fs.writeFileSync(cacheFile, JSON.stringify(minerStatusCache, null, 2), 'utf8');
         } catch(e) {}

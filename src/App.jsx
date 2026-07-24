@@ -1204,7 +1204,10 @@ export default function App(){
   // comparação com a planilha) — avisa a blindagem que o número novo (menor)
   // é legítimo, pra ela não ficar "protegendo" dados que já foram apagados
   // de verdade e acabar restaurando eles na tela.
-  const resetMaxCount=(col,newCount)=>{localStorage.setItem("hs_maxcount_"+col,String(newCount))};
+  const resetMaxCount=(col,newCount,newArr=null)=>{
+      localStorage.setItem("hs_maxcount_"+col,String(newCount));
+      if(newArr) localStorage.setItem("hs_"+col,JSON.stringify(newArr));
+   };
 
   // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore/Supabase
   const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders",farmMachines:"farmMachines"};
@@ -3073,6 +3076,7 @@ function DataCenterPage({ctx}) {
                         <Btn onClick={() => { setModal(null); handleBindIP(m); }}>🌐 Configurar IP</Btn>
                         <Btn disabled={!m.ip} onClick={() => triggerBlink(m, false)}>💡 Piscar LED</Btn>
                         <Btn disabled={!m.ip} onClick={() => { setModal(null); triggerScreenshot(m); }}>📸 Tirar Print</Btn>
+                        <Btn disabled={!m.ip} onClick={() => window.open(`http://${m.ip}/docs/`, '_blank')} style={{background:C.purple, color:'#fff'}}>🌐 Abrir Vnish / Docs (/docs/)</Btn>
                     </div>
                     
                     {!isDummy && (
@@ -3162,7 +3166,7 @@ function DataCenterPage({ctx}) {
                 <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
                 
                 <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:C.subtle, cursor:'pointer', fontWeight:800}}>
-                    <input type="checkbox" checked={onlyOnline} onChange={e=>setOnlyOnline(e.target.checked)}/> Somente Online
+                    <input type="checkbox" checked={onlyOnline} onChange={e=>handleSetOnlyOnline(e.target.checked)}/> Somente Online
                 </label>
                 
                 <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
