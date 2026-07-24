@@ -1,14 +1,21 @@
 
-function cleanModelName(val, fallbackModel = "Antminer S19") {
-    if (!val) return fallbackModel;
-    let str = String(val).trim();
-    if (/^cgminer/i.test(str) || /^bmminer/i.test(str)) {
-        return fallbackModel && !/^cgminer/i.test(fallbackModel) ? fallbackModel : "Antminer S19";
+
+function cleanModelName(val, fallbackModel = "Antminer S19", hashrate = 0) {
+    if (val && typeof val === 'string') {
+        let str = val.trim();
+        if (!/^cgminer/i.test(str) && !/^bmminer/i.test(str)) {
+            str = str.replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
+            if (str && str.length > 2 && str !== 'Antminer S19') return str;
+        }
     }
-    str = str.replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
-    if (!str || /^cgminer$/i.test(str)) return fallbackModel && !/^cgminer/i.test(fallbackModel) ? fallbackModel : "Antminer S19";
-    return str;
+    if (hashrate > 190) return 'Antminer S19 XP';
+    if (hashrate > 140) return 'Antminer S19 Pro+';
+    if (hashrate > 105) return 'Antminer S19 Pro';
+    if (hashrate > 88) return 'Antminer S19j Pro';
+    if (hashrate > 70) return 'Antminer S19';
+    return fallbackModel && !/^cgminer/i.test(fallbackModel) ? fallbackModel : "Antminer S19";
 }
+
 
 function ServerSelfUpdateModal({ctx, updateInfo, onClose}) {
   const [updating, setUpdating] = useState(false);
@@ -3488,7 +3495,7 @@ function DataCenterPage({ctx}) {
                                                          {m.ip ? `🌐 ${m.ip}` : "Sem IP"}
                                                      </td>
                                                      {/* Modelo Prominente */}
-                                                     <td style={{padding:8, fontWeight:800, color:C.accent}}>{cleanModelName(stat?.model, cleanModelName(m.model, "Antminer S19"))}</td>
+                                                     <td style={{padding:8, fontWeight:800, color:C.accent}}>{cleanModelName(stat?.model || m.model, "Antminer S19", stat?.hashrate || 0)}</td>
                                                      <td style={{padding:8, color:C.green, fontWeight:800}}>{stat?.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '-'}</td>
                                                      <td style={{padding:8, color: stat?.temp > 85 ? C.red : C.text, fontWeight:700}}>{stat?.temp ? stat.temp + '°C' : '-'}</td>
                                                      <td style={{padding:8, color:C.subtle}}>{stat?.uptime ? formatUptime(stat.uptime) : '-'}</td>
