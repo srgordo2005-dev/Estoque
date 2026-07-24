@@ -2461,6 +2461,20 @@ function EditFarmModal({ ctx, farmName, onClose }) {
          <Btn v="b" onClick={handleDownloadNode} style={{width:'100%', justifyContent:'center'}}>
             📥 Baixar Instalador do Servidor Local
          </Btn>
+         <button 
+             onClick={async () => {
+                 try {
+                     const r = await fetch('http://localhost:3001/api/self-update', { method: 'POST' });
+                     const res = await r.json();
+                     alert(res.message || res.error);
+                 } catch(e) {
+                     alert("Falha ao comunicar com o servidor local: " + e.message);
+                 }
+             }}
+             style={{background:C.purple, color:'#fff', border:'none', padding:'8px 16px', borderRadius:6, fontWeight:800, cursor:'pointer', width:'100%', marginTop:8}}
+         >
+             🔄 Atualizar Código do Servidor Local sem Reinstalar
+         </button>
       </div>
 
       <div style={{display:'flex', gap:10}}>
@@ -2857,6 +2871,28 @@ function DataCenterPage({ctx}) {
         }
     };
 
+    
+    const handleFetchMinerLog = async (m) => {
+        if (!m.ip) return alert("Esta posição não possui IP configurado.");
+        setModal(
+            <Modal title={"📋 Log & Diagnóstico - " + m.ip} onClose={() => setModal(null)}>
+                <div style={{padding:16}}>
+                    <div style={{marginBottom:10, fontSize:13, fontWeight:700, color:C.text}}>
+                       🔍 Consultando logs de mineração em tempo real...
+                    </div>
+                    <iframe 
+                        src={"http://localhost:3001/api/miner-log?ip=" + m.ip}
+                        style={{width:'100%', height:300, background:'#090d16', color:'#10b981', border:'1px solid '+C.border, borderRadius:8, padding:10, fontFamily:'monospace', fontSize:11}}
+                    />
+                    <div style={{marginTop:12, textAlign:'right'}}>
+                        <Btn onClick={() => window.open("http://" + m.ip, '_blank')}>🌐 Web UI</Btn>
+                        <Btn v="b" onClick={() => setModal(null)} style={{marginLeft:8}}>Fechar</Btn>
+                    </div>
+                </div>
+            </Modal>
+        );
+    };
+
     const triggerScreenshot = async (m) => {
         if (!m.ip) return;
         setModal(
@@ -3076,6 +3112,7 @@ function DataCenterPage({ctx}) {
                         <Btn onClick={() => { setModal(null); handleBindIP(m); }}>🌐 Configurar IP</Btn>
                         <Btn disabled={!m.ip} onClick={() => triggerBlink(m, false)}>💡 Piscar LED</Btn>
                         <Btn disabled={!m.ip} onClick={() => { setModal(null); triggerScreenshot(m); }}>📸 Tirar Print</Btn>
+                        <Btn disabled={!m.ip} onClick={() => handleFetchMinerLog(m)} style={{background:C.purple, color:'#fff'}}>📋 Log & Erros</Btn>
                     </div>
                     
                     {!isDummy && (

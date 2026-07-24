@@ -528,20 +528,45 @@ app.get('/api/miner-log', async (req, res) => {
     if (!ip) return res.status(400).json({ error: 'IP parameter is required' });
 
     try {
-        const estatsData = await queryMinerAPI(ip, 'estats').catch(e => null);
-        const configData = await queryMinerAPI(ip, 'config').catch(e => null);
-        const statsData = await queryMinerAPI(ip, 'stats').catch(e => null);
-        
-        // Try to gather any relevant errors
         let logs = [];
-        if (estatsData && estatsData.STATS) {
-            logs.push(JSON.stringify(estatsData.STATS, null, 2));
-        }
-        if (statsData && statsData.STATS) {
-             const stat = statsData.STATS[1] || {};
-             if(stat.chain_hw) logs.push(`HW Errors: ${JSON.stringify(stat.chain_hw)}`);
-        }
         
+        // 1. Check Vnish REST API logs & status
+        const vnishLog = await queryVnishAPI(ip, '/api/v1/log').catch(() => null);
+        const vnishStatus = await queryVnishAPI(ip, '/api/v1/status').catch(() => null);
+        const vnishSummary = await queryVnishAPI(ip, '/api/v1/summary').catch(() => null);
+
+        if (vnishLog || vnishStatus || vnishSummary) {
+            logs.push(`=== DIAGNÓSTICO FIRMWARE VNISH ===`);
+            if (vnishStatus?.status) logs.push(`Status Vnish: ${vnishStatus.status}`);
+            if (vnishStatus?.errors?.length) logs.push(`🚨 ERROS DETECTADOS: ${JSON.stringify(vnishStatus.errors, null, 2)}`);
+            if (vnishSummary?.chains) {
+                logs.push(`\n=== PLACAS (HASHBOARDS) ===`);
+                vnishSummary.chains.forEach((c, idx) => {
+                    logs.push(`Placa #${idx+1}: ${c.hashrate || 0} TH/s | Temp Chip: ${c.temp_chip || 0}°C | Temp Board: ${c.temp_board || 0}°C | HW Errors: ${c.hw_errors || 0} | SN: ${c.sn || c.serial || 'N/A'}`);
+                });
+            }
+            if (vnishLog) {
+                logs.push(`\n=== LOG DE MINERAÇÃO COMPLETO ===`);
+                logs.push(typeof vnishLog === 'string' ? vnishLog : JSON.stringify(vnishLog, null, 2));
+            }
+        }
+
+        // 2. Check CGMiner TCP 4028 API
+        const estatsData = await queryMinerAPI(ip, 'estats').catch(() => null);
+        const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
+        if (statsData?.STATS) {
+            const stat = statsData.STATS[1] || {};
+            if (stat.chain_hw) logs.push(`HW Errors (TCP 4028): ${JSON.stringify(stat.chain_hw)}`);
+            if (stat.chain_rate) logs.push(`Chain Hashrates: ${JSON.stringify(stat.chain_rate)}`);
+        }
+        if (estatsData?.STATS) {
+            logs.push(`Estats: ${JSON.stringify(estatsData.STATS, null, 2)}`);
+        }
+
+        if (logs.length === 0) {
+            logs.push("Nenhum log retornado. Certifique-se de que a máquina está ligada na mesma rede do servidor local.");
+        }
+
         res.json({ log: logs.join('\n\n') });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -773,6 +798,38 @@ setInterval(() => {
 
 app.get('/api/ipreport-status', (req, res) => {
     res.json(udpStatuses);
+});
+
+
+app.get('/api/version', (req, res) => {
+    res.json({
+        version: '1.0.2',
+        name: 'HashStock Local Helper & Bridge',
+        uptime: Math.floor(process.uptime()),
+        platform: process.platform
+    });
+});
+
+app.post('/api/self-update', async (req, res) => {
+    console.log('[Self-Update] Solicitação de atualização sem instalador recebida...');
+    try {
+        const helperRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/local-helper.js');
+        if (!helperRes.ok) throw new Error('Falha ao baixar a nova versão do código.');
+        const newCode = await helperRes.text();
+        
+        if (newCode && newCode.includes('app.listen')) {
+            const helperPath = path.join(__dirname, 'local-helper.js');
+            fs.writeFileSync(helperPath, newCode, 'utf8');
+            console.log('[Self-Update] local-helper.js atualizado com sucesso!');
+            res.json({ success: true, message: 'Servidor local atualizado com sucesso! Reiniciando serviço...' });
+            setTimeout(() => { process.exit(0); }, 1000);
+            return;
+        } else {
+            throw new Error('Código baixado inválido.');
+        }
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.listen(PORT, () => {
