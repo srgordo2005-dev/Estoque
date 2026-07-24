@@ -846,7 +846,44 @@ const updateFarmStatus = async () => {
     }
 };
 
-setInterval(updateFarmStatus, 10000);
+setInterval(updateFarmStatus, 15000);
+
+let lastMassAlertTime = 0;
+// Telegram alert checker runs every 1 minute for total outage check and individual miner errors
+setInterval(() => {
+    if (!farmMachines || farmMachines.length === 0) return;
+    
+    let offlineCount = 0;
+    let totalCount = 0;
+
+    for (const m of farmMachines) {
+        if (!m.ip) continue;
+        totalCount++;
+        const cached = minerStatusCache[m.ip];
+        if (!cached || cached.status === 'offline') {
+            offlineCount++;
+        } else if (cached.hashrate === 0 && cached.status === 'idle') {
+            // Auto-reboot trigger for 3 zeroed boards glitch
+            console.log(`[Auto-Recovery] 3 Placas zeradas detectadas no IP ${m.ip}. Disparando comando de reinício automático...`);
+            queryMinerAPI(m.ip, 'reboot').catch(() => null);
+            if (telegramChatId) {
+                bot.sendMessage(telegramChatId, `🔄 REINÍCIO AUTOMÁTICO DISPARADO\n📍 Local: ${m.location}\n📦 SN: ${m.sn}\n🌐 IP: ${m.ip}\n⚠️ Motivo: As 3 placas de hash apresentavam 0 TH/s.`);
+            }
+        }
+    }
+
+    // Mass Power Outage Check (>80% offline)
+    if (totalCount > 0 && (offlineCount / totalCount) >= 0.8) {
+        const now = Date.now();
+        if (now - lastMassAlertTime >= 60000) { // Every 1 minute
+            lastMassAlertTime = now;
+            if (telegramChatId) {
+                bot.sendMessage(telegramChatId, `🚨 ALERTA GERAL: MASS POWER OUTAGE DETECTADO!\n⚠️ ${offlineCount} de ${totalCount} máquinas ficaram OFFLINE simultaneamente!\n❓ Está tudo bem na fazenda? Por favor confirme se houve queda de disjuntor ou energia!`);
+            }
+        }
+    }
+}, 60000);
+
 
 // Telegram alert checker runs every 5 minutes on the cached data (preventing double pings)
 setInterval(() => {
@@ -936,6 +973,33 @@ app.post('/api/self-update', async (req, res) => {
 
 app.get('/api/ipreport-status', (req, res) => {
     res.json(udpStatuses);
+});
+
+
+// Endpoint for studying raw miner API responses and debug logs
+app.get('/api/miner-debug-study', async (req, res) => {
+    const ip = req.query.ip;
+    if (!ip) return res.status(400).json({ error: 'IP parameter is required' });
+
+    try {
+        const vnishInfo = await queryVnishAPI(ip, '/api/v1/info').catch(() => null);
+        const vnishSum = await queryVnishAPI(ip, '/api/v1/summary').catch(() => null);
+        const vnishStatus = await queryVnishAPI(ip, '/api/v1/status').catch(() => null);
+        const summaryData = await queryMinerAPI(ip, 'summary').catch(() => null);
+        const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
+
+        res.json({
+            ip,
+            timestamp: new Date().toISOString(),
+            vnishInfo,
+            vnishSummary: vnishSum,
+            vnishStatus,
+            cgminerSummary: summaryData,
+            cgminerStats: statsData
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.listen(PORT, () => {

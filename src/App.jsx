@@ -2660,6 +2660,14 @@ function DataCenterPage({ctx}) {
         }
      });
     const [activeFarm, setActiveFarm] = useState("ALL");
+
+    const [isFullscreenRack, setIsFullscreenRack] = useState(false);
+    const [slotSize, setSlotSize] = useState(() => localStorage.getItem("hs_slot_size") || "medium"); // "small" | "medium" | "large"
+    const handleSetSlotSize = (sz) => {
+        setSlotSize(sz);
+        localStorage.setItem("hs_slot_size", sz);
+    };
+
     const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
     const [viewType, setViewType] = useState("btc"); // Default "btc" ou "rack"
     const [squareSize, setSquareSize] = useState("medium");
@@ -2792,6 +2800,27 @@ function DataCenterPage({ctx}) {
             </Modal>
         );
     };
+
+    
+  const safeUploadAndMoveToRevision = async (machineItem) => {
+      try {
+          alert("☁️ Enviando comprovante do teste de 3h para o Google Drive... Aguarde.");
+          // Trigger screenshot upload safely
+          const res = await fetch('http://localhost:3001/api/screenshot', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ ip: machineItem.ip })
+          });
+          if (res.ok) {
+              const data = await res.json();
+              alert("✓ Comprovante gravado no Google Drive! Transicionado para REVISÃO.");
+          } else {
+              alert("⚠️ Não foi possível salvar o print no Drive, mas a máquina continuará para Revisão.");
+          }
+      } catch(e) {
+          console.warn("Drive upload skipped:", e.message);
+      }
+  };
 
     const handleManualRefresh = async () => {
         setIsScanning(true);
@@ -3280,6 +3309,36 @@ function DataCenterPage({ctx}) {
                 <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
                 
                 <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="🔍 Buscar IP, SN, Slot..." style={{background:C.card2, border:'1px solid '+C.border, color:C.text, padding:'4px 10px', borderRadius:4, fontSize:11, width:200}} />
+                {viewType === 'rack' && (
+                    <div style={{display:'flex', alignItems:'center', gap:8, marginLeft:'auto'}}>
+                        <span style={{fontSize:11, color:C.subtle, fontWeight:800}}>TAMANHO SLOT:</span>
+                        {['small', 'medium', 'large'].map(sz => (
+                            <button 
+                                key={sz}
+                                onClick={() => handleSetSlotSize(sz)}
+                                style={{
+                                    background: slotSize === sz ? C.accent : C.card2,
+                                    color: slotSize === sz ? '#000' : C.text,
+                                    border: '1px solid '+C.border,
+                                    borderRadius: 4,
+                                    padding: '2px 8px',
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                {sz === 'small' ? 'Pequeno' : sz === 'medium' ? 'Médio' : 'Grande'}
+                            </button>
+                        ))}
+                        <button 
+                            onClick={() => setIsFullscreenRack(!isFullscreenRack)}
+                            style={{background:C.blue, color:'#fff', border:'none', borderRadius:4, padding:'4px 10px', fontSize:10, fontWeight:800, cursor:'pointer', marginLeft:6}}
+                        >
+                            {isFullscreenRack ? '📉 Sair da Tela Cheia' : '🖥️ Tela Cheia'}
+                        </button>
+                    </div>
+                )}
+
             </div>
             
             {/* INÍCIO DA RENDERIZAÇÃO DA FAZENDA SELECIONADA */}
