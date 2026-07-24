@@ -3259,6 +3259,12 @@ function DataCenterPage({ctx}) {
                 <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:C.subtle, cursor:'pointer', fontWeight:800}}>
                     <input type="checkbox" checked={onlyOnline} onChange={e=>handleSetOnlyOnline(e.target.checked)}/> Somente Online
                 </label>
+
+                <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
+
+                <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color: autoScan ? C.blue : C.subtle, cursor:'pointer', fontWeight:800}}>
+                    <input type="checkbox" checked={autoScan} onChange={e=>setAutoScan(e.target.checked)}/> ⏱️ Auto-Scan (5s)
+                </label>
                 
                 <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
                 

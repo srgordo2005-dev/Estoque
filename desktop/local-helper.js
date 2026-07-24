@@ -2,11 +2,48 @@
 // Helper to accurately extract Miner Model and SN from Stats/Summary/Version
 function detectMinerDetails(stat = {}, summary = {}, version = {}, vnishInfo = null) {
     if (vnishInfo) {
-        const raw = vnishInfo.miner || vnishInfo.model || vnishInfo.preset_name || vnishInfo.hardware || vnishInfo.type || '';
+        let raw = vnishInfo.miner || vnishInfo.model || vnishInfo.preset_name || vnishInfo.hardware || vnishInfo.type || '';
+        raw = String(raw).replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
         let model = raw ? (raw.toLowerCase().includes('vnish') ? raw : `${raw} (Vnish)`) : 'Antminer (Vnish)';
         const sn = vnishInfo.serial || vnishInfo.sn || vnishInfo.mac || '';
         return { model, sn };
     }
+
+    let rawModel = stat.hardware || stat.product || stat.system_miner_type || 
+                   version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware ||
+                   stat.Type || stat.Miner || summary?.STATUS?.[0]?.Description || '';
+    
+    rawModel = String(rawModel).replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
+
+    let model = 'Antminer S19';
+    if (rawModel) {
+        const lower = rawModel.toLowerCase();
+        if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
+        else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
+        else if (lower.includes('s19 xp')) model = 'Antminer S19 XP';
+        else if (lower.includes('s19k pro')) model = 'Antminer S19k Pro';
+        else if (lower.includes('s19a pro')) model = 'Antminer S19a Pro';
+        else if (lower.includes('s19a')) model = 'Antminer S19a';
+        else if (lower.includes('s19i')) model = 'Antminer S19i';
+        else if (lower.includes('s19')) model = 'Antminer S19';
+        else if (lower.includes('s21')) model = 'Antminer S21';
+        else if (lower.includes('t21')) model = 'Antminer T21';
+        else if (lower.includes('t19')) model = 'Antminer T19';
+        else if (lower.includes('m30s+')) model = 'Whatsminer M30S+';
+        else if (lower.includes('m30s')) model = 'Whatsminer M30S';
+        else if (lower.includes('m31s')) model = 'Whatsminer M31S';
+        else if (lower.includes('m50')) model = 'Whatsminer M50';
+        else if (lower.includes('whatsminer')) model = 'Whatsminer M30S';
+        else if (lower.includes('vnish')) model = rawModel;
+        else if (rawModel.length > 2 && !rawModel.toLowerCase().includes('cgminer')) model = rawModel;
+        else model = 'Antminer S19';
+    } else if (stat.chain_acn || stat.chain_acs || stat.BMMiner || stat['hash board 0 sn']) {
+        model = 'Antminer S19';
+    }
+
+    let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';
+    return { model, sn };
+}
 
     let rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
                    summary?.SUMMARY?.[0]?.Type || summary?.SUMMARY?.[0]?.Hardware ||
