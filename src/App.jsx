@@ -5418,7 +5418,7 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
       loadMachine(miner.sn);
     }
     const info = await fetchAndApplyMinerInfo(miner.ip);
-    const toastFn = triggerToast || ctx?.triggerToast;
+    const toastFn = triggerToast || ctx?.triggerToast || ((msg) => alert(msg));
     if (toastFn) {
       toastFn("⚡ IP " + miner.ip + " (" + (miner.model || info?.model || "Minerador") + ") vinculado à bancada!");
     }
@@ -6411,7 +6411,7 @@ function TestePage({ctx}){
       <Alrt type="ok">📋 Vinculada ao Pedido #{session.orderRef.orderNumber} — {session.orderRef.clientName}. Status já está PREPARANDO. Quando o Admin aprovar, a máquina vai direto pra esse cliente (SAIDA). Se cancelar essa sessão, volta pro status de antes e devolve a vaga do pedido.</Alrt>
       :session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — status já está PREPARANDO (planilha atualizada). Quando o Admin aprovar, permanece PREPARANDO. Se cancelar essa sessão, volta pro status de antes.</Alrt>}
 
-    <BenchConnectionPanel ctx={ctx} session={session} setMacInput={setMacInput} loadMachine={loadMachine} saveSession={saveSession} doSubmit={doSubmit} triggerToast={triggerToast} />
+    <BenchConnectionPanel ctx={ctx} session={session} setMacInput={setMacInput} loadMachine={loadMachine} saveSession={saveSession} doSubmit={doSubmit} triggerToast={(msg) => alert(msg)} />
 
     {/* Machine input — sempre inicia uma NOVA máquina (ou retoma se já tiver sessão pro SN) */}
     <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12}}>
