@@ -231,7 +231,8 @@ setupUDPServer(14285); // Whatsminer alternate
 setupUDPServer(8888); // Braiins/Vnish alternate
 
 
-// Helper to query Vnish REST / OpenAPI (/api/v1/info, /api/v1/summary, /docs/)
+
+// Automatic Vnish REST/OpenAPI Extractor (/api/v1/info, /api/v1/summary, /api/v1/status, /docs/)
 const queryVnishAPI = (ip, endpoint = '/api/v1/info') => {
     return new Promise((resolve) => {
         const req = http.get(`http://${ip}${endpoint}`, { timeout: 2000 }, (res) => {
@@ -246,6 +247,72 @@ const queryVnishAPI = (ip, endpoint = '/api/v1/info') => {
         req.on('error', () => resolve(null));
         req.on('timeout', () => { req.destroy(); resolve(null); });
     });
+};
+
+const extractVnishFullDetails = async (ip) => {
+    try {
+        const info = await queryVnishAPI(ip, '/api/v1/info');
+        const summary = await queryVnishAPI(ip, '/api/v1/summary');
+        const status = await queryVnishAPI(ip, '/api/v1/status');
+
+        if (!info && !summary && !status) return null;
+
+        // Model extraction: e.g. "Antminer S19 Pro", "Antminer S21", "Antminer S19 XP"
+        let model = info?.miner || info?.model || info?.preset_name || info?.hardware || status?.miner || '';
+        if (model) {
+            model = model.includes('Vnish') ? model : `${model} (Vnish)`;
+        } else {
+            model = 'Antminer (Vnish)';
+        }
+
+        // Hashrate calculation (converting to TH/s)
+        let hashrate = 0;
+        if (summary?.hashrate) {
+            hashrate = summary.hashrate > 1000 ? summary.hashrate / 1000000 : summary.hashrate;
+        } else if (summary?.summary?.hashrate) {
+            hashrate = summary.summary.hashrate > 1000 ? summary.summary.hashrate / 1000000 : summary.summary.hashrate;
+        } else if (summary?.rate_5s) {
+            hashrate = summary.rate_5s > 1000 ? summary.rate_5s / 1000000 : summary.rate_5s;
+        }
+
+        // Max temperature extraction (chip & board)
+        let maxTemp = 0;
+        if (summary?.temp_chip) maxTemp = Math.max(maxTemp, summary.temp_chip);
+        if (summary?.temp_board) maxTemp = Math.max(maxTemp, summary.temp_board);
+        if (Array.isArray(summary?.chains)) {
+            summary.chains.forEach(c => {
+                if (c.temp_chip) maxTemp = Math.max(maxTemp, c.temp_chip);
+                if (c.temp_board) maxTemp = Math.max(maxTemp, c.temp_board);
+            });
+        }
+
+        // Serial number extraction
+        const sn = info?.serial || info?.sn || info?.mac || summary?.serial || '';
+
+        // Hashboard slots extraction
+        const slots = [null, null, null];
+        if (Array.isArray(summary?.chains)) {
+            summary.chains.forEach((c, idx) => {
+                if (idx < 3) slots[idx] = c.sn || c.serial || `Board #${idx+1}`;
+            });
+        }
+
+        const isMining = hashrate > 0 || status?.status === 'mining' || info?.status === 'mining';
+
+        return {
+            ip,
+            status: isMining ? 'mining' : 'idle',
+            model,
+            sn,
+            uptime: summary?.elapsed || summary?.uptime || info?.uptime || 0,
+            hashrate,
+            temp: maxTemp,
+            slots,
+            lastUpdate: Date.now()
+        };
+    } catch(e) {
+        return null;
+    }
 };
 
 // Helper to query CGMiner/Whatsminer API over TCP port 4028
@@ -655,24 +722,9 @@ const updateFarmStatus = async () => {
         await Promise.all(batch.map(async (ip) => {
             try {
                 // Try Vnish HTTP API first
-                const vnishInfo = await queryVnishAPI(ip, '/api/v1/info');
-                const vnishSum = vnishInfo ? await queryVnishAPI(ip, '/api/v1/summary') : null;
-
-                if (vnishInfo || vnishSum) {
-                    const details = detectMinerDetails({}, {}, {}, vnishInfo);
-                    const hr = (vnishSum?.hashrate || vnishSum?.summary?.hashrate || 0) / (vnishSum?.hashrate > 1000 ? 1000000 : 1);
-                    const temp = vnishSum?.temp_chip || vnishSum?.temp_board || 0;
-                    minerStatusCache[ip] = {
-                        ip,
-                        status: hr > 0 || vnishInfo?.status === 'mining' ? 'mining' : 'idle',
-                        model: details.model,
-                        sn: details.sn,
-                        uptime: vnishSum?.elapsed || 0,
-                        hashrate: hr,
-                        temp: temp,
-                        slots: [null, null, null],
-                        lastUpdate: Date.now()
-                    };
+                const vnishData = await extractVnishFullDetails(ip);
+                if (vnishData) {
+                    minerStatusCache[ip] = vnishData;
                     return;
                 }
 

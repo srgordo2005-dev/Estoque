@@ -3076,7 +3076,6 @@ function DataCenterPage({ctx}) {
                         <Btn onClick={() => { setModal(null); handleBindIP(m); }}>🌐 Configurar IP</Btn>
                         <Btn disabled={!m.ip} onClick={() => triggerBlink(m, false)}>💡 Piscar LED</Btn>
                         <Btn disabled={!m.ip} onClick={() => { setModal(null); triggerScreenshot(m); }}>📸 Tirar Print</Btn>
-                        <Btn disabled={!m.ip} onClick={() => window.open(`http://${m.ip}/docs/`, '_blank')} style={{background:C.purple, color:'#fff'}}>🌐 Abrir Vnish / Docs (/docs/)</Btn>
                     </div>
                     
                     {!isDummy && (
