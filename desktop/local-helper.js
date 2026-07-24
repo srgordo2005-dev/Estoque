@@ -827,17 +827,30 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 
-const HELPER_VERSION = "1.0.1";
 
-app.get('/api/version', (req, res) => {
+const CURRENT_HELPER_VERSION = "1.0.1";
+
+app.get('/api/version', async (req, res) => {
+    let latestVersion = CURRENT_HELPER_VERSION;
+    let hasUpdate = false;
+    try {
+        const pkgRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/desktop/package.json');
+        if (pkgRes.ok) {
+            const pkg = await pkgRes.json();
+            if (pkg.version) latestVersion = pkg.version;
+            if (latestVersion !== CURRENT_HELPER_VERSION) hasUpdate = true;
+        }
+    } catch(e) {}
     res.json({
-        version: HELPER_VERSION,
+        version: CURRENT_HELPER_VERSION,
+        latestVersion: latestVersion,
+        hasUpdate: hasUpdate,
         name: 'HashStock Local Helper & Bridge',
         uptime: Math.floor(process.uptime()),
-        platform: process.platform,
-        arch: process.arch
+        platform: process.platform
     });
 });
+
 
 app.post('/api/self-update', async (req, res) => {
     console.log('[Self-Update] Solicitação de atualização sem instalador recebida...');

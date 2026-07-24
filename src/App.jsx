@@ -1133,17 +1133,35 @@ export default function App(){
      };
   }, []);
 
-  // Local helper server ping check
+
+  const [serverUpdateAvailable, setServerUpdateAvailable] = useState(null); // { version, latestVersion }
+  const [serverUpdateDismissed, setServerUpdateDismissed] = useState(false);
+
+  // Local helper server ping & version check
   useEffect(() => {
-     const checkLocal = () => {
-        fetch("http://localhost:3001/api/ping")
-          .then(res => setLocalConnected(res.ok))
-          .catch(() => setLocalConnected(false));
+     const checkLocal = async () => {
+        try {
+            const res = await fetch("http://localhost:3001/api/version");
+            if (res.ok) {
+                setLocalConnected(true);
+                const verInfo = await res.json();
+                if (verInfo.hasUpdate || verInfo.version !== verInfo.latestVersion) {
+                    setServerUpdateAvailable(verInfo);
+                } else {
+                    setServerUpdateAvailable(null);
+                }
+            } else {
+                setLocalConnected(false);
+            }
+        } catch(e) {
+            setLocalConnected(false);
+        }
      };
      checkLocal();
-     let interval = setInterval(checkLocal, 5000);
+     let interval = setInterval(checkLocal, 8000);
      return () => clearInterval(interval);
   }, []);
+
 
   useEffect(()=>{
     if(user&&data.employees.length){
@@ -2728,6 +2746,42 @@ function DataCenterPage({ctx}) {
       return () => clearInterval(interval);
     }, []);
 
+    
+    const handleOpenServerManager = () => {
+        setModal(
+            <Modal title="🖥️ Gerenciador Global de Servidores Locais" onClose={() => setModal(null)}>
+                <div style={{padding:16, display:'flex', flexDirection:'column', gap:14}}>
+                    <div style={{background:C.card2, padding:14, borderRadius:8, border:'1px solid '+C.border}}>
+                        <div style={{fontWeight:800, fontSize:14, color:C.text, marginBottom:4}}>📡 Servidor Local Desta Fazenda (localhost:3001)</div>
+                        <div style={{fontSize:12, color:C.subtle, display:'flex', gap:12, marginTop:6}}>
+                            <span>Status: <b style={{color: localConnected ? C.green : C.red}}>{localConnected ? "🟢 ONLINE" : "🔴 OFFLINE"}</b></span>
+                            <span>Versão: <b>v{serverUpdateAvailable?.version || "1.0.1"}</b></span>
+                        </div>
+                    </div>
+
+                    <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                        <Btn 
+                            disabled={!localConnected}
+                            onClick={async () => {
+                                try {
+                                    alert("⏳ Baixando atualização do servidor local...");
+                                    const r = await fetch('http://localhost:3001/api/self-update', { method: 'POST' });
+                                    const res = await r.json();
+                                    alert(res.message || "Servidor atualizado!");
+                                } catch(e) {
+                                    alert("Erro ao comunicar com servidor local: " + e.message);
+                                }
+                            }}
+                            style={{background:C.blue, color:'#fff', justifyContent:'center'}}
+                        >
+                            🔄 Atualizar Servidor Local sem Reinstalar
+                        </Btn>
+                    </div>
+                </div>
+            </Modal>
+        );
+    };
+
     const handleManualRefresh = async () => {
         setIsScanning(true);
         await fetchFarmStatus();
@@ -3180,6 +3234,7 @@ function DataCenterPage({ctx}) {
                 </div>
 
                 <div style={{display:'flex', gap:10}}>
+                    <button onClick={handleOpenServerManager} style={{background:C.purple, border:'none', color:'#fff', padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer', marginRight:8}}>🖥️ Servidores Locais</button>
                     <button onClick={handleManualRefresh} disabled={isScanning} style={{background:C.card2, border:'1px solid '+C.border, color:C.text, padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer'}}>
                         {isScanning ? "⏳ Escaneando..." : "📡 Escanear Frota"}
                     </button>
