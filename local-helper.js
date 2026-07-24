@@ -768,7 +768,10 @@ const updateFarmStatus = async () => {
 
                 // Fallback to standard CGMiner TCP 4028
                 const summaryData = await queryMinerAPI(ip, 'summary').catch(() => null);
-                if (!summaryData) return;
+                if (!summaryData) {
+                    if (minerStatusCache[ip]) minerStatusCache[ip].status = 'offline';
+                    return;
+                }
                 const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
                 
                 const sum = summaryData?.SUMMARY?.[0] || {};
