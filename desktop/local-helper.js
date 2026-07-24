@@ -1,13 +1,6 @@
 
 // Helper to accurately extract Miner Model and SN from Stats/Summary/Version
 function detectMinerDetails(stat = {}, summary = {}, version = {}, vnishInfo = null) {
-    let hashrate = 0;
-    const sum = summary?.SUMMARY?.[0] || summary || {};
-    if (sum['MHS av']) hashrate = sum['MHS av'] / 1000000;
-    if (sum['GHS av']) hashrate = sum['GHS av'] / 1000;
-    if (sum['THS av']) hashrate = sum['THS av'];
-    if (summary?.hashrate) hashrate = summary.hashrate > 1000 ? summary.hashrate / 1000000 : summary.hashrate;
-
     if (vnishInfo) {
         let raw = vnishInfo.miner || vnishInfo.model || vnishInfo.preset_name || vnishInfo.hardware || vnishInfo.type || '';
         raw = String(raw).replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
@@ -22,36 +15,7 @@ function detectMinerDetails(stat = {}, summary = {}, version = {}, vnishInfo = n
     
     rawModel = String(rawModel).replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
 
-    let model = '';
-    if (rawModel) {
-        const lower = rawModel.toLowerCase();
-        if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
-        else if (lower.includes('s19 pro+') || lower.includes('s19pro+')) model = 'Antminer S19 Pro+';
-        else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
-        else if (lower.includes('s19 xp') || lower.includes('s19xp')) model = 'Antminer S19 XP';
-        else if (lower.includes('s19k pro')) model = 'Antminer S19k Pro';
-        else if (lower.includes('s19a pro')) model = 'Antminer S19a Pro';
-        else if (lower.includes('s19a')) model = 'Antminer S19a';
-        else if (lower.includes('s19i')) model = 'Antminer S19i';
-        else if (lower.includes('s21')) model = 'Antminer S21';
-        else if (lower.includes('t21')) model = 'Antminer T21';
-        else if (lower.includes('t19')) model = 'Antminer T19';
-        else if (lower.includes('m30s+')) model = 'Whatsminer M30S+';
-        else if (lower.includes('m30s')) model = 'Whatsminer M30S';
-        else if (lower.includes('m31s')) model = 'Whatsminer M31S';
-        else if (lower.includes('m50')) model = 'Whatsminer M50';
-        else if (lower.includes('whatsminer')) model = 'Whatsminer M30S';
-    }
-
-    if (!model) {
-        if (hashrate > 190) model = 'Antminer S19 XP';
-        else if (hashrate > 140) model = 'Antminer S19 Pro+';
-        else if (hashrate > 105) model = 'Antminer S19 Pro';
-        else if (hashrate > 88) model = 'Antminer S19j Pro';
-        else if (hashrate > 70) model = 'Antminer S19';
-        else model = rawModel && rawModel.length > 2 ? rawModel : 'Antminer S19';
-    }
-
+    let model = rawModel && rawModel.length > 1 ? rawModel : '';
     let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';
     return { model, sn };
 }
@@ -1044,6 +1008,36 @@ app.get('/api/miner-debug-study', async (req, res) => {
             cgminerSummary: summaryData,
             cgminerStats: statsData
         });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
+// Action Endpoint: Blink LED, Change Pool, Change Network IP
+app.post('/api/miner-action', async (req, res) => {
+    const { ip, action, payload } = req.body;
+    if (!ip || !action) return res.status(400).json({ error: 'IP and action are required' });
+
+    try {
+        if (action === 'blink') {
+            const findVal = payload?.enable !== undefined ? payload.enable : true;
+            const result = await queryVnishAPI(ip, '/api/v1/find-miner', 'POST', { find_miner: findVal });
+            return res.json({ ok: true, result });
+        }
+        if (action === 'pools') {
+            const result = await queryVnishAPI(ip, '/api/v1/pools', 'POST', payload);
+            return res.json({ ok: true, result });
+        }
+        if (action === 'network') {
+            const result = await queryVnishAPI(ip, '/api/v1/network', 'POST', payload);
+            return res.json({ ok: true, result });
+        }
+        if (action === 'reboot') {
+            const result = await queryVnishAPI(ip, '/api/v1/system/reboot', 'POST', {});
+            return res.json({ ok: true, result });
+        }
+        res.status(400).json({ error: 'Unknown action' });
     } catch(e) {
         res.status(500).json({ error: e.message });
     }
