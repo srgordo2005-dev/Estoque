@@ -1,4 +1,15 @@
 
+function cleanModelName(val, fallbackModel = "Antminer S19") {
+    if (!val) return fallbackModel;
+    let str = String(val).trim();
+    if (/^cgminer/i.test(str) || /^bmminer/i.test(str)) {
+        return fallbackModel && !/^cgminer/i.test(fallbackModel) ? fallbackModel : "Antminer S19";
+    }
+    str = str.replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
+    if (!str || /^cgminer$/i.test(str)) return fallbackModel && !/^cgminer/i.test(fallbackModel) ? fallbackModel : "Antminer S19";
+    return str;
+}
+
 function ServerSelfUpdateModal({ctx, updateInfo, onClose}) {
   const [updating, setUpdating] = useState(false);
   const [status, setStatus] = useState("");
@@ -3385,8 +3396,8 @@ function DataCenterPage({ctx}) {
                                              const isIdle = stat && stat.status !== 'offline' && !isMining;
                                              const isChecked = selectedMachineIds.includes(m._id);
                                              
-                                             const machineModelName = stat?.model || m.model || "Antminer S19";
-                                             const shelfLabel = m.shelf ? m.shelf.replace(/AutoSlot/gi, "Prateleira") : "Prateleira";
+                                             const machineModelName = cleanModelName(stat?.model, cleanModelName(m.model, "Antminer S19"));
+                                             const shelfLabel = m.shelf || "Prateleira 1";
 
                                              return (
                                                  <tr key={m._id} style={{borderBottom:"1px solid " + C.border + "44", background: isChecked ? C.accent + "18" : isMining ? '#091c13' : 'transparent'}}>
@@ -3418,7 +3429,7 @@ function DataCenterPage({ctx}) {
                                                          {m.ip ? `🌐 ${m.ip}` : "Sem IP"}
                                                      </td>
                                                      {/* Modelo Prominente */}
-                                                     <td style={{padding:8, fontWeight:800, color:C.accent}}>{stat?.model || m.model || "Antminer S19"}</td>
+                                                     <td style={{padding:8, fontWeight:800, color:C.accent}}>{cleanModelName(stat?.model, cleanModelName(m.model, "Antminer S19"))}</td>
                                                      <td style={{padding:8, color:C.green, fontWeight:800}}>{stat?.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '-'}</td>
                                                      <td style={{padding:8, color: stat?.temp > 85 ? C.red : C.text, fontWeight:700}}>{stat?.temp ? stat.temp + '°C' : '-'}</td>
                                                      <td style={{padding:8, color:C.subtle}}>{stat?.uptime ? formatUptime(stat.uptime) : '-'}</td>
@@ -3555,7 +3566,7 @@ function DataCenterPage({ctx}) {
                                                         const isOnline = stat && stat.status !== 'offline';
                                                         const isMining = isOnline && stat.status === 'mining';
                                                         const slotNumStr = m.notes || (startSlot + slotIndex);
-                                                        const machineModelName = stat?.model || m.model || "Antminer S19";
+                                                        const machineModelName = cleanModelName(stat?.model, cleanModelName(m.model, "Antminer S19"));
 
                                                         let bg = '#182232'; 
                                                         let textColor = '#64748b'; 

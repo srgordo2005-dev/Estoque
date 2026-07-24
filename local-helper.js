@@ -801,6 +801,15 @@ const updateFarmStatus = async () => {
         }));
         
         try {
+            // Sanitize cgminer model strings from cache
+            for (const ipKey in minerStatusCache) {
+                if (minerStatusCache[ipKey] && minerStatusCache[ipKey].model) {
+                    let mStr = String(minerStatusCache[ipKey].model);
+                    if (mStr.toLowerCase().includes('cgminer') || mStr.toLowerCase().includes('bmminer')) {
+                        minerStatusCache[ipKey].model = 'Antminer S19';
+                    }
+                }
+            }
             fs.writeFileSync(cacheFile, JSON.stringify(minerStatusCache, null, 2), 'utf8');
         } catch(e) {}
     }
