@@ -3523,7 +3523,7 @@ function DataCenterPage({ctx}) {
                                                          )}
                                                      </td>
                                                      <td 
-                                                       
+                                                       onDoubleClick={() => { if(m.ip) window.open("http://" + m.ip, "_blank"); }}
                                                        style={{padding:8, fontWeight:800, color: m.ip ? C.blue : C.subtle, cursor: m.ip ? 'pointer' : 'default'}}
                                                        title={m.ip ? "Clique duplo para abrir no navegador (http://" + m.ip + ")" : "Sem IP"}
                                                      >

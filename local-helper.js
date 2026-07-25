@@ -34,7 +34,8 @@ const botToken = '8627853322:AAEwVrIwNz3vPejxiaUFGR0sb2I6bBRieyo';
 const bot = new TelegramBot(botToken, {polling: true});
 let telegramChatId = null;
 
-bot.onText(/\/start/, (msg) => {
+bot.onText(/const sys = info?.system || {};
+if (!info?.miner && !info?.model && !s?.miner_type && !s?.average_hashrate && !summary?.hashrate && !status?.miner) { return null; }/start/, (msg) => {
   telegramChatId = msg.chat.id;
   bot.sendMessage(telegramChatId, '🚨 Farm Monitor Bridge conectada! Você passará a receber alertas de superaquecimento e falhas aqui.');
 });
