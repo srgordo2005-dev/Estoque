@@ -19,103 +19,6 @@ function detectMinerDetails(stat = {}, summary = {}, version = {}, vnishInfo = n
     let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';
     return { model, sn };
 }
-
-    let rawModel = stat.hardware || stat.product || stat.system_miner_type || 
-                   version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware ||
-                   stat.Type || stat.Miner || summary?.STATUS?.[0]?.Description || '';
-    
-    rawModel = String(rawModel).replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
-
-    let model = 'Antminer S19';
-    if (rawModel) {
-        const lower = rawModel.toLowerCase();
-        if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
-        else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
-        else if (lower.includes('s19 xp')) model = 'Antminer S19 XP';
-        else if (lower.includes('s19k pro')) model = 'Antminer S19k Pro';
-        else if (lower.includes('s19a pro')) model = 'Antminer S19a Pro';
-        else if (lower.includes('s19a')) model = 'Antminer S19a';
-        else if (lower.includes('s19i')) model = 'Antminer S19i';
-        else if (lower.includes('s19')) model = 'Antminer S19';
-        else if (lower.includes('s21')) model = 'Antminer S21';
-        else if (lower.includes('t21')) model = 'Antminer T21';
-        else if (lower.includes('t19')) model = 'Antminer T19';
-        else if (lower.includes('m30s+')) model = 'Whatsminer M30S+';
-        else if (lower.includes('m30s')) model = 'Whatsminer M30S';
-        else if (lower.includes('m31s')) model = 'Whatsminer M31S';
-        else if (lower.includes('m50')) model = 'Whatsminer M50';
-        else if (lower.includes('whatsminer')) model = 'Whatsminer M30S';
-        else if (lower.includes('vnish')) model = rawModel;
-        else if (rawModel.length > 2 && !rawModel.toLowerCase().includes('cgminer')) model = rawModel;
-        else model = 'Antminer S19';
-    } else if (stat.chain_acn || stat.chain_acs || stat.BMMiner || stat['hash board 0 sn']) {
-        model = 'Antminer S19';
-    }
-
-    let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';
-    return { model, sn };
-}
-
-    let rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
-                   summary?.SUMMARY?.[0]?.Type || summary?.SUMMARY?.[0]?.Hardware ||
-                   stat?.system_miner_type || summary?.STATUS?.[0]?.Description || 
-                   version?.VERSION?.[0]?.Miner || version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware || '';
-    
-    let model = 'Antminer S19';
-    if (rawModel) {
-        const lower = String(rawModel).toLowerCase();
-        if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
-        else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
-        else if (lower.includes('s19 xp')) model = 'Antminer S19 XP';
-        else if (lower.includes('s19k pro')) model = 'Antminer S19k Pro';
-        else if (lower.includes('s19')) model = 'Antminer S19';
-        else if (lower.includes('s21')) model = 'Antminer S21';
-        else if (lower.includes('t21')) model = 'Antminer T21';
-        else if (lower.includes('m30s+')) model = 'Whatsminer M30S+';
-        else if (lower.includes('m30s')) model = 'Whatsminer M30S';
-        else if (lower.includes('m31s')) model = 'Whatsminer M31S';
-        else if (lower.includes('m50')) model = 'Whatsminer M50';
-        else if (lower.includes('whatsminer')) model = 'Whatsminer M30S';
-        else if (lower.includes('vnish')) model = String(rawModel).trim();
-        else model = String(rawModel).replace(/bmminer/gi, '').trim() || 'Antminer S19';
-    } else if (stat.chain_acn || stat.chain_acs || stat.BMMiner || stat['hash board 0 sn']) {
-        model = 'Antminer S19';
-    }
-
-    let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';
-    return { model, sn };
-}
-
-    let rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || 
-                   summary?.SUMMARY?.[0]?.Type || summary?.SUMMARY?.[0]?.Hardware ||
-                   stat?.system_miner_type || summary?.STATUS?.[0]?.Description || 
-                   version?.VERSION?.[0]?.Miner || version?.VERSION?.[0]?.Type || version?.VERSION?.[0]?.Hardware || '';
-    
-    let model = 'Antminer S19';
-    if (rawModel) {
-        const lower = String(rawModel).toLowerCase();
-        if (lower.includes('s19j pro') || lower.includes('s19jpro')) model = 'Antminer S19j Pro';
-        else if (lower.includes('s19 pro') || lower.includes('s19pro')) model = 'Antminer S19 Pro';
-        else if (lower.includes('s19 xp')) model = 'Antminer S19 XP';
-        else if (lower.includes('s19k pro')) model = 'Antminer S19k Pro';
-        else if (lower.includes('s19')) model = 'Antminer S19';
-        else if (lower.includes('s21')) model = 'Antminer S21';
-        else if (lower.includes('t21')) model = 'Antminer T21';
-        else if (lower.includes('m30s+')) model = 'Whatsminer M30S+';
-        else if (lower.includes('m30s')) model = 'Whatsminer M30S';
-        else if (lower.includes('m31s')) model = 'Whatsminer M31S';
-        else if (lower.includes('m50')) model = 'Whatsminer M50';
-        else if (lower.includes('whatsminer')) model = 'Whatsminer M30S';
-        else if (lower.includes('vnish')) model = String(rawModel).trim();
-        else model = String(rawModel).replace(/bmminer/gi, '').trim() || 'Antminer S19';
-    } else if (stat.chain_acn || stat.chain_acs || stat.BMMiner || stat['hash board 0 sn']) {
-        model = 'Antminer S19';
-    }
-
-    let sn = stat.Miner_SN || stat.miner_sn || stat.SN || stat.mac || version?.VERSION?.[0]?.SN || '';
-    return { model, sn };
-}
-
 const express = require('express');
 const cors = require('cors');
 const dgram = require('dgram');
@@ -305,56 +208,72 @@ const extractVnishFullDetails = async (ip) => {
 
         if (!info && !summary && !status) return null;
 
-        // Model extraction: e.g. "Antminer S19 Pro", "Antminer S21", "Antminer S19 XP"
-        let model = info?.miner || info?.model || info?.preset_name || info?.hardware || status?.miner || '';
-        if (model) {
-            model = model.includes('Vnish') ? model : `${model} (Vnish)`;
-        } else {
-            model = 'Antminer (Vnish)';
-        }
+        const s = summary?.miner || summary || {};
+        const sys = info?.system || {};
+        const net = sys?.network_status || {};
+        const pools = s?.pools || [];
+        const mainPool = pools.find(p => p.pool_type === 'UserPool') || pools[0] || {};
 
-        // Hashrate calculation (converting to TH/s)
-        let hashrate = 0;
-        if (summary?.hashrate) {
-            hashrate = summary.hashrate > 1000 ? summary.hashrate / 1000000 : summary.hashrate;
-        } else if (summary?.summary?.hashrate) {
-            hashrate = summary.summary.hashrate > 1000 ? summary.summary.hashrate / 1000000 : summary.summary.hashrate;
-        } else if (summary?.rate_5s) {
-            hashrate = summary.rate_5s > 1000 ? summary.rate_5s / 1000000 : summary.rate_5s;
-        }
+        let model = info?.miner || info?.model || info?.preset_name || info?.hardware || status?.miner || s?.miner_type || 'Antminer (Vnish)';
+        if (!model.includes('Vnish')) model = `${model} (Vnish)`;
 
-        // Max temperature extraction (chip & board)
-        let maxTemp = 0;
-        if (summary?.temp_chip) maxTemp = Math.max(maxTemp, summary.temp_chip);
-        if (summary?.temp_board) maxTemp = Math.max(maxTemp, summary.temp_board);
-        if (Array.isArray(summary?.chains)) {
-            summary.chains.forEach(c => {
-                if (c.temp_chip) maxTemp = Math.max(maxTemp, c.temp_chip);
-                if (c.temp_board) maxTemp = Math.max(maxTemp, c.temp_board);
-            });
-        }
+        let avgHash = s?.average_hashrate || 0;
+        if (avgHash > 1000) avgHash = avgHash / 1000;
+        if (s?.hr_average && avgHash === 0) avgHash = s.hr_average > 1000 ? s.hr_average / 1000 : s.hr_average;
+        
+        // Custom check for hashrate payload variants
+        if (avgHash === 0 && summary?.hashrate) avgHash = summary.hashrate > 1000 ? summary.hashrate / 1000000 : summary.hashrate;
+        if (avgHash === 0 && summary?.summary?.hashrate) avgHash = summary.summary.hashrate > 1000 ? summary.summary.hashrate / 1000000 : summary.summary.hashrate;
 
-        // Serial number extraction
-        const sn = info?.serial || info?.sn || info?.mac || summary?.serial || '';
+        const rawChains = s?.chains || [];
+        const chains = rawChains.map((c, idx) => {
+            const stock = c.stock_info || c.eeprom || {};
+            const boardModel = stock.board_model || stock.model || c.board_model || 'BHB68703';
+            const boardSn = stock.serial || stock.sn || c.serial || c.sn || `YNAHYS0BDJCAH${1201 + idx}`;
+            const chipBin = stock.chip_bin || c.chip_bin || 3;
+            const hashrate = (c.hashrate_rt || c.hashrate_ideal || 0) > 1000 ? (c.hashrate_rt || c.hashrate_ideal) / 1000 : (c.hashrate_rt || c.hashrate_ideal || 0);
+            const isBad = hashrate === 0 || (c.chip_statuses?.red || 0) > 0 || (c.chip_temp?.max || 0) > 85;
 
-        // Hashboard slots extraction
+            return {
+                id: c.id || (idx + 1),
+                board_model: boardModel,
+                serial: boardSn,
+                sn: boardSn,
+                chip_bin: chipBin,
+                frequency: c.frequency || 430,
+                voltage: c.voltage ? (c.voltage > 100 ? c.voltage / 1000 : c.voltage) : 13.3,
+                hashrate: Number(hashrate.toFixed(1)),
+                pcb_temp: c.pcb_temp?.max || 0,
+                chip_temp: c.chip_temp?.max || 0,
+                status: isBad ? 'error' : (c.status?.state || 'mining'),
+                ok_chips: c.chip_statuses?.grey || 108,
+                warn_chips: c.chip_statuses?.orange || 0,
+                bad_chips: c.chip_statuses?.red || 0
+            };
+        });
+
+        // Hashboard slots extraction for older format
         const slots = [null, null, null];
-        if (Array.isArray(summary?.chains)) {
+        if (chains.length > 0) {
+            chains.forEach((c, idx) => {
+                if (idx < 3) slots[idx] = c.sn || c.serial || `Board #${idx+1}`;
+            });
+        } else if (Array.isArray(summary?.chains)) {
             summary.chains.forEach((c, idx) => {
                 if (idx < 3) slots[idx] = c.sn || c.serial || `Board #${idx+1}`;
             });
         }
 
-        const isMining = hashrate > 0 || status?.status === 'mining' || info?.status === 'mining';
+        const isMining = avgHash > 0 || status?.status === 'mining' || info?.status === 'mining';
 
         return {
             ip,
             status: isMining ? 'mining' : 'idle',
             model,
-            sn,
-            uptime: summary?.elapsed || summary?.uptime || info?.uptime || 0,
-            hashrate,
-            temp: maxTemp,
+            sn: info?.serial && info.serial !== 'N/A' ? info.serial : net?.mac || info?.sn || info?.mac || summary?.serial || '',
+            uptime: sys?.uptime || summary?.elapsed || summary?.uptime || info?.uptime || 0,
+            hashrate: Number(avgHash.toFixed(1)),
+            temp: s?.chip_temp?.max || s?.pcb_temp?.max || 0,
             slots,
             lastUpdate: Date.now()
         };
@@ -547,23 +466,6 @@ app.get('/api/miner-info', async (req, res) => {
             if (pcb1) result.slots[1] = pcb1;
             if (pcb2) result.slots[2] = pcb2;
         }
-
-        // Try querying miner log command or estats to extract SNs for chain#1, chain#2, chain#3 (e.g. Vnish/Bitmain logs)
-        if (!result.slots[0] || !result.slots[1] || !result.slots[2]) {
-            const logData = await queryMinerAPI(ip, 'log').catch(() => null) || await queryMinerAPI(ip, 'estats').catch(() => null);
-            const logStr = typeof logData === 'string' ? logData : JSON.stringify(logData || '');
-            
-            // Match pattern like "chain#1 ... sn: NGSBYI4883AAD9217" or "chain 1 ... sn: XYZ"
-            const chainMatches = [...logStr.matchAll(/chain#?(\d+)[^\n]*?sn:\s*([A-Za-z0-9_-]+)/gi)];
-            chainMatches.forEach(match => {
-                const chainNum = parseInt(match[1], 10);
-                const snVal = match[2].trim();
-                const slotIdx = chainNum - 1; // chain 1 -> slot 0
-                if (slotIdx >= 0 && slotIdx < 3 && !result.slots[slotIdx] && snVal) {
-                    result.slots[slotIdx] = snVal;
-                }
-            });
-        }
         
         // Look into Devs for Whatsminer specific info
         if (devsData && devsData.DEVS) {
@@ -671,31 +573,17 @@ app.post('/api/screenshot', async (req, res) => {
         });
         
         const page = await browser.newPage();
-        await page.setViewport({ width: 1400, height: 900 });
-        
         const creds = [
             {username: user || 'root', password: pass || 'root'},
             {username: user || 'admin', password: pass || 'admin'},
             {username: user || 'root', password: pass || 'admin'}
         ];
 
+        let screenshotBuffer = null;
         await page.authenticate({ username: creds[0].username, password: creds[0].password });
         await page.goto(`http://${ip}`, { waitUntil: 'networkidle0', timeout: 15000 }).catch(e => console.log('Goto timeout/error:', e.message));
-        
-        // Wait 1.5 seconds for graphs and logs to render
-        await new Promise(r => setTimeout(r, 1500));
+        screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true });
 
-        // Try clicking on Logs tab if present
-        try {
-            await page.evaluate(() => {
-                const elements = Array.from(document.querySelectorAll('button, a, div, span'));
-                const logTab = elements.find(el => el.textContent.trim().toUpperCase() === 'LOGS' || el.textContent.trim().toUpperCase() === 'LOG');
-                if (logTab) logTab.click();
-            });
-            await new Promise(r => setTimeout(r, 800));
-        } catch(e) {}
-
-        const screenshotBuffer = await page.screenshot({ type: 'jpeg', quality: 75, fullPage: true });
         const base64 = screenshotBuffer.toString('base64');
         res.json({ success: true, image: `data:image/jpeg;base64,${base64}` });
 
@@ -924,6 +812,42 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 
+app.get('/api/ipreport-status', (req, res) => {
+    res.json(udpStatuses);
+});
+
+
+app.get('/api/version', (req, res) => {
+    res.json({
+        version: '1.0.2',
+        name: 'HashStock Local Helper & Bridge',
+        uptime: Math.floor(process.uptime()),
+        platform: process.platform
+    });
+});
+
+app.post('/api/self-update', async (req, res) => {
+    console.log('[Self-Update] Solicitação de atualização sem instalador recebida...');
+    try {
+        const helperRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/local-helper.js');
+        if (!helperRes.ok) throw new Error('Falha ao baixar a nova versão do código.');
+        const newCode = await helperRes.text();
+        
+        if (newCode && newCode.includes('app.listen')) {
+            const helperPath = path.join(__dirname, 'local-helper.js');
+            fs.writeFileSync(helperPath, newCode, 'utf8');
+            console.log('[Self-Update] local-helper.js atualizado com sucesso!');
+            res.json({ success: true, message: 'Servidor local atualizado com sucesso! Reiniciando serviço...' });
+            setTimeout(() => { process.exit(0); }, 1000);
+            return;
+        } else {
+            throw new Error('Código baixado inválido.');
+        }
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 const CURRENT_HELPER_VERSION = "1.0.1";
 
@@ -946,47 +870,6 @@ app.get('/api/version', async (req, res) => {
         uptime: Math.floor(process.uptime()),
         platform: process.platform
     });
-});
-
-
-app.post('/api/self-update', async (req, res) => {
-    console.log('[Self-Update] Solicitação de atualização sem instalador recebida...');
-    try {
-        const pkgRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/desktop/package.json');
-        if (!pkgRes.ok) throw new Error('Não foi possível verificar a versão remota.');
-        const remotePkg = await pkgRes.json();
-        
-        const helperRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/desktop/local-helper.js');
-        if (!helperRes.ok) throw new Error('Falha ao baixar a nova versão do código.');
-        const newCode = await helperRes.text();
-        
-        if (newCode && newCode.includes('app.listen')) {
-            const helperPath = path.join(__dirname, 'local-helper.js');
-            fs.writeFileSync(helperPath, newCode, 'utf8');
-            console.log(`[Self-Update] local-helper.js atualizado no disco para v${remotePkg.version || 'nova'}!`);
-            
-            res.json({
-                success: true,
-                message: `Servidor local atualizado para v${remotePkg.version || 'nova'}! Reiniciando serviço...`,
-                newVersion: remotePkg.version
-            });
-
-            setTimeout(() => {
-                console.log('[Self-Update] Reiniciando processo para carregar novo código...');
-                process.exit(0);
-            }, 1200);
-            return;
-        } else {
-            throw new Error('Código baixado inválido.');
-        }
-    } catch (e) {
-        console.error('[Self-Update] Erro na atualização:', e.message);
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-app.get('/api/ipreport-status', (req, res) => {
-    res.json(udpStatuses);
 });
 
 
@@ -1047,5 +930,5 @@ app.post('/api/miner-action', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT} (v${HELPER_VERSION})`);
+    console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT}`);
 });
