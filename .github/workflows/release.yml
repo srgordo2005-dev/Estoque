@@ -1,0 +1,51 @@
+name: Build and Release HashStock App
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        working-directory: desktop
+        run: npm install
+
+      - name: Package Electron App
+        working-directory: desktop
+        run: npm run package
+
+      - name: Build Windows Installer
+        working-directory: desktop
+        run: node build-installer.cjs
+
+      - name: Upload Installer as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HashStock-Installer
+          path: desktop/dist/installer/HashStock-Setup.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: HashStock Desktop (Latest)
+          body: Auto-generated release from latest main branch.
+          files: desktop/dist/installer/HashStock-Setup.exe
+          prerelease: false
+          make_latest: true
