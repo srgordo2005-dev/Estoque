@@ -3386,7 +3386,7 @@ function DataCenterPage({ctx}) {
                    if (selectedSubnet !== 'ALL' && m.ip && !m.ip.startsWith(selectedSubnet)) return false;
                    if (onlyOnline) {
                        const stat = farmStatus[m.ip];
-                       return stat && stat.status === 'mining';
+                       return stat && stat.status !== 'offline';
                    }
                    if (hideEmpty) {
                        if (m.sn.startsWith('FARM-') && !m.ip) return false;
