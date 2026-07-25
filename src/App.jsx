@@ -1197,9 +1197,20 @@ export default function App(){
             if (res.ok) {
                 setLocalConnected(true);
                 const verInfo = await res.json();
-                if (verInfo.hasUpdate || verInfo.version !== verInfo.latestVersion) {
-                    setServerUpdateAvailable(verInfo);
-                } else {
+                
+                try {
+                    const ghRes = await fetch("https://api.github.com/repos/srgordo2005-dev/Estoque/releases/latest");
+                    const ghData = await ghRes.json();
+                    let latestVer = ghData.tag_name || "1.0.2";
+                    if (latestVer.startsWith("v") || latestVer.startsWith("V")) latestVer = latestVer.substring(1);
+                    if (latestVer === "latest") latestVer = "1.0.2"; // fallback se tag for latest literal
+
+                    if (verInfo.version && verInfo.version !== latestVer) {
+                        setServerUpdateAvailable({ version: verInfo.version, latestVersion: latestVer });
+                    } else {
+                        setServerUpdateAvailable(null);
+                    }
+                } catch(e) {
                     setServerUpdateAvailable(null);
                 }
             } else {
