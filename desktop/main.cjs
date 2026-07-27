@@ -1,4 +1,5 @@
-require('update-electron-app')({ repo: 'srgordo2005-dev/instaladorhashstock' });\nconst { app, BrowserWindow, Tray, Menu, shell, dialog } = require('electron');
+require('update-electron-app')({ repo: 'srgordo2005-dev/instaladorhashstock' });
+const { app, BrowserWindow, Tray, Menu, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 

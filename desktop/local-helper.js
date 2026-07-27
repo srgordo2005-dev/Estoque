@@ -266,13 +266,14 @@ const extractVnishFullDetails = async (ip) => {
         }
 
         const isMining = avgHash > 0 || status?.status === 'mining' || info?.status === 'mining';
+        if (model && (model.toLowerCase().includes('dvr') || model.toLowerCase().includes('intelbras'))) return null;
 
         return {
             ip,
             status: isMining ? 'mining' : 'idle',
             model,
             sn: info?.serial && info.serial !== 'N/A' ? info.serial : net?.mac || info?.sn || info?.mac || summary?.serial || '',
-            uptime: sys?.uptime || summary?.elapsed || summary?.uptime || info?.uptime || 0,
+            uptime: Number(sys?.uptime || summary?.elapsed || summary?.uptime || info?.uptime || 0),
             hashrate: Number(avgHash.toFixed(1)),
             temp: s?.chip_temp?.max || s?.pcb_temp?.max || 0,
             slots,
@@ -830,7 +831,7 @@ app.get('/api/version', (req, res) => {
 app.post('/api/self-update', async (req, res) => {
     console.log('[Self-Update] Solicitação de atualização sem instalador recebida...');
     try {
-        const helperRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/local-helper.js');
+        const helperRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/instaladorhashstock/main/local-helper.js');
         if (!helperRes.ok) throw new Error('Falha ao baixar a nova versão do código.');
         const newCode = await helperRes.text();
         
@@ -856,7 +857,7 @@ app.get('/api/version', async (req, res) => {
     let latestVersion = CURRENT_HELPER_VERSION;
     let hasUpdate = false;
     try {
-        const pkgRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/Estoque/main/desktop/package.json');
+        const pkgRes = await fetch('https://raw.githubusercontent.com/srgordo2005-dev/instaladorhashstock/main/desktop/package.json');
         if (pkgRes.ok) {
             const pkg = await pkgRes.json();
             if (pkg.version) latestVersion = pkg.version;
