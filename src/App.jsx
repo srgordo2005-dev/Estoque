@@ -84,7 +84,7 @@ function ServerSelfUpdateModal({ctx, updateInfo, onClose}) {
     <div style={{display:'flex', flexDirection:'column', gap:14}}>
        <div style={{fontWeight:900, fontSize:14, color:C.accent}}>
           🚀 Nova Versão do Servidor / App Local Disponível!
-       </div>
+       </div>\n        <Btn onClick={() => {setStartDate("2000-01-01"); setEndDate(TODAY());}} v="y" style={{height:40, marginLeft: 10}}>Todo o Histórico</Btn>
        <div style={{background:C.card2, borderRadius:10, padding:12, border:"1px solid " + C.border, fontSize:12}}>
           <div>📌 Versão em execução no servidor local: <b>v{updateInfo.localVersion}</b></div>
           <div>✨ Nova versão disponível no servidor remoto: <b style={{color:C.green}}>v{updateInfo.remoteVersion}</b></div>
@@ -1931,7 +1931,50 @@ function QHashEdit({item,ctx,onUpdate,photoKey}){
   };
   const updateSN=async()=>{if(!item._pendingSN)return;const u={...item,sn:item._pendingSN,...audit(user),_pendingSN:undefined};mutate("hashes",h=>h.map(x=>x._id===item._id?u:x));await fbSet("hashes",item._id,u);await markChanged("hashes");onUpdate(u)};
   const isInsideMachine = item.status === "NA MAQUINA" || (item.machineSN && item.machineSN.trim() !== "");
-  return <div>
+  
+  const downloadPDF = async () => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF();
+      const empName = empFilter ? employees.find(e=>e._id===empFilter)?.name : 'Todos os Técnicos';
+      doc.setFillColor(31, 31, 31);
+      doc.rect(0, 0, 210, 297, 'F');
+      doc.setTextColor(240, 185, 11);
+      doc.setFontSize(22);
+      doc.text("HASHSTOCK", 105, 20, {align: 'center'});
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(16);
+      doc.text("Relatório de Produtividade Técnica", 105, 30, {align: 'center'});
+      doc.setFontSize(11);
+      doc.setTextColor(180, 180, 180);
+      doc.text("Técnico: " + empName, 20, 45);
+      doc.text("Período: " + startDate + " a " + endDate, 20, 52);
+      let y = 65;
+      const drawLine = (text1, text2, isHeader = false) => {
+        if (y > 270) { doc.addPage(); doc.setFillColor(31, 31, 31); doc.rect(0, 0, 210, 297, 'F'); y = 20; }
+        if (isHeader) { doc.setTextColor(240, 185, 11); doc.setFontSize(12); } 
+        else { doc.setTextColor(255, 255, 255); doc.setFontSize(11); }
+        doc.text(text1, 20, y);
+        doc.text(text2, 160, y);
+        y += 8;
+      };
+      drawLine("Modelo do HASH", "Qtd. Consertos", true);
+      let total = 0;
+      Object.entries(modelCounts).sort((a,b)=>b[1]-a[1]).forEach(([model, count]) => {
+        drawLine(model, String(count));
+        total += count;
+      });
+      y += 5;
+      drawLine("TOTAL", String(total), true);
+      doc.setTextColor(100, 100, 100);
+      doc.setFontSize(9);
+      doc.text("Gerado automaticamente pelo HashStock Farm Management", 105, 290, {align: 'center'});
+      doc.save("Relatorio_" + empName.replace(/\s+/g, '_') + "_" + startDate + ".pdf");
+    } catch (err) {
+      alert("Erro ao gerar PDF: " + err.message);
+    }
+  };
+return <div>
     <div style={{fontWeight:800,fontSize:15,color:C.blue}}>⚡ {item.sn||"SEM SN"}</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{item.model}</div>
     <HP s={item.status}/>
@@ -7906,10 +7949,11 @@ async function computeSheetDiffs(data,webhookUrl){
   const em=data.machines.filter(m=>validSN(m.sn)&&!sheetMSN.has(validSN(m.sn))).length;
   const eh=data.hashes.filter(h=>validSN(h.sn)&&!sheetHSN.has(validSN(h.sn))).length;
   let dm=0;
-  data.machines.forEach(appM=>{
+    data.machines.forEach(appM=>{
     const appSN=validSN(appM.sn);
-    if(!appSN)return; // sem SN (ou texto tipo "SEM SN") não compara — "por linha" desativado até ficar 100% confiável
-    const sheetM=sheetMachines.find(m=>validSN(m.sn)===appSN);
+    let sheetM=null;
+    if(appSN) { sheetM = sheetMachines.find(m=>validSN(m.sn)===appSN && m.model===appM.model); if(!sheetM) sheetM = sheetMachines.find(m=>validSN(m.sn)===appSN); }
+    if(!sheetM && appM.sheetRow) { sheetM = sheetMachines.find(m=>m.sheetRow===appM.sheetRow); if(sheetM && validSN(sheetM.sn) && validSN(sheetM.sn)!==appSN) sheetM = null; }
     if(!sheetM)return;
     if(M_FIELDS.some(([f])=>normCompare(appM[f])!==normCompare(sheetM[f])))dm++;
   });
@@ -7964,15 +8008,13 @@ function SheetCompareReview({ctx,onClose}){
         const dm=[];
         const rowUpdates=[];
         const matchedSheetRows=new Set();
-        data.machines.forEach(appM=>{
+                data.machines.forEach(appM=>{
           const appSN=validSN(appM.sn);
-          if(!appSN)return; // sem SN (ou "SEM SN" literal) não compara
-          const sheetM=sheetMachines.find(m=>validSN(m.sn)===appSN && !matchedSheetRows.has(m.sheetRow));
+          let sheetM=null;
+          if(appSN) { sheetM = sheetMachines.find(m=>validSN(m.sn)===appSN && m.model===appM.model && !matchedSheetRows.has(m.sheetRow)); if(!sheetM) sheetM = sheetMachines.find(m=>validSN(m.sn)===appSN && !matchedSheetRows.has(m.sheetRow)); }
+          if(!sheetM && appM.sheetRow) { sheetM = sheetMachines.find(m=>m.sheetRow===appM.sheetRow && !matchedSheetRows.has(m.sheetRow)); if(sheetM && validSN(sheetM.sn) && validSN(sheetM.sn)!==appSN) sheetM = null; }
           if(!sheetM)return;
           matchedSheetRows.add(sheetM.sheetRow);
-          // Aproveita que já achou a máquina certa e guarda a linha dela —
-          // assim, da próxima vez, já aparece na tela de editar mesmo sem
-          // ter precisado corrigir nada.
           if(sheetM.sheetRow&&appM.sheetRow!==sheetM.sheetRow)rowUpdates.push({id:appM._id,sheetRow:sheetM.sheetRow});
           const diffs=M_FIELDS.filter(([f])=>norm(appM[f])!==norm(sheetM[f])).map(([f,label])=>({field:f,label,appVal:appM[f],sheetVal:sheetM[f]}));
           if(diffs.length)dm.push({sn:appM.sn,appItem:appM,sheetItem:sheetM,diffs});

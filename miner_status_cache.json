@@ -1,0 +1,32 @@
+{
+  "192.168.1.40": {
+    "ip": "192.168.1.40",
+    "status": "idle",
+    "model": "Antminer S21 XP (Vnish)",
+    "sn": "JYZZFMUBEJEJG00GW",
+    "uptime": "7:52",
+    "hashrate": 0,
+    "temp": 0,
+    "slots": [
+      "YNAHYS0BDJCAH1201",
+      "YNAHYS0BDJCAH1202",
+      "YNAHYS0BDJCAH1203"
+    ],
+    "lastUpdate": 1785007663027
+  },
+  "192.168.1.72": {
+    "ip": "192.168.1.72",
+    "status": "idle",
+    "model": "Antminer (Vnish)",
+    "sn": "",
+    "uptime": 0,
+    "hashrate": 0,
+    "temp": 0,
+    "slots": [
+      null,
+      null,
+      null
+    ],
+    "lastUpdate": 1785007656531
+  }
+}
