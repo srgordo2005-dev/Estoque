@@ -7426,73 +7426,119 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   const{data}=ctx;
   const[startDate,setStartDate]=useState("");
   const[endDate,setEndDate]=useState(TODAY());
-  const[empFilter,setEmpFilter]=useState(initEmp);
+  
+  // Multi-seleção de Funcionários: Array de IDs (vazio = todos)
+  const[selectedEmps,setSelectedEmps]=useState(initEmp ? [initEmp] : []);
+
+  // Filtros de Tipos de Ação (Conserto, Teste, Já Boa, Remoção, Alterações)
+  const[types,setTypes]=useState({
+    repairs: true,
+    tests: true,
+    alreadyGood: true,
+    removes: true,
+    logs: false
+  });
+
+  const toggleEmp = (id) => {
+    setSelectedEmps(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleType = (key) => {
+    setTypes(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   // Helper de filtro de funcionário
-  const matchEmp=(byId,byName)=>{
-    if(!empFilter)return true;
-    const emp=employees.find(e=>e._id===empFilter);
-    if(!emp)return true;
-    return byId===empFilter||byName===emp.name;
+  const matchEmp = (byId, byName) => {
+    if (selectedEmps.length === 0) return true;
+    if (selectedEmps.includes(byId)) return true;
+    if (byName) {
+      const matched = employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name);
+      if (matched.includes(byName)) return true;
+    }
+    return false;
   };
 
   // Helper de filtro de data
-  const inRange=(dateStr)=>{
-    if(!dateStr) return true;
-    const d=dateStr.slice(0,10);
-    if(startDate && d < startDate) return false;
-    if(endDate && d > endDate) return false;
+  const inRange = (dateStr) => {
+    if (!dateStr) return true;
+    const d = dateStr.slice(0, 10);
+    if (startDate && d < startDate) return false;
+    if (endDate && d > endDate) return false;
     return true;
   };
 
-  const filteredRepairs=data.repairs.filter(r=>inRange(r.date||r._at?.slice(0,10))&&matchEmp(r._by||r.employeeId,r._byName));
-  const filteredTests=data.tests.filter(t=>inRange(t.date||t._at?.slice(0,10))&&matchEmp(t.employeeId||t._by,t.employeeName||t._byName));
-  
-  const machineLogs=[];
-  data.machines.forEach(m=>(m.changeLog||[]).forEach(l=>{
-    if(inRange(l.at?.slice(0,10))&&matchEmp(null,l.by)) machineLogs.push({...l,sn:m.sn});
-  }));
-  const hashLogs=[];
-  data.hashes.forEach(h=>(h.changeLog||[]).forEach(l=>{
-    if(inRange(l.at?.slice(0,10))&&matchEmp(null,l.by)) hashLogs.push({...l,sn:h.sn});
-  }));
+  const filteredRepairs = data.repairs.filter(r => {
+    if (!inRange(r.date || r._at?.slice(0, 10))) return false;
+    if (!matchEmp(r._by || r.employeeId, r._byName)) return false;
+    const isAlreadyGood = r.type === "already_good";
+    const isRemove = r.type?.startsWith("remove");
+    const isStandardRepair = !isAlreadyGood && !isRemove;
+    if (isStandardRepair && !types.repairs) return false;
+    if (isAlreadyGood && !types.alreadyGood) return false;
+    if (isRemove && !types.removes) return false;
+    return true;
+  });
 
-  const items=[
-    ...filteredRepairs.map(r=>({
-      at:r._at,
-      who:r._byName||employees.find(e=>e._id===r.employeeId||e._id===r._by)?.name||"?",
-      type:r.type,
-      text:r.type==="remove_machine" ? `Removeu máquina ${r.hashSN||"SEM SN"} (${r.model||""})`
-           : r.type==="remove_hash" ? `Removeu HASH ${r.hashSN||"SEM SN"} (${r.model||""})`
-           : `Consertou HASH ${r.hashSN||"SEM SN"} (${r.model||""}) — ${r.type==="already_good"?"já estava boa":"conserto"}`
+  const filteredTests = types.tests ? data.tests.filter(t => {
+    if (!inRange(t.date || t._at?.slice(0, 10))) return false;
+    if (!matchEmp(t.employeeId || t._by, t.employeeName || t._byName)) return false;
+    return true;
+  }) : [];
+  
+  const machineLogs = [];
+  if (types.logs) {
+    data.machines.forEach(m => (m.changeLog || []).forEach(l => {
+      if (inRange(l.at?.slice(0, 10)) && matchEmp(null, l.by)) machineLogs.push({ ...l, sn: m.sn });
+    }));
+  }
+
+  const hashLogs = [];
+  if (types.logs) {
+    data.hashes.forEach(h => (h.changeLog || []).forEach(l => {
+      if (inRange(l.at?.slice(0, 10)) && matchEmp(null, l.by)) hashLogs.push({ ...l, sn: h.sn });
+    }));
+  }
+
+  const items = [
+    ...filteredRepairs.map(r => ({
+      at: r._at,
+      who: r._byName || employees.find(e => e._id === r.employeeId || e._id === r._by)?.name || "?",
+      type: r.type,
+      text: r.type === "remove_machine" ? `Removeu máquina ${r.hashSN || "SEM SN"} (${r.model || ""})`
+           : r.type === "remove_hash" ? `Removeu HASH ${r.hashSN || "SEM SN"} (${r.model || ""})`
+           : `Consertou HASH ${r.hashSN || "SEM SN"} (${r.model || ""}) — ${r.type === "already_good" ? "já estava boa" : "conserto"}`
     })),
-    ...filteredTests.map(t=>({
-      at:t._at,
-      who:t.employeeName||t._byName||employees.find(e=>e._id===t.employeeId||e._id===t._by)?.name||"?",
-      type:"test",
-      text:`Testou máquina ${t.machineSN||"SEM SN"} — ${t.overallResult==="good"?"BOA":"RUIM/pendente"}`
+    ...filteredTests.map(t => ({
+      at: t._at,
+      who: t.employeeName || t._byName || employees.find(e => e._id === t.employeeId || e._id === t._by)?.name || "?",
+      type: "test",
+      text: `Testou máquina ${t.machineSN || "SEM SN"} — ${t.overallResult === "good" ? "BOA" : "RUIM/pendente"}`
     })),
-    ...machineLogs.map(l=>({at:l.at,who:l.by,type:"log",text:`Alterou ${l.label} da máquina ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
-    ...hashLogs.map(l=>({at:l.at,who:l.by,type:"log",text:`Alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
-  ].sort((a,b)=>(a.at||"")<(b.at||"")?1:-1);
+    ...machineLogs.map(l => ({ at: l.at, who: l.by, type: "log", text: `Alterou ${l.label} da máquina ${l.sn || "SEM SN"}: "${l.from || "—"}" para "${l.to || "—"}"` })),
+    ...hashLogs.map(l => ({ at: l.at, who: l.by, type: "log", text: `Alterou ${l.label} da HASH ${l.sn || "SEM SN"}: "${l.from || "—"}" para "${l.to || "—"}"` })),
+  ].sort((a, b) => (a.at || "") < (b.at || "") ? 1 : -1);
 
   // Totais Globais
-  const totalRepairs=filteredRepairs.filter(r=>r.type!=="already_good"&&!r.type?.startsWith("remove")).length;
-  const totalAlreadyGood=filteredRepairs.filter(r=>r.type==="already_good").length;
-  const totalTests=filteredTests.length;
-  const totalRemoves=filteredRepairs.filter(r=>r.type?.startsWith("remove")).length;
+  const totalRepairs = filteredRepairs.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+  const totalAlreadyGood = filteredRepairs.filter(r => r.type === "already_good").length;
+  const totalTests = filteredTests.length;
+  const totalRemoves = filteredRepairs.filter(r => r.type?.startsWith("remove")).length;
+  const totalLogs = machineLogs.length + hashLogs.length;
 
   // Totais por Funcionário
-  const empStats=employees.filter(e=>e.code!=="019").map(e=>{
-    const empR=filteredRepairs.filter(r=>(r.employeeId===e._id||r._by===e._id||r._byName===e.name));
-    const empT=filteredTests.filter(t=>(t.employeeId===e._id||t._by===e._id||t.employeeName===e.name||t._byName===e.name));
-    const repairs=empR.filter(r=>r.type!=="already_good"&&!r.type?.startsWith("remove")).length;
-    const alreadyGood=empR.filter(r=>r.type==="already_good").length;
-    const removes=empR.filter(r=>r.type?.startsWith("remove")).length;
-    const tests=empT.length;
-    const grandTotal=repairs+alreadyGood+tests+removes;
-    return { emp:e, repairs, alreadyGood, removes, tests, grandTotal };
-  }).sort((a,b)=>b.grandTotal - a.grandTotal);
+  const activeEmployees = employees.filter(e => e.code !== "019" && (selectedEmps.length === 0 || selectedEmps.includes(e._id)));
+  const empStats = activeEmployees.map(e => {
+    const empR = filteredRepairs.filter(r => (r.employeeId === e._id || r._by === e._id || r._byName === e.name));
+    const empT = filteredTests.filter(t => (t.employeeId === e._id || t._by === e._id || t.employeeName === e.name || t._byName === e.name));
+    const repairs = empR.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+    const alreadyGood = empR.filter(r => r.type === "already_good").length;
+    const removes = empR.filter(r => r.type?.startsWith("remove")).length;
+    const tests = empT.length;
+    const grandTotal = repairs + alreadyGood + tests + removes;
+    return { emp: e, repairs, alreadyGood, removes, tests, grandTotal };
+  }).sort((a, b) => b.grandTotal - a.grandTotal);
 
   // Geração de PDF Profissional Decorado
   const downloadAdvancedPDF = async () => {
@@ -7500,67 +7546,63 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       const { jsPDF } = await import('jspdf');
       const doc = new jsPDF();
       const periodStr = !startDate && !endDate ? "Todo o Histórico" : `${startDate || 'Início'} até ${endDate || 'Hoje'}`;
-      const filterEmpName = empFilter ? employees.find(e=>e._id===empFilter)?.name : "Todos os Funcionários";
+      const filterEmpName = selectedEmps.length === 0 ? "Todos os Funcionários" : employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name).join(", ");
+      const selectedTypesStr = Object.entries(types).filter(([_, v]) => v).map(([k]) => k === "repairs" ? "Consertos" : k === "tests" ? "Testes" : k === "alreadyGood" ? "Já Boas" : k === "removes" ? "Remoções" : "Alterações").join(", ");
 
-      // Fundo Escuro Elegante
       doc.setFillColor(18, 20, 26);
       doc.rect(0, 0, 210, 297, 'F');
 
-      // Topo Decorado em Dourado
       doc.setFillColor(240, 185, 11);
       doc.rect(0, 0, 210, 8, 'F');
 
-      // Título HashStock
       doc.setTextColor(240, 185, 11);
-      doc.setFontSize(24);
+      doc.setFontSize(22);
       doc.setFont("helvetica", "bold");
-      doc.text("HASHSTOCK", 105, 22, {align: 'center'});
+      doc.text("HASHSTOCK", 105, 22, { align: 'center' });
 
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(14);
+      doc.setFontSize(13);
       doc.setFont("helvetica", "normal");
-      doc.text("RELATÓRIO AVANÇADO DE PRODUTIVIDADE DA EQUIPE", 105, 30, {align: 'center'});
+      doc.text("RELATÓRIO PERSONALIZADO DE PRODUTIVIDADE DA EQUIPE", 105, 30, { align: 'center' });
 
-      // Linha Divisória
       doc.setDrawColor(240, 185, 11);
       doc.setLineWidth(0.5);
       doc.line(20, 35, 190, 35);
 
-      // Metadados do Relatório
-      doc.setFontSize(10);
+      doc.setFontSize(9);
       doc.setTextColor(180, 180, 180);
-      doc.text(`Período Solicitado: ${periodStr}`, 20, 43);
-      doc.text(`Filtro de Técnico: ${filterEmpName}`, 20, 49);
-      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 190, 43, {align: 'right'});
+      doc.text(`Período: ${periodStr}`, 20, 42);
+      doc.text(`Técnicos: ${filterEmpName.substring(0, 70)}`, 20, 47);
+      doc.text(`Tipos de Ação: ${selectedTypesStr}`, 20, 52);
+      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 190, 42, { align: 'right' });
 
-      let y = 58;
+      let y = 60;
 
       // BOX: TOTAL GERAL DA EMPRESA
       doc.setFillColor(28, 32, 42);
       doc.roundedRect(20, y, 170, 24, 3, 3, 'F');
-      
+
       doc.setFontSize(10);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
-      doc.text("TOTAIS ACUMULADOS DA EQUIPE NO PERÍODO:", 26, y + 8);
+      doc.text("TOTAIS ACUMULADOS NO PERÍODO:", 26, y + 8);
 
-      doc.setFontSize(11);
+      doc.setFontSize(10);
       doc.setTextColor(255, 255, 255);
       doc.text(`🔧 ${totalRepairs} Consertos`, 26, y + 17);
-      doc.text(`🧪 ${totalTests} Testes`, 75, y + 17);
-      doc.text(`✅ ${totalAlreadyGood} Já OK`, 120, y + 17);
-      doc.text(`🗑️ ${totalRemoves} Remoções`, 160, y + 17);
+      doc.text(`🧪 ${totalTests} Testes`, 70, y + 17);
+      doc.text(`✅ ${totalAlreadyGood} Já OK`, 110, y + 17);
+      doc.text(`🗑️ ${totalRemoves} Remoções`, 150, y + 17);
 
       y += 34;
 
       // SEÇÃO: PRODUTIVIDADE POR FUNCIONÁRIO (TABELA)
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
-      doc.text("PRODUTIVIDADE INDIVIDUAL POR FUNCIONÁRIO", 20, y);
+      doc.text("PRODUTIVIDADE INDIVIDUAL DA SELEÇÃO", 20, y);
       y += 6;
 
-      // Cabeçalho da Tabela
       doc.setFillColor(38, 44, 58);
       doc.rect(20, y, 170, 8, 'F');
       doc.setFontSize(9);
@@ -7570,10 +7612,9 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.text("CONSERTOS", 105, y + 5.5);
       doc.text("TESTES", 135, y + 5.5);
       doc.text("REMOÇÕES", 160, y + 5.5);
-      doc.text("TOTAL", 185, y + 5.5, {align: 'right'});
+      doc.text("TOTAL", 185, y + 5.5, { align: 'right' });
       y += 8;
 
-      // Linhas da Tabela
       empStats.forEach((st, idx) => {
         if (y > 265) {
           doc.addPage();
@@ -7601,14 +7642,13 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         doc.text(String(st.removes), 160, y + 5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(240, 185, 11);
-        doc.text(String(st.grandTotal), 185, y + 5, {align: 'right'});
+        doc.text(String(st.grandTotal), 185, y + 5, { align: 'right' });
 
         y += 7;
       });
 
       y += 10;
 
-      // SEÇÃO: LOG DETALHADO DAS MOVIMENTAÇÕES
       if (y > 240) {
         doc.addPage();
         doc.setFillColor(18, 20, 26);
@@ -7616,15 +7656,14 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         y = 20;
       }
 
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
-      doc.text(`LOG DE MOVIMENTAÇÕES RECENTES (${items.length} ITENS)`, 20, y);
+      doc.text(`LOG DE MOVIMENTAÇÕES SELECIONADAS (${items.length} ITENS)`, 20, y);
       y += 6;
 
-      // Exibe até 50 itens mais recentes no PDF
-      const pdfItems = items.slice(0, 50);
-      pdfItems.forEach((it, idx) => {
+      const pdfItems = items.slice(0, 60);
+      pdfItems.forEach((it) => {
         if (y > 270) {
           doc.addPage();
           doc.setFillColor(18, 20, 26);
@@ -7642,12 +7681,11 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         doc.text(String(it.text).substring(0, 65), 55, y);
 
         doc.setTextColor(140, 140, 140);
-        doc.text(fmtTS(it.at) || "", 190, y, {align: 'right'});
+        doc.text(fmtTS(it.at) || "", 190, y, { align: 'right' });
 
         y += 5.5;
       });
 
-      // Rodapé em todas as páginas
       const pageCount = doc.internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
@@ -7655,78 +7693,104 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         doc.rect(0, 293, 210, 4, 'F');
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
-        doc.text("HashStock Farm Management System — Documento Oficial de Produtividade", 20, 290);
-        doc.text(`Página ${i} de ${pageCount}`, 190, 290, {align: 'right'});
+        doc.text("HashStock Farm Management System — Relatório Personalizado de Produção", 20, 290);
+        doc.text(`Página ${i} de ${pageCount}`, 190, 290, { align: 'right' });
       }
 
-      doc.save(`HashStock_Relatorio_Avancado_${periodStr.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`HashStock_Relatorio_Personalizado_${periodStr.replace(/\s+/g, '_')}.pdf`);
     } catch (err) {
       alert("Erro ao gerar PDF: " + err.message);
     }
   };
 
-  return<div>
-    {/* FILTROS AVANÇADOS */}
-    <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:16,border:`1px solid ${C.border}`}}>
-      <div style={{color:C.accent,fontSize:12,fontWeight:900,marginBottom:10,letterSpacing:1}}>PERÍODO DO RELATÓRIO AVANÇADO</div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-        <div style={{flex:1,minWidth:130}}><DateInp label="DATA INICIAL" value={startDate} onChange={e=>setStartDate(e.target.value)}/></div>
-        <div style={{flex:1,minWidth:130}}><DateInp label="DATA FINAL" value={endDate} onChange={e=>setEndDate(e.target.value)}/></div>
+  return <div>
+    {/* PAINEL DE FILTROS MULTI-SELEÇÃO */}
+    <div style={{ background: C.card, borderRadius: 14, padding: 14, marginBottom: 16, border: `1px solid ${C.border}` }}>
+      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 10, letterSpacing: 1 }}>📅 PERÍODO DO RELATÓRIO</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 130 }}><DateInp label="DATA INICIAL" value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
+        <div style={{ flex: 1, minWidth: 130 }}><DateInp label="DATA FINAL" value={endDate} onChange={e => setEndDate(e.target.value)} /></div>
       </div>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-        <button onClick={()=>{setStartDate(TODAY());setEndDate(TODAY())}} style={{background:startDate===TODAY()&&endDate===TODAY()?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📅 Hoje</button>
-        <button onClick={()=>{const d=new Date();d.setDate(d.getDate()-30);setStartDate(d.toISOString().slice(0,10));setEndDate(TODAY())}} style={{background:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🗓️ Últimos 30 Dias</button>
-        <button onClick={()=>{setStartDate("");setEndDate("")}} style={{background:!startDate&&!endDate?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📜 Todo o Histórico</button>
-      </div>
-
-      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>FILTRAR POR FUNCIONÁRIO</div>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
-        <button onClick={()=>setEmpFilter("")} style={{background:!empFilter?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todos ({employees.filter(e=>e.code!=="019").length})</button>
-        {employees.filter(e=>e.code!=="019").map(e=><button key={e._id} onClick={()=>setEmpFilter(empFilter===e._id?"":e._id)} style={{background:empFilter===e._id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{e.name}</button>)}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        <button onClick={() => { setStartDate(TODAY()); setEndDate(TODAY()) }} style={{ background: startDate === TODAY() && endDate === TODAY() ? C.accent : C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>📅 Hoje</button>
+        <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 30); setStartDate(d.toISOString().slice(0, 10)); setEndDate(TODAY()) }} style={{ background: C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>🗓️ Últimos 30 Dias</button>
+        <button onClick={() => { setStartDate(""); setEndDate("") }} style={{ background: !startDate && !endDate ? C.accent : C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>📜 Todo o Histórico</button>
       </div>
 
-      <Btn v="g" onClick={downloadAdvancedPDF} style={{width:"100%",padding:"12px 0",fontSize:13,fontWeight:900}}>📄 BAIXAR PDF PROFISSIONAL DECORADO</Btn>
+      {/* MULTI-SELEÇÃO DE FUNCIONÁRIOS */}
+      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>👷 SELECIONAR FUNCIONÁRIOS (MULTI-SELEÇÃO)</div>
+      <div style={{ color: C.subtle, fontSize: 10, marginBottom: 8 }}>Clique nos nomes para marcar/desmarcar vários técnicos ao mesmo tempo:</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        <button onClick={() => setSelectedEmps([])} style={{ background: selectedEmps.length === 0 ? C.accent : C.card2, color: "#fff", border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>
+          {selectedEmps.length === 0 ? "✓ Todos os Funcionários" : "Marcar Todos"}
+        </button>
+        {employees.filter(e => e.code !== "019").map(e => {
+          const isSel = selectedEmps.includes(e._id);
+          return <button key={e._id} onClick={() => toggleEmp(e._id)} style={{ background: isSel ? C.green : C.card2, color: "#fff", border: `1px solid ${isSel ? C.green : C.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <span>{isSel ? "✓" : "+"}</span> {e.name}
+          </button>;
+        })}
+      </div>
+
+      {/* FILTRO DE TIPOS DE HISTÓRICO */}
+      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>🔍 TIPO DE ATIVIDADE NO HISTÓRICO</div>
+      <div style={{ color: C.subtle, fontSize: 10, marginBottom: 8 }}>Escolha quais categorias de ação devem aparecer no relatório:</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        {[
+          ["repairs", "🔧 Consertos", C.green],
+          ["tests", "🧪 Testes", C.blue],
+          ["alreadyGood", "✅ Já Boas", C.accent],
+          ["removes", "🗑️ Remoções", C.red],
+          ["logs", "📝 Alterações de Cadastro", C.subtle]
+        ].map(([key, label, color]) => {
+          const isAct = types[key];
+          return <button key={key} onClick={() => toggleType(key)} style={{ background: isAct ? color + "22" : C.card2, color: isAct ? color : C.muted, border: `1px solid ${isAct ? color : C.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <span>{isAct ? "☑" : "☐"}</span> {label}
+          </button>;
+        })}
+      </div>
+
+      <Btn v="g" onClick={downloadAdvancedPDF} style={{ width: "100%", padding: "12px 0", fontSize: 13, fontWeight: 900 }}>📄 BAIXAR PDF PROFISSIONAL PERSONALIZADO</Btn>
     </div>
 
     {/* RESUMO GERAL DA EQUIPE */}
-    <div style={{fontWeight:900,fontSize:15,color:C.accent,marginBottom:8}}>📊 TOTAIS DA EQUIPE NO PERÍODO</div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:8,marginBottom:16}}>
-      <div style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:C.green}}>{totalRepairs}</div><div style={{fontSize:10,color:C.muted}}>Consertos</div></div>
-      <div style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:C.blue}}>{totalTests}</div><div style={{fontSize:10,color:C.muted}}>Testes</div></div>
-      <div style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:C.accent}}>{totalAlreadyGood}</div><div style={{fontSize:10,color:C.muted}}>Já Boas</div></div>
-      <div style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:C.red}}>{totalRemoves}</div><div style={{fontSize:10,color:C.muted}}>Remoções</div></div>
+    <div style={{ fontWeight: 900, fontSize: 15, color: C.accent, marginBottom: 8 }}>📊 TOTAIS SELECIONADOS NO PERÍODO</div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8, marginBottom: 16 }}>
+      {types.repairs && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.green }}>{totalRepairs}</div><div style={{ fontSize: 10, color: C.muted }}>Consertos</div></div>}
+      {types.tests && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.blue }}>{totalTests}</div><div style={{ fontSize: 10, color: C.muted }}>Testes</div></div>}
+      {types.alreadyGood && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.accent }}>{totalAlreadyGood}</div><div style={{ fontSize: 10, color: C.muted }}>Já Boas</div></div>}
+      {types.removes && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.red }}>{totalRemoves}</div><div style={{ fontSize: 10, color: C.muted }}>Remoções</div></div>}
+      {types.logs && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.subtle }}>{totalLogs}</div><div style={{ fontSize: 10, color: C.muted }}>Alterações</div></div>}
     </div>
 
     {/* TOTAIS POR FUNCIONÁRIO (CARDS INDIVIDUAIS) */}
-    {!empFilter&&<>
-      <div style={{fontWeight:900,fontSize:15,color:C.accent,marginBottom:8}}>👷 PRODUTIVIDADE POR FUNCIONÁRIO</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:10,marginBottom:16}}>
-        {empStats.map(st=><Card key={st.emp._id} style={{padding:12}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div>
-              <div style={{fontWeight:800,fontSize:14}}>{st.emp.name} <Tag color={C.accent} small>#{st.emp.code}</Tag></div>
-              <div style={{fontSize:10,color:C.muted}}>Total: {st.grandTotal} movimentações</div>
-            </div>
-            <div style={{fontSize:22,fontWeight:900,color:st.grandTotal>0?C.accent:C.border}}>{st.grandTotal}</div>
+    <div style={{ fontWeight: 900, fontSize: 15, color: C.accent, marginBottom: 8 }}>👷 PRODUTIVIDADE POR FUNCIONÁRIO SELECIONADO</div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 16 }}>
+      {empStats.map(st => <Card key={st.emp._id} style={{ padding: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>{st.emp.name} <Tag color={C.accent} small>#{st.emp.code}</Tag></div>
+            <div style={{ fontSize: 10, color: C.muted }}>Total: {st.grandTotal} movimentações</div>
           </div>
-          <div style={{display:"flex",gap:4,flexWrap:"wrap",fontSize:11}}>
-            <Tag color={C.green} small>🔧 {st.repairs} consertos</Tag>
-            <Tag color={C.blue} small>🧪 {st.tests} testes</Tag>
-            {st.alreadyGood>0&&<Tag color={C.accent} small>✅ {st.alreadyGood} já ok</Tag>}
-            {st.removes>0&&<Tag color={C.red} small>🗑️ {st.removes} remoções</Tag>}
-          </div>
-        </Card>)}
-      </div>
-    </>}
+          <div style={{ fontSize: 22, fontWeight: 900, color: st.grandTotal > 0 ? C.accent : C.border }}>{st.grandTotal}</div>
+        </div>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", fontSize: 11 }}>
+          {types.repairs && <Tag color={C.green} small>🔧 {st.repairs} consertos</Tag>}
+          {types.tests && <Tag color={C.blue} small>🧪 {st.tests} testes</Tag>}
+          {types.alreadyGood && st.alreadyGood > 0 && <Tag color={C.accent} small>✅ {st.alreadyGood} já ok</Tag>}
+          {types.removes && st.removes > 0 && <Tag color={C.red} small>🗑️ {st.removes} remoções</Tag>}
+        </div>
+      </Card>)}
+    </div>
 
     {/* LOG DETALHADO */}
-    <div style={{color:C.muted,fontSize:12,marginBottom:8,fontWeight:700}}>📋 MOVIMENTAÇÕES ({items.length})</div>
-    {items.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24,background:C.card2,borderRadius:10}}>Nenhuma movimentação registrada no período selecionado.</div>
-      :items.map((it,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
-        <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
-          <div style={{background:C.card2,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,color:C.accent,whiteSpace:"nowrap",flexShrink:0}}>{it.who}</div>
-          <div style={{fontSize:12,flex:1}}>{it.text}</div>
-          <div style={{fontSize:10,color:C.muted,whiteSpace:"nowrap"}}>{fmtTS(it.at)}</div>
+    <div style={{ color: C.muted, fontSize: 12, marginBottom: 8, fontWeight: 700 }}>📋 MOVIMENTAÇÕES SELECIONADAS ({items.length})</div>
+    {items.length === 0 ? <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 24, background: C.card2, borderRadius: 10 }}>Nenhuma movimentação encontrada com os filtros selecionados.</div>
+      : items.map((it, i) => <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+          <div style={{ background: C.card2, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700, color: C.accent, whiteSpace: "nowrap", flexShrink: 0 }}>{it.who}</div>
+          <div style={{ fontSize: 12, flex: 1 }}>{it.text}</div>
+          <div style={{ fontSize: 10, color: C.muted, whiteSpace: "nowrap" }}>{fmtTS(it.at)}</div>
         </div>
       </div>)}
   </div>;
