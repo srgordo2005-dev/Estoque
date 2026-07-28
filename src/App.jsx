@@ -7540,7 +7540,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     return { emp: e, repairs, alreadyGood, removes, tests, grandTotal };
   }).sort((a, b) => b.grandTotal - a.grandTotal);
 
-  // Geração de PDF Profissional Decorado (Layout Limpo sem Emojis Quebrados)
+  // Geração de PDF Profissional Decorado com Colunas 100% Dinâmicas
   const downloadAdvancedPDF = async () => {
     try {
       const { jsPDF } = await import('jspdf');
@@ -7558,6 +7558,22 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
       const filterEmpName = selectedEmps.length === 0 ? "Todos os Funcionários" : employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name).join(", ");
       const selectedTypesStr = Object.entries(types).filter(([_, v]) => v).map(([k]) => k === "repairs" ? "Consertos" : k === "tests" ? "Testes" : k === "alreadyGood" ? "Já Boas" : k === "removes" ? "Remoções" : "Alterações").join(", ");
+
+      // Monta as colunas dinâmicas ativas conforme filtro do usuário
+      const activeCols = [];
+      if (types.repairs) activeCols.push({ key: 'repairs', label: 'CONSERTOS', color: [76, 175, 80] });
+      if (types.alreadyGood) activeCols.push({ key: 'alreadyGood', label: 'JÁ OK', color: [240, 185, 11] });
+      if (types.tests) activeCols.push({ key: 'tests', label: 'TESTES', color: [33, 150, 243] });
+      if (types.removes) activeCols.push({ key: 'removes', label: 'REMOÇÕES', color: [244, 67, 54] });
+      if (types.logs) activeCols.push({ key: 'logs', label: 'ALTERAÇÕES', color: [180, 180, 180] });
+
+      // Cálculo de posições X dinâmicas das colunas da tabela
+      const startX = 92;
+      const endX = 160;
+      const colStep = activeCols.length > 1 ? (endX - startX) / (activeCols.length - 1) : 0;
+      activeCols.forEach((col, i) => {
+        col.posX = activeCols.length === 1 ? 120 : Math.round(startX + i * colStep);
+      });
 
       // Fundo Escuro Elegante
       doc.setFillColor(18, 20, 26);
@@ -7587,31 +7603,39 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.setTextColor(180, 180, 180);
       doc.text(`Período: ${periodStr}`, 20, 42);
       doc.text(`Técnicos: ${filterEmpName.substring(0, 70)}`, 20, 47);
-      doc.text(`Tipos de Ação: ${selectedTypesStr}`, 20, 52);
+      doc.text(`Tipos de Ação Selecionados: ${selectedTypesStr}`, 20, 52);
       doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 190, 42, { align: 'right' });
 
       let y = 60;
 
-      // BOX: TOTAL GERAL DA EMPRESA (Texto Limpo sem emojis para não quebrar fonte)
+      // BOX: TOTAL GERAL DA EMPRESA (Apenas métricas ativas)
       doc.setFillColor(28, 32, 42);
       doc.roundedRect(20, y, 170, 24, 3, 3, 'F');
 
       doc.setFontSize(10);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
-      doc.text("TOTAIS ACUMULADOS NO PERÍODO:", 26, y + 8);
+      doc.text("TOTAIS ACUMULADOS NO PERÍODO SELECIONADO:", 26, y + 8);
 
-      doc.setFontSize(10);
+      doc.setFontSize(9.5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(255, 255, 255);
-      doc.text(`Consertos: ${totalRepairs}`, 26, y + 17);
-      doc.text(`Testes: ${totalTests}`, 72, y + 17);
-      doc.text(`Já OK: ${totalAlreadyGood}`, 112, y + 17);
-      doc.text(`Remoções: ${totalRemoves}`, 150, y + 17);
+
+      let summaryX = 26;
+      const summaryStep = activeCols.length > 0 ? 160 / Math.max(1, activeCols.length) : 40;
+      activeCols.forEach(col => {
+        const val = col.key === 'repairs' ? totalRepairs
+          : col.key === 'alreadyGood' ? totalAlreadyGood
+          : col.key === 'tests' ? totalTests
+          : col.key === 'removes' ? totalRemoves
+          : totalLogs;
+        doc.text(`${col.label}: ${val}`, summaryX, y + 17);
+        summaryX += summaryStep;
+      });
 
       y += 34;
 
-      // SEÇÃO: TABELA DE PRODUTIVIDADE (Larguras Ajustadas sem Sobreposição)
+      // SEÇÃO: TABELA DE PRODUTIVIDADE (Colunas Dinâmicas)
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
@@ -7623,10 +7647,13 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.setFontSize(8.5);
       doc.setTextColor(240, 185, 11);
       doc.text("FUNCIONÁRIO", 24, y + 5.5);
-      doc.text("CÓD", 78, y + 5.5);
-      doc.text("CONSERTOS", 98, y + 5.5);
-      doc.text("TESTES", 128, y + 5.5);
-      doc.text("REMOÇÕES", 152, y + 5.5);
+      doc.text("CÓD", 73, y + 5.5);
+
+      // Renderiza apenas os cabeçalhos das colunas ativas
+      activeCols.forEach(col => {
+        doc.text(col.label, col.posX, y + 5.5);
+      });
+
       doc.text("TOTAL", 188, y + 5.5, { align: 'right' });
       y += 8;
 
@@ -7646,15 +7673,17 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         doc.setFontSize(8.5);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(255, 255, 255);
-        doc.text(st.emp.name.substring(0, 22), 24, y + 5);
+        doc.text(st.emp.name.substring(0, 20), 24, y + 5);
         doc.setTextColor(180, 180, 180);
-        doc.text(`#${st.emp.code}`, 78, y + 5);
-        doc.setTextColor(76, 175, 80);
-        doc.text(String(st.repairs), 98, y + 5);
-        doc.setTextColor(33, 150, 243);
-        doc.text(String(st.tests), 128, y + 5);
-        doc.setTextColor(244, 67, 54);
-        doc.text(String(st.removes), 152, y + 5);
+        doc.text(`#${st.emp.code}`, 73, y + 5);
+
+        // Renderiza apenas os valores das colunas ativas
+        activeCols.forEach(col => {
+          const val = st[col.key] || 0;
+          doc.setTextColor(col.color[0], col.color[1], col.color[2]);
+          doc.text(String(val), col.posX, y + 5);
+        });
+
         doc.setFont("helvetica", "bold");
         doc.setTextColor(240, 185, 11);
         doc.text(String(st.grandTotal), 188, y + 5, { align: 'right' });
