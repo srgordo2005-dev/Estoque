@@ -7424,61 +7424,310 @@ function TeamPage({ctx,canSeeEmp}){
 // TODO MUNDO junto naquele dia, com data/hora de cada movimentação.
 function DailyTeamReport({ctx,initEmp="",employees=[]}){
   const{data}=ctx;
-  const[date,setDate]=useState(TODAY());
+  const[startDate,setStartDate]=useState("");
+  const[endDate,setEndDate]=useState(TODAY());
   const[empFilter,setEmpFilter]=useState(initEmp);
-  // Filtra por funcionário se selecionado
+
+  // Helper de filtro de funcionário
   const matchEmp=(byId,byName)=>{
     if(!empFilter)return true;
     const emp=employees.find(e=>e._id===empFilter);
     if(!emp)return true;
     return byId===empFilter||byName===emp.name;
   };
-  const dayRepairs=data.repairs.filter(r=>r.date===date&&matchEmp(r._by||r.employeeId,r._byName));
-  const dayTests=data.tests.filter(t=>t.date===date&&matchEmp(t.employeeId||t._by,t.employeeName||t._byName));
-  const machineLogs=[];data.machines.forEach(m=>(m.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date&&matchEmp(null,l.by))machineLogs.push({...l,sn:m.sn})}));
-  const hashLogs=[];data.hashes.forEach(h=>(h.changeLog||[]).forEach(l=>{if((l.at||"").slice(0,10)===date&&matchEmp(null,l.by))hashLogs.push({...l,sn:h.sn})}));
+
+  // Helper de filtro de data
+  const inRange=(dateStr)=>{
+    if(!dateStr) return true;
+    const d=dateStr.slice(0,10);
+    if(startDate && d < startDate) return false;
+    if(endDate && d > endDate) return false;
+    return true;
+  };
+
+  const filteredRepairs=data.repairs.filter(r=>inRange(r.date||r._at?.slice(0,10))&&matchEmp(r._by||r.employeeId,r._byName));
+  const filteredTests=data.tests.filter(t=>inRange(t.date||t._at?.slice(0,10))&&matchEmp(t.employeeId||t._by,t.employeeName||t._byName));
+  
+  const machineLogs=[];
+  data.machines.forEach(m=>(m.changeLog||[]).forEach(l=>{
+    if(inRange(l.at?.slice(0,10))&&matchEmp(null,l.by)) machineLogs.push({...l,sn:m.sn});
+  }));
+  const hashLogs=[];
+  data.hashes.forEach(h=>(h.changeLog||[]).forEach(l=>{
+    if(inRange(l.at?.slice(0,10))&&matchEmp(null,l.by)) hashLogs.push({...l,sn:h.sn});
+  }));
+
   const items=[
-    ...dayRepairs.map(r=>({
+    ...filteredRepairs.map(r=>({
       at:r._at,
-      who:r._byName||"?",
-      text:r.type==="remove_machine" ? `Removeu máquina ${r.hashSN||"SEM SN"} (${r.model})`
-           : r.type==="remove_hash" ? `Removeu HASH ${r.hashSN||"SEM SN"} (${r.model})`
-           : `Consertou HASH ${r.hashSN||"SEM SN"} (${r.model}) — ${r.type==="already_good"?"ja estava boa":"conserto"}`
+      who:r._byName||employees.find(e=>e._id===r.employeeId||e._id===r._by)?.name||"?",
+      type:r.type,
+      text:r.type==="remove_machine" ? `Removeu máquina ${r.hashSN||"SEM SN"} (${r.model||""})`
+           : r.type==="remove_hash" ? `Removeu HASH ${r.hashSN||"SEM SN"} (${r.model||""})`
+           : `Consertou HASH ${r.hashSN||"SEM SN"} (${r.model||""}) — ${r.type==="already_good"?"já estava boa":"conserto"}`
     })),
-    ...dayTests.map(t=>({at:t._at,who:t.employeeName||t._byName||"?",text:`Testou maquina ${t.machineSN||"SEM SN"} — ${t.overallResult==="good"?"BOA":"RUIM/pendente"}`})),
-    ...machineLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da maquina ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
-    ...hashLogs.map(l=>({at:l.at,who:l.by,text:`Alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
+    ...filteredTests.map(t=>({
+      at:t._at,
+      who:t.employeeName||t._byName||employees.find(e=>e._id===t.employeeId||e._id===t._by)?.name||"?",
+      type:"test",
+      text:`Testou máquina ${t.machineSN||"SEM SN"} — ${t.overallResult==="good"?"BOA":"RUIM/pendente"}`
+    })),
+    ...machineLogs.map(l=>({at:l.at,who:l.by,type:"log",text:`Alterou ${l.label} da máquina ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
+    ...hashLogs.map(l=>({at:l.at,who:l.by,type:"log",text:`Alterou ${l.label} da HASH ${l.sn||"SEM SN"}: "${l.from||"—"}" para "${l.to||"—"}"`})),
   ].sort((a,b)=>(a.at||"")<(b.at||"")?1:-1);
-  const empName=empFilter?employees.find(e=>e._id===empFilter)?.name:"";
-    const nRepairs=dayRepairs.filter(r=>r.type!=="already_good"&&!r.type?.startsWith("remove")).length;
-    const nAlreadyGood=dayRepairs.filter(r=>r.type==="already_good").length;
-    const nTests=dayTests.length;
-    const nRemoves=dayRepairs.filter(r=>r.type?.startsWith("remove")).length;
-    return<div>
-      <div style={{display:"flex",gap:8,marginBottom:10}}>
-        <div style={{flex:1}}><DateInp label="DATA" value={date} onChange={e=>setDate(e.target.value)}/></div>
-      </div>
-      <div style={{marginBottom:10}}>
-        <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>FILTRAR POR FUNCIONARIO</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          <button onClick={()=>setEmpFilter("")} style={{background:!empFilter?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todos</button>
-          {employees.filter(e=>e.code!=="019").map(e=><button key={e._id} onClick={()=>setEmpFilter(empFilter===e._id?"":e._id)} style={{background:empFilter===e._id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{e.name}</button>)}
-        </div>
+
+  // Totais Globais
+  const totalRepairs=filteredRepairs.filter(r=>r.type!=="already_good"&&!r.type?.startsWith("remove")).length;
+  const totalAlreadyGood=filteredRepairs.filter(r=>r.type==="already_good").length;
+  const totalTests=filteredTests.length;
+  const totalRemoves=filteredRepairs.filter(r=>r.type?.startsWith("remove")).length;
+
+  // Totais por Funcionário
+  const empStats=employees.filter(e=>e.code!=="019").map(e=>{
+    const empR=filteredRepairs.filter(r=>(r.employeeId===e._id||r._by===e._id||r._byName===e.name));
+    const empT=filteredTests.filter(t=>(t.employeeId===e._id||t._by===e._id||t.employeeName===e.name||t._byName===e.name));
+    const repairs=empR.filter(r=>r.type!=="already_good"&&!r.type?.startsWith("remove")).length;
+    const alreadyGood=empR.filter(r=>r.type==="already_good").length;
+    const removes=empR.filter(r=>r.type?.startsWith("remove")).length;
+    const tests=empT.length;
+    const grandTotal=repairs+alreadyGood+tests+removes;
+    return { emp:e, repairs, alreadyGood, removes, tests, grandTotal };
+  }).sort((a,b)=>b.grandTotal - a.grandTotal);
+
+  // Geração de PDF Profissional Decorado
+  const downloadAdvancedPDF = async () => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF();
+      const periodStr = !startDate && !endDate ? "Todo o Histórico" : `${startDate || 'Início'} até ${endDate || 'Hoje'}`;
+      const filterEmpName = empFilter ? employees.find(e=>e._id===empFilter)?.name : "Todos os Funcionários";
+
+      // Fundo Escuro Elegante
+      doc.setFillColor(18, 20, 26);
+      doc.rect(0, 0, 210, 297, 'F');
+
+      // Topo Decorado em Dourado
+      doc.setFillColor(240, 185, 11);
+      doc.rect(0, 0, 210, 8, 'F');
+
+      // Título HashStock
+      doc.setTextColor(240, 185, 11);
+      doc.setFontSize(24);
+      doc.setFont("helvetica", "bold");
+      doc.text("HASHSTOCK", 105, 22, {align: 'center'});
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "normal");
+      doc.text("RELATÓRIO AVANÇADO DE PRODUTIVIDADE DA EQUIPE", 105, 30, {align: 'center'});
+
+      // Linha Divisória
+      doc.setDrawColor(240, 185, 11);
+      doc.setLineWidth(0.5);
+      doc.line(20, 35, 190, 35);
+
+      // Metadados do Relatório
+      doc.setFontSize(10);
+      doc.setTextColor(180, 180, 180);
+      doc.text(`Período Solicitado: ${periodStr}`, 20, 43);
+      doc.text(`Filtro de Técnico: ${filterEmpName}`, 20, 49);
+      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 190, 43, {align: 'right'});
+
+      let y = 58;
+
+      // BOX: TOTAL GERAL DA EMPRESA
+      doc.setFillColor(28, 32, 42);
+      doc.roundedRect(20, y, 170, 24, 3, 3, 'F');
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(240, 185, 11);
+      doc.text("TOTAIS ACUMULADOS DA EQUIPE NO PERÍODO:", 26, y + 8);
+
+      doc.setFontSize(11);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`🔧 ${totalRepairs} Consertos`, 26, y + 17);
+      doc.text(`🧪 ${totalTests} Testes`, 75, y + 17);
+      doc.text(`✅ ${totalAlreadyGood} Já OK`, 120, y + 17);
+      doc.text(`🗑️ ${totalRemoves} Remoções`, 160, y + 17);
+
+      y += 34;
+
+      // SEÇÃO: PRODUTIVIDADE POR FUNCIONÁRIO (TABELA)
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(240, 185, 11);
+      doc.text("PRODUTIVIDADE INDIVIDUAL POR FUNCIONÁRIO", 20, y);
+      y += 6;
+
+      // Cabeçalho da Tabela
+      doc.setFillColor(38, 44, 58);
+      doc.rect(20, y, 170, 8, 'F');
+      doc.setFontSize(9);
+      doc.setTextColor(240, 185, 11);
+      doc.text("FUNCIONÁRIO", 24, y + 5.5);
+      doc.text("CÓD", 85, y + 5.5);
+      doc.text("CONSERTOS", 105, y + 5.5);
+      doc.text("TESTES", 135, y + 5.5);
+      doc.text("REMOÇÕES", 160, y + 5.5);
+      doc.text("TOTAL", 185, y + 5.5, {align: 'right'});
+      y += 8;
+
+      // Linhas da Tabela
+      empStats.forEach((st, idx) => {
+        if (y > 265) {
+          doc.addPage();
+          doc.setFillColor(18, 20, 26);
+          doc.rect(0, 0, 210, 297, 'F');
+          y = 20;
+        }
+
+        if (idx % 2 === 0) {
+          doc.setFillColor(24, 28, 36);
+          doc.rect(20, y, 170, 7, 'F');
+        }
+
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(255, 255, 255);
+        doc.text(st.emp.name.substring(0, 25), 24, y + 5);
+        doc.setTextColor(180, 180, 180);
+        doc.text(`#${st.emp.code}`, 85, y + 5);
+        doc.setTextColor(76, 175, 80);
+        doc.text(String(st.repairs), 105, y + 5);
+        doc.setTextColor(33, 150, 243);
+        doc.text(String(st.tests), 135, y + 5);
+        doc.setTextColor(244, 67, 54);
+        doc.text(String(st.removes), 160, y + 5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(240, 185, 11);
+        doc.text(String(st.grandTotal), 185, y + 5, {align: 'right'});
+
+        y += 7;
+      });
+
+      y += 10;
+
+      // SEÇÃO: LOG DETALHADO DAS MOVIMENTAÇÕES
+      if (y > 240) {
+        doc.addPage();
+        doc.setFillColor(18, 20, 26);
+        doc.rect(0, 0, 210, 297, 'F');
+        y = 20;
+      }
+
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(240, 185, 11);
+      doc.text(`LOG DE MOVIMENTAÇÕES RECENTES (${items.length} ITENS)`, 20, y);
+      y += 6;
+
+      // Exibe até 50 itens mais recentes no PDF
+      const pdfItems = items.slice(0, 50);
+      pdfItems.forEach((it, idx) => {
+        if (y > 270) {
+          doc.addPage();
+          doc.setFillColor(18, 20, 26);
+          doc.rect(0, 0, 210, 297, 'F');
+          y = 20;
+        }
+
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(240, 185, 11);
+        doc.text(`[${it.who}]`, 20, y);
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(255, 255, 255);
+        doc.text(String(it.text).substring(0, 65), 55, y);
+
+        doc.setTextColor(140, 140, 140);
+        doc.text(fmtTS(it.at) || "", 190, y, {align: 'right'});
+
+        y += 5.5;
+      });
+
+      // Rodapé em todas as páginas
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFillColor(240, 185, 11);
+        doc.rect(0, 293, 210, 4, 'F');
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text("HashStock Farm Management System — Documento Oficial de Produtividade", 20, 290);
+        doc.text(`Página ${i} de ${pageCount}`, 190, 290, {align: 'right'});
+      }
+
+      doc.save(`HashStock_Relatorio_Avancado_${periodStr.replace(/\s+/g, '_')}.pdf`);
+    } catch (err) {
+      alert("Erro ao gerar PDF: " + err.message);
+    }
+  };
+
+  return<div>
+    {/* FILTROS AVANÇADOS */}
+    <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:16,border:`1px solid ${C.border}`}}>
+      <div style={{color:C.accent,fontSize:12,fontWeight:900,marginBottom:10,letterSpacing:1}}>PERÍODO DO RELATÓRIO AVANÇADO</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+        <div style={{flex:1,minWidth:130}}><DateInp label="DATA INICIAL" value={startDate} onChange={e=>setStartDate(e.target.value)}/></div>
+        <div style={{flex:1,minWidth:130}}><DateInp label="DATA FINAL" value={endDate} onChange={e=>setEndDate(e.target.value)}/></div>
       </div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-        <Tag color={C.green}>{nRepairs} consertos</Tag>
-        <Tag color={C.blue}>{nTests} testes</Tag>
-        {nAlreadyGood>0&&<Tag color={C.accent}>{nAlreadyGood} já boas</Tag>}
-        {nRemoves>0&&<Tag color={C.red}>{nRemoves} remoções</Tag>}
+        <button onClick={()=>{setStartDate(TODAY());setEndDate(TODAY())}} style={{background:startDate===TODAY()&&endDate===TODAY()?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📅 Hoje</button>
+        <button onClick={()=>{const d=new Date();d.setDate(d.getDate()-30);setStartDate(d.toISOString().slice(0,10));setEndDate(TODAY())}} style={{background:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🗓️ Últimos 30 Dias</button>
+        <button onClick={()=>{setStartDate("");setEndDate("")}} style={{background:!startDate&&!endDate?C.accent:C.card2,color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📜 Todo o Histórico</button>
       </div>
-      <div style={{color:C.muted,fontSize:12,marginBottom:12}}>{items.length} movimentações {empName?"de "+empName:"de todos os funcionários"} nesse dia</div>
-    {items.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24}}>Nada registrado nesta data{empName?" para "+empName:""}</div>
+
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>FILTRAR POR FUNCIONÁRIO</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+        <button onClick={()=>setEmpFilter("")} style={{background:!empFilter?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todos ({employees.filter(e=>e.code!=="019").length})</button>
+        {employees.filter(e=>e.code!=="019").map(e=><button key={e._id} onClick={()=>setEmpFilter(empFilter===e._id?"":e._id)} style={{background:empFilter===e._id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{e.name}</button>)}
+      </div>
+
+      <Btn v="g" onClick={downloadAdvancedPDF} style={{width:"100%",padding:"12px 0",fontSize:13,fontWeight:900}}>📄 BAIXAR PDF PROFISSIONAL DECORADO</Btn>
+    </div>
+
+    {/* RESUMO GERAL DA EQUIPE */}
+    <div style={{fontWeight:900,fontSize:15,color:C.accent,marginBottom:8}}>📊 TOTAIS DA EQUIPE NO PERÍODO</div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:8,marginBottom:16}}>
+      <div style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:C.green}}>{totalRepairs}</div><div style={{fontSize:10,color:C.muted}}>Consertos</div></div>
+      <div style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:C.blue}}>{totalTests}</div><div style={{fontSize:10,color:C.muted}}>Testes</div></div>
+      <div style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:C.accent}}>{totalAlreadyGood}</div><div style={{fontSize:10,color:C.muted}}>Já Boas</div></div>
+      <div style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:C.red}}>{totalRemoves}</div><div style={{fontSize:10,color:C.muted}}>Remoções</div></div>
+    </div>
+
+    {/* TOTAIS POR FUNCIONÁRIO (CARDS INDIVIDUAIS) */}
+    {!empFilter&&<>
+      <div style={{fontWeight:900,fontSize:15,color:C.accent,marginBottom:8}}>👷 PRODUTIVIDADE POR FUNCIONÁRIO</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))",gap:10,marginBottom:16}}>
+        {empStats.map(st=><Card key={st.emp._id} style={{padding:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:14}}>{st.emp.name} <Tag color={C.accent} small>#{st.emp.code}</Tag></div>
+              <div style={{fontSize:10,color:C.muted}}>Total: {st.grandTotal} movimentações</div>
+            </div>
+            <div style={{fontSize:22,fontWeight:900,color:st.grandTotal>0?C.accent:C.border}}>{st.grandTotal}</div>
+          </div>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",fontSize:11}}>
+            <Tag color={C.green} small>🔧 {st.repairs} consertos</Tag>
+            <Tag color={C.blue} small>🧪 {st.tests} testes</Tag>
+            {st.alreadyGood>0&&<Tag color={C.accent} small>✅ {st.alreadyGood} já ok</Tag>}
+            {st.removes>0&&<Tag color={C.red} small>🗑️ {st.removes} remoções</Tag>}
+          </div>
+        </Card>)}
+      </div>
+    </>}
+
+    {/* LOG DETALHADO */}
+    <div style={{color:C.muted,fontSize:12,marginBottom:8,fontWeight:700}}>📋 MOVIMENTAÇÕES ({items.length})</div>
+    {items.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24,background:C.card2,borderRadius:10}}>Nenhuma movimentação registrada no período selecionado.</div>
       :items.map((it,i)=><div key={i} style={{padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
         <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
           <div style={{background:C.card2,borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700,color:C.accent,whiteSpace:"nowrap",flexShrink:0}}>{it.who}</div>
-          <div style={{fontSize:12}}>{it.text}</div>
+          <div style={{fontSize:12,flex:1}}>{it.text}</div>
+          <div style={{fontSize:10,color:C.muted,whiteSpace:"nowrap"}}>{fmtTS(it.at)}</div>
         </div>
-        <div style={{fontSize:10,color:C.muted,marginTop:2,paddingLeft:4}}>{fmtTS(it.at)}</div>
       </div>)}
   </div>;
 }
