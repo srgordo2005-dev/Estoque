@@ -7425,7 +7425,7 @@ function TeamPage({ctx,canSeeEmp}){
 function DailyTeamReport({ctx,initEmp="",employees=[]}){
   const{data}=ctx;
   const[startDate,setStartDate]=useState("");
-  const[endDate,setEndDate]=useState(TODAY());
+  const[endDate,setEndDate]=useState("");
   
   // Multi-seleção de Funcionários: Array de IDs (vazio = todos)
   const[selectedEmps,setSelectedEmps]=useState(initEmp ? [initEmp] : []);
@@ -7449,13 +7449,27 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     setTypes(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Helper de filtro de funcionário
+  // Normalização de data para formato YYYY-MM-DD suportando DD/MM/YYYY e timestamps ISO
+  const normDate = (str) => {
+    if (!str) return "";
+    const s = String(str).trim();
+    if (s.includes("/")) {
+      const p = s.split("/");
+      if (p.length === 3) {
+        const y = p[2].length === 2 ? "20" + p[2] : p[2];
+        return `${y}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+      }
+    }
+    return s.slice(0, 10);
+  };
+
+  // Helper de filtro de funcionário (tolerante a IDs ou Nomes)
   const matchEmp = (byId, byName) => {
     if (selectedEmps.length === 0) return true;
-    if (selectedEmps.includes(byId)) return true;
+    if (byId && selectedEmps.includes(byId)) return true;
     if (byName) {
-      const matched = employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name);
-      if (matched.includes(byName)) return true;
+      const selectedNames = employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name.toLowerCase().trim());
+      if (selectedNames.includes(byName.toLowerCase().trim())) return true;
     }
     return false;
   };
@@ -7463,14 +7477,15 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   // Helper de filtro de data
   const inRange = (dateStr) => {
     if (!dateStr) return true;
-    const d = dateStr.slice(0, 10);
+    const d = normDate(dateStr);
+    if (!d) return true;
     if (startDate && d < startDate) return false;
     if (endDate && d > endDate) return false;
     return true;
   };
 
   const filteredRepairs = data.repairs.filter(r => {
-    if (!inRange(r.date || r._at?.slice(0, 10))) return false;
+    if (!inRange(r.date || r._at)) return false;
     if (!matchEmp(r._by || r.employeeId, r._byName)) return false;
     const isAlreadyGood = r.type === "already_good";
     const isRemove = r.type?.startsWith("remove");
@@ -7482,7 +7497,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   });
 
   const filteredTests = types.tests ? data.tests.filter(t => {
-    if (!inRange(t.date || t._at?.slice(0, 10))) return false;
+    if (!inRange(t.date || t._at)) return false;
     if (!matchEmp(t.employeeId || t._by, t.employeeName || t._byName)) return false;
     return true;
   }) : [];
@@ -7490,20 +7505,20 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   const machineLogs = [];
   if (types.logs) {
     data.machines.forEach(m => (m.changeLog || []).forEach(l => {
-      if (inRange(l.at?.slice(0, 10)) && matchEmp(null, l.by)) machineLogs.push({ ...l, sn: m.sn });
+      if (inRange(l.at) && matchEmp(null, l.by)) machineLogs.push({ ...l, sn: m.sn });
     }));
   }
 
   const hashLogs = [];
   if (types.logs) {
     data.hashes.forEach(h => (h.changeLog || []).forEach(l => {
-      if (inRange(l.at?.slice(0, 10)) && matchEmp(null, l.by)) hashLogs.push({ ...l, sn: h.sn });
+      if (inRange(l.at) && matchEmp(null, l.by)) hashLogs.push({ ...l, sn: h.sn });
     }));
   }
 
   const items = [
     ...filteredRepairs.map(r => ({
-      at: r._at,
+      at: r._at || r.date,
       who: r._byName || employees.find(e => e._id === r.employeeId || e._id === r._by)?.name || "?",
       type: r.type,
       text: r.type === "remove_machine" ? `Removeu máquina ${r.hashSN || "SEM SN"} (${r.model || ""})`
@@ -7511,7 +7526,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
            : `Consertou HASH ${r.hashSN || "SEM SN"} (${r.model || ""}) — ${r.type === "already_good" ? "já estava boa" : "conserto"}`
     })),
     ...filteredTests.map(t => ({
-      at: t._at,
+      at: t._at || t.date,
       who: t.employeeName || t._byName || employees.find(e => e._id === t.employeeId || e._id === t._by)?.name || "?",
       type: "test",
       text: `Testou máquina ${t.machineSN || "SEM SN"} — ${t.overallResult === "good" ? "BOA" : "RUIM/pendente"}`
@@ -7530,8 +7545,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   // Totais por Funcionário
   const activeEmployees = employees.filter(e => e.code !== "019" && (selectedEmps.length === 0 || selectedEmps.includes(e._id)));
   const empStats = activeEmployees.map(e => {
-    const empR = filteredRepairs.filter(r => (r.employeeId === e._id || r._by === e._id || r._byName === e.name));
-    const empT = filteredTests.filter(t => (t.employeeId === e._id || t._by === e._id || t.employeeName === e.name || t._byName === e.name));
+    const empR = filteredRepairs.filter(r => (r.employeeId === e._id || r._by === e._id || (r._byName && r._byName.toLowerCase().trim() === e.name.toLowerCase().trim())));
+    const empT = filteredTests.filter(t => (t.employeeId === e._id || t._by === e._id || (t.employeeName && t.employeeName.toLowerCase().trim() === e.name.toLowerCase().trim()) || (t._byName && t._byName.toLowerCase().trim() === e.name.toLowerCase().trim())));
     const repairs = empR.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
     const alreadyGood = empR.filter(r => r.type === "already_good").length;
     const removes = empR.filter(r => r.type?.startsWith("remove")).length;
@@ -7545,11 +7560,11 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     try {
       const { jsPDF } = await import('jspdf');
       const doc = new jsPDF();
-      const earliestDate = items.length > 0 ? (items[items.length - 1].at?.slice(0, 10) || "") : "";
+      const earliestDate = items.length > 0 ? (normDate(items[items.length - 1].at) || "") : "";
       
       let periodStr = "";
-      if (!startDate && (!endDate || endDate === TODAY())) {
-        periodStr = `Todo o Histórico (${earliestDate ? 'desde ' + earliestDate : 'início'} até ${endDate || TODAY()})`;
+      if (!startDate && !endDate) {
+        periodStr = `Todo o Histórico (${earliestDate ? 'desde ' + earliestDate : 'início'} até hoje)`;
       } else if (!startDate) {
         periodStr = `Desde ${earliestDate || 'início'} até ${endDate || 'Hoje'}`;
       } else {
