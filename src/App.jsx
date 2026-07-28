@@ -7540,21 +7540,34 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     return { emp: e, repairs, alreadyGood, removes, tests, grandTotal };
   }).sort((a, b) => b.grandTotal - a.grandTotal);
 
-  // Geração de PDF Profissional Decorado
+  // Geração de PDF Profissional Decorado (Layout Limpo sem Emojis Quebrados)
   const downloadAdvancedPDF = async () => {
     try {
       const { jsPDF } = await import('jspdf');
       const doc = new jsPDF();
-      const periodStr = !startDate && !endDate ? "Todo o Histórico" : `${startDate || 'Início'} até ${endDate || 'Hoje'}`;
+      const earliestDate = items.length > 0 ? (items[items.length - 1].at?.slice(0, 10) || "") : "";
+      
+      let periodStr = "";
+      if (!startDate && (!endDate || endDate === TODAY())) {
+        periodStr = `Todo o Histórico (${earliestDate ? 'desde ' + earliestDate : 'início'} até ${endDate || TODAY()})`;
+      } else if (!startDate) {
+        periodStr = `Desde ${earliestDate || 'início'} até ${endDate || 'Hoje'}`;
+      } else {
+        periodStr = `${startDate} até ${endDate || 'Hoje'}`;
+      }
+
       const filterEmpName = selectedEmps.length === 0 ? "Todos os Funcionários" : employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name).join(", ");
       const selectedTypesStr = Object.entries(types).filter(([_, v]) => v).map(([k]) => k === "repairs" ? "Consertos" : k === "tests" ? "Testes" : k === "alreadyGood" ? "Já Boas" : k === "removes" ? "Remoções" : "Alterações").join(", ");
 
+      // Fundo Escuro Elegante
       doc.setFillColor(18, 20, 26);
       doc.rect(0, 0, 210, 297, 'F');
 
+      // Faixa Superior Dourada
       doc.setFillColor(240, 185, 11);
       doc.rect(0, 0, 210, 8, 'F');
 
+      // Cabeçalho Principal
       doc.setTextColor(240, 185, 11);
       doc.setFontSize(22);
       doc.setFont("helvetica", "bold");
@@ -7569,6 +7582,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.setLineWidth(0.5);
       doc.line(20, 35, 190, 35);
 
+      // Metadados
       doc.setFontSize(9);
       doc.setTextColor(180, 180, 180);
       doc.text(`Período: ${periodStr}`, 20, 42);
@@ -7578,7 +7592,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
       let y = 60;
 
-      // BOX: TOTAL GERAL DA EMPRESA
+      // BOX: TOTAL GERAL DA EMPRESA (Texto Limpo sem emojis para não quebrar fonte)
       doc.setFillColor(28, 32, 42);
       doc.roundedRect(20, y, 170, 24, 3, 3, 'F');
 
@@ -7588,15 +7602,16 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.text("TOTAIS ACUMULADOS NO PERÍODO:", 26, y + 8);
 
       doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
       doc.setTextColor(255, 255, 255);
-      doc.text(`🔧 ${totalRepairs} Consertos`, 26, y + 17);
-      doc.text(`🧪 ${totalTests} Testes`, 70, y + 17);
-      doc.text(`✅ ${totalAlreadyGood} Já OK`, 110, y + 17);
-      doc.text(`🗑️ ${totalRemoves} Remoções`, 150, y + 17);
+      doc.text(`Consertos: ${totalRepairs}`, 26, y + 17);
+      doc.text(`Testes: ${totalTests}`, 72, y + 17);
+      doc.text(`Já OK: ${totalAlreadyGood}`, 112, y + 17);
+      doc.text(`Remoções: ${totalRemoves}`, 150, y + 17);
 
       y += 34;
 
-      // SEÇÃO: PRODUTIVIDADE POR FUNCIONÁRIO (TABELA)
+      // SEÇÃO: TABELA DE PRODUTIVIDADE (Larguras Ajustadas sem Sobreposição)
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
@@ -7605,14 +7620,14 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
       doc.setFillColor(38, 44, 58);
       doc.rect(20, y, 170, 8, 'F');
-      doc.setFontSize(9);
+      doc.setFontSize(8.5);
       doc.setTextColor(240, 185, 11);
       doc.text("FUNCIONÁRIO", 24, y + 5.5);
-      doc.text("CÓD", 85, y + 5.5);
-      doc.text("CONSERTOS", 105, y + 5.5);
-      doc.text("TESTES", 135, y + 5.5);
-      doc.text("REMOÇÕES", 160, y + 5.5);
-      doc.text("TOTAL", 185, y + 5.5, { align: 'right' });
+      doc.text("CÓD", 78, y + 5.5);
+      doc.text("CONSERTOS", 98, y + 5.5);
+      doc.text("TESTES", 128, y + 5.5);
+      doc.text("REMOÇÕES", 152, y + 5.5);
+      doc.text("TOTAL", 188, y + 5.5, { align: 'right' });
       y += 8;
 
       empStats.forEach((st, idx) => {
@@ -7628,21 +7643,21 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           doc.rect(20, y, 170, 7, 'F');
         }
 
-        doc.setFontSize(9);
+        doc.setFontSize(8.5);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(255, 255, 255);
-        doc.text(st.emp.name.substring(0, 25), 24, y + 5);
+        doc.text(st.emp.name.substring(0, 22), 24, y + 5);
         doc.setTextColor(180, 180, 180);
-        doc.text(`#${st.emp.code}`, 85, y + 5);
+        doc.text(`#${st.emp.code}`, 78, y + 5);
         doc.setTextColor(76, 175, 80);
-        doc.text(String(st.repairs), 105, y + 5);
+        doc.text(String(st.repairs), 98, y + 5);
         doc.setTextColor(33, 150, 243);
-        doc.text(String(st.tests), 135, y + 5);
+        doc.text(String(st.tests), 128, y + 5);
         doc.setTextColor(244, 67, 54);
-        doc.text(String(st.removes), 160, y + 5);
+        doc.text(String(st.removes), 152, y + 5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(240, 185, 11);
-        doc.text(String(st.grandTotal), 185, y + 5, { align: 'right' });
+        doc.text(String(st.grandTotal), 188, y + 5, { align: 'right' });
 
         y += 7;
       });
@@ -7697,7 +7712,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         doc.text(`Página ${i} de ${pageCount}`, 190, 290, { align: 'right' });
       }
 
-      doc.save(`HashStock_Relatorio_Personalizado_${periodStr.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`HashStock_Relatorio_Personalizado_${periodStr.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`);
     } catch (err) {
       alert("Erro ao gerar PDF: " + err.message);
     }
