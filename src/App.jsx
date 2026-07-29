@@ -2025,65 +2025,48 @@ function TestQueuePeek({data,setTab,showStartBtn}){
 function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab,setModal}=ctx;const today=TODAY();
 
-  // Totais de produção acumulados para o Dashboard Inicial
-  const totalRepairs = data.repairs.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
-  const totalAlreadyGood = data.repairs.filter(r => r.type === "already_good").length;
-  const totalTests = data.tests.length;
-  const grandTotalProduction = totalRepairs + totalAlreadyGood + totalTests;
+  // Totais de consertos de HASHs (Geral e Hoje)
+  const totalRepairsAllTime = data.repairs.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+  const totalRepairsToday = data.repairs.filter(r => (r.date === today || r._at?.slice(0,10) === today) && r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+
+  const navToTeam = (isToday) => {
+    // Guarda datas no localStorage para o DailyTeamReport ler automaticamente ao abrir
+    if (isToday) {
+      localStorage.setItem("hs_team_start_date", today);
+      localStorage.setItem("hs_team_end_date", today);
+    } else {
+      localStorage.setItem("hs_team_start_date", "");
+      localStorage.setItem("hs_team_end_date", "");
+    }
+    setTab("team");
+  };
 
   return<div>
     <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
     <div style={{color:C.muted,fontSize:12,marginBottom:14}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
 
-    {/* DASHBOARD DE PRODUTIVIDADE EM DESTAQUE NO INÍCIO (CLICÁVEL DA PARA ABA EQUIPE) */}
-    <Card 
-      onClick={() => setTab("team")}
-      style={{
-        background: 'linear-gradient(135deg, #1e2330 0%, #0d111a 100%)',
-        border: `2px solid ${C.accent}`,
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 16,
-        cursor: 'pointer',
-        boxShadow: '0 8px 24px rgba(240, 185, 11, 0.15)'
-      }}
-    >
-      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
-        <div>
-          <div style={{fontSize:11, fontWeight:900, color:C.accent, letterSpacing:1.2, textTransform:'uppercase'}}>
-            ⚡ PAINEL GERAL DE PRODUÇÃO DA EQUIPE
-          </div>
-          <div style={{fontSize:13, color:C.subtle, marginTop:2}}>
-            Clique para ver o relatório completo e gerar PDF na aba Equipe ➔
-          </div>
-        </div>
-        <div style={{background:C.accent+'22', color:C.accent, padding:'6px 14px', borderRadius:20, fontWeight:900, fontSize:12, border:`1px solid ${C.accent}`}}>
-          VER ABA EQUIPE ➔
-        </div>
-      </div>
+    {/* QUADROS IGUAIS AOS DO RESUMO ADMIN PARA HASHs CONSERTADAS */}
+    <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16}}>
+      <Card 
+        accent={C.green}
+        onClick={() => navToTeam(false)}
+        style={{margin:0, cursor:'pointer', border:`2px solid ${C.green}`, background:'linear-gradient(135deg, #142418 0%, #0d140e 100%)'}}
+      >
+        <div style={{fontSize:32, fontWeight:900, color:C.green}}>{totalRepairsAllTime}</div>
+        <div style={{fontWeight:900, fontSize:13, color:'#fff', marginTop:4}}>🔧 HASHs CONSERTADAS</div>
+        <div style={{fontSize:10, color:C.subtle, marginTop:4}}>📜 Todo o Histórico · Clique para ver ➔</div>
+      </Card>
 
-      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(90px, 1fr))', gap:10}}>
-        <div style={{background:'#141824', borderRadius:12, padding:12, textAlign:'center', border:`1px solid ${C.green}44`}}>
-          <div style={{fontSize:24, fontWeight:900, color:C.green}}>{totalRepairs}</div>
-          <div style={{fontSize:10, color:C.muted, fontWeight:700, marginTop:2}}>🔧 CONSERTADAS</div>
-        </div>
-
-        <div style={{background:'#141824', borderRadius:12, padding:12, textAlign:'center', border:`1px solid ${C.accent}44`}}>
-          <div style={{fontSize:24, fontWeight:900, color:C.accent}}>{totalAlreadyGood}</div>
-          <div style={{fontSize:10, color:C.muted, fontWeight:700, marginTop:2}}>✅ JÁ BOAS</div>
-        </div>
-
-        <div style={{background:'#141824', borderRadius:12, padding:12, textAlign:'center', border:`1px solid ${C.blue}44`}}>
-          <div style={{fontSize:24, fontWeight:900, color:C.blue}}>{totalTests}</div>
-          <div style={{fontSize:10, color:C.muted, fontWeight:700, marginTop:2}}>🧪 TESTADAS</div>
-        </div>
-
-        <div style={{background:'#141824', borderRadius:12, padding:12, textAlign:'center', border:`1px solid ${C.border}`}}>
-          <div style={{fontSize:24, fontWeight:900, color:'#fff'}}>{grandTotalProduction}</div>
-          <div style={{fontSize:10, color:C.muted, fontWeight:700, marginTop:2}}>🏆 TOTAL AÇÕES</div>
-        </div>
-      </div>
-    </Card>
+      <Card 
+        accent={C.accent}
+        onClick={() => navToTeam(true)}
+        style={{margin:0, cursor:'pointer', border:`2px solid ${C.accent}`, background:'linear-gradient(135deg, #2a220c 0%, #141006 100%)'}}
+      >
+        <div style={{fontSize:32, fontWeight:900, color:C.accent}}>{totalRepairsToday}</div>
+        <div style={{fontWeight:900, fontSize:13, color:'#fff', marginTop:4}}>⚡ CONSERTOS HOJE</div>
+        <div style={{fontSize:10, color:C.subtle, marginTop:4}}>📅 Produção de Hoje · Clique para ver ➔</div>
+      </Card>
+    </div>
 
     {canApprove&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
     {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
@@ -7482,17 +7465,28 @@ function TeamPage({ctx,canSeeEmp}){
 // TODO MUNDO junto naquele dia, com data/hora de cada movimentação.
 function DailyTeamReport({ctx,initEmp="",employees=[]}){
   const{data,setModal}=ctx;
-  const[startDate,setStartDate]=useState("");
-  const[endDate,setEndDate]=useState("");
+  
+  // Ler datas salvas ao clicar nos quadros do Dashboard
+  const savedStart = localStorage.getItem("hs_team_start_date");
+  const savedEnd = localStorage.getItem("hs_team_end_date");
+
+  const[startDate,setStartDate]=useState(savedStart !== null ? savedStart : "");
+  const[endDate,setEndDate]=useState(savedEnd !== null ? savedEnd : "");
   
   // Multi-seleção de Funcionários: Array de IDs (vazio = todos)
   const[selectedEmps,setSelectedEmps]=useState(initEmp ? [initEmp] : []);
 
-  // Apenas as 3 categorias essenciais ativas por padrão (Consertos, Já Boas, Testes)
+  // Limpa o localStorage após ler para não travar próximos acessos
+  useEffect(() => {
+    localStorage.removeItem("hs_team_start_date");
+    localStorage.removeItem("hs_team_end_date");
+  }, []);
+
+  // Apenas Consertos ativado por padrão conforme solicitado
   const[types,setTypes]=useState({
     repairs: true,
-    alreadyGood: true,
-    tests: true
+    alreadyGood: false,
+    tests: false
   });
 
   const toggleEmp = (id) => {
@@ -7505,7 +7499,6 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     setTypes(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Normalização de data para formato YYYY-MM-DD
   const normDate = (str) => {
     if (!str) return "";
     const s = String(str).trim();
@@ -7543,7 +7536,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     if (!matchEmp(r._by || r.employeeId, r._byName)) return false;
     const isAlreadyGood = r.type === "already_good";
     const isRemove = r.type?.startsWith("remove");
-    if (isRemove) return false; // Ignora remoções
+    if (isRemove) return false;
     if (!isAlreadyGood && !types.repairs) return false;
     if (isAlreadyGood && !types.alreadyGood) return false;
     return true;
@@ -7576,12 +7569,10 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     }))
   ].sort((a, b) => (a.at || "") < (b.at || "") ? 1 : -1);
 
-  // Totais Globais
   const totalRepairs = filteredRepairs.filter(r => r.type !== "already_good").length;
   const totalAlreadyGood = filteredRepairs.filter(r => r.type === "already_good").length;
   const totalTests = filteredTests.length;
 
-  // Totais por Funcionário
   const activeEmployees = employees.filter(e => e.code !== "019" && (selectedEmps.length === 0 || selectedEmps.includes(e._id)));
   const empStats = activeEmployees.map(e => {
     const empR = filteredRepairs.filter(r => (r.employeeId === e._id || r._by === e._id || (r._byName && r._byName.toLowerCase().trim() === e.name.toLowerCase().trim())));
@@ -7593,33 +7584,33 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     return { emp: e, repairs, alreadyGood, tests, grandTotal, repList: empR, testList: empT };
   }).sort((a, b) => b.grandTotal - a.grandTotal);
 
-  // Modal para ver todas as máquinas/placas que um técnico específico consertou
+  // Modal para ver todas as máquinas/placas com SN, Modelo e Data que o usuário consertou
   const openTechDetailsModal = (st) => {
     setModal(
       <Modal title={`👷 Produção Detalhada — ${st.emp.name} (#${st.emp.code})`} onClose={() => setModal(null)}>
         <div style={{padding: 4}}>
           <div style={{display: 'flex', gap: 8, marginBottom: 14}}>
-            <div style={{background: C.card2, borderRadius: 10, padding: 10, flex: 1, textAlign: 'center'}}>
-              <div style={{fontSize: 20, fontWeight: 900, color: C.green}}>{st.repairs}</div>
-              <div style={{fontSize: 10, color: C.muted}}>🔧 Consertos</div>
+            <div style={{background: C.card2, borderRadius: 10, padding: 12, flex: 1, textAlign: 'center', border:`1px solid ${C.green}44`}}>
+              <div style={{fontSize: 24, fontWeight: 900, color: C.green}}>{st.repairs}</div>
+              <div style={{fontSize: 10, color: C.muted, fontWeight: 700}}>🔧 CONSERTOS</div>
             </div>
-            <div style={{background: C.card2, borderRadius: 10, padding: 10, flex: 1, textAlign: 'center'}}>
-              <div style={{fontSize: 20, fontWeight: 900, color: C.accent}}>{st.alreadyGood}</div>
-              <div style={{fontSize: 10, color: C.muted}}>✅ Já Boas</div>
-            </div>
-            <div style={{background: C.card2, borderRadius: 10, padding: 10, flex: 1, textAlign: 'center'}}>
-              <div style={{fontSize: 20, fontWeight: 900, color: C.blue}}>{st.tests}</div>
-              <div style={{fontSize: 10, color: C.muted}}>🧪 Testes</div>
-            </div>
+            {st.alreadyGood > 0 && <div style={{background: C.card2, borderRadius: 10, padding: 12, flex: 1, textAlign: 'center', border:`1px solid ${C.accent}44`}}>
+              <div style={{fontSize: 24, fontWeight: 900, color: C.accent}}>{st.alreadyGood}</div>
+              <div style={{fontSize: 10, color: C.muted, fontWeight: 700}}>✅ JÁ BOAS</div>
+            </div>}
+            {st.tests > 0 && <div style={{background: C.card2, borderRadius: 10, padding: 12, flex: 1, textAlign: 'center', border:`1px solid ${C.blue}44`}}>
+              <div style={{fontSize: 24, fontWeight: 900, color: C.blue}}>{st.tests}</div>
+              <div style={{fontSize: 10, color: C.muted, fontWeight: 700}}>🧪 TESTES</div>
+            </div>}
           </div>
 
-          <div style={{fontWeight: 800, fontSize: 13, color: C.accent, marginBottom: 8}}>
-            📋 TODAS AS PLACAS & MÁQUINAS TRABALHADAS ({st.grandTotal})
+          <div style={{fontWeight: 900, fontSize: 14, color: C.accent, marginBottom: 10, letterSpacing: 0.5}}>
+            📋 RELAÇÃO COMPLETA DE PLACAS & MÁQUINAS TRABALHADAS ({st.grandTotal})
           </div>
 
-          <div style={{maxHeight: 380, overflowY: 'auto', paddingRight: 4}}>
+          <div style={{maxHeight: 400, overflowY: 'auto', paddingRight: 4}}>
             {st.grandTotal === 0 ? (
-              <div style={{textAlign: 'center', color: C.muted, padding: 24, background: C.card2, borderRadius: 8}}>
+              <div style={{textAlign: 'center', color: C.muted, padding: 24, background: C.card2, borderRadius: 10}}>
                 Nenhuma movimentação registrada para este técnico no período selecionado.
               </div>
             ) : (
@@ -7630,7 +7621,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
                   model: r.model,
                   tag: r.type === "already_good" ? "✅ JÁ OK" : "🔧 CONSERTO",
                   color: r.type === "already_good" ? C.accent : C.green,
-                  desc: `HASH ${r.hashSN || "SEM SN"} (${r.model || ""})`
+                  title: `HASH: ${r.hashSN || "SEM SN"}`,
+                  modelText: r.model ? `Modelo: ${r.model}` : "Modelo não especificado"
                 })),
                 ...st.testList.map(t => ({
                   at: t._at || t.date,
@@ -7638,17 +7630,21 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
                   model: t.model,
                   tag: "🧪 TESTE",
                   color: C.blue,
-                  desc: `Máquina ${t.machineSN || "SEM SN"} (${t.model || ""}) — ${t.overallResult === "good" ? "BOA" : "RUIM"}`
+                  title: `MÁQUINA: ${t.machineSN || "SEM SN"}`,
+                  modelText: `Modelo: ${t.model || "—"} · Resultado: ${t.overallResult === "good" ? "BOA" : "RUIM"}`
                 }))
               ].sort((a,b) => (a.at||"") < (b.at||"") ? 1 : -1).map((item, idx) => (
-                <div key={idx} style={{background: C.card2, borderRadius: 10, padding: 10, marginBottom: 8, border: `1px solid ${C.border}`}}>
+                <div key={idx} style={{background: C.card2, borderRadius: 12, padding: 12, marginBottom: 8, border: `1px solid ${C.border}`}}>
                   <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                    <div style={{fontWeight: 800, fontSize: 13, color: '#fff'}}>
-                      {item.desc}
+                    <div style={{fontWeight: 900, fontSize: 14, color: '#fff'}}>
+                      {item.title}
                     </div>
                     <Tag color={item.color} small>{item.tag}</Tag>
                   </div>
-                  <div style={{fontSize: 10, color: C.muted, marginTop: 4}}>
+                  <div style={{fontSize: 12, color: C.accent, fontWeight: 700, marginTop: 4}}>
+                    {item.modelText}
+                  </div>
+                  <div style={{fontSize: 11, color: C.subtle, marginTop: 4}}>
                     📅 Data/Hora: {fmtTS(item.at)}
                   </div>
                 </div>
@@ -7660,7 +7656,6 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     );
   };
 
-  // PDF Exportação
   const downloadAdvancedPDF = async () => {
     try {
       const { jsPDF } = await import('jspdf');
@@ -7881,7 +7876,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         })}
       </div>
 
-      {/* FILTRO DE TIPOS DE HISTÓRICO - FOCO EXCLUSIVO NAS 3 CATEGORIAS PRINCIPAIS */}
+      {/* FILTRO DE TIPOS DE HISTÓRICO */}
       <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>🔍 CATEGORIAS DE ATIVIDADE</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
         {[
@@ -7907,32 +7902,40 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       {types.tests && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center", border: `1px solid ${C.blue}44` }}><div style={{ fontSize: 22, fontWeight: 900, color: C.blue }}>{totalTests}</div><div style={{ fontSize: 10, color: C.muted }}>Testes</div></div>}
     </div>
 
-    {/* TOTAIS POR FUNCIONÁRIO (CARDS CLICÁVEIS DE CADA USUÁRIO) */}
+    {/* CARDS DOS FUNCIONÁRIOS REENQUADRADOS COM NOMES GRANDES */}
     <div style={{ fontWeight: 900, fontSize: 15, color: C.accent, marginBottom: 8 }}>👷 PRODUTIVIDADE POR FUNCIONÁRIO (CLIQUE NO CARD PARA VER TUDO)</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10, marginBottom: 16 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 16 }}>
       {empStats.map(st => (
         <Card 
           key={st.emp._id} 
           onClick={() => openTechDetailsModal(st)}
-          style={{ padding: 14, cursor: 'pointer', border: `1px solid ${st.grandTotal > 0 ? C.accent : C.border}`, transition: 'all 0.2s ease' }}
+          style={{ padding: 16, cursor: 'pointer', border: `1px solid ${st.grandTotal > 0 ? C.accent : C.border}`, background: 'linear-gradient(135deg, #181d28 0%, #10131c 100%)' }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 38, height: 38, borderRadius: '50%', background: C.card2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: C.accent, fontSize: 16, border: `1px solid ${C.border}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: C.card2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: C.accent, fontSize: 20, border: `1px solid ${C.accent}` }}>
                 {st.emp.name[0]}
               </div>
               <div>
-                <div style={{ fontWeight: 800, fontSize: 14, color: '#fff' }}>{st.emp.name} <Tag color={C.accent} small>#{st.emp.code}</Tag></div>
-                <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, marginTop: 2 }}>🔍 Clique para ver lista de máquinas ➔</div>
+                {/* NOME DO USUÁRIO BEM GRANDE COMO SOLICITADO */}
+                <div style={{ fontWeight: 900, fontSize: 20, color: '#fff', letterSpacing: 0.5 }}>
+                  {st.emp.name} <Tag color={C.accent} small style={{fontSize:11}}>#{st.emp.code}</Tag>
+                </div>
+                <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginTop: 2 }}>
+                  🔍 Clique para ver lista de máquinas ➔
+                </div>
               </div>
             </div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: st.grandTotal > 0 ? C.accent : C.muted }}>{st.grandTotal}</div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 28, fontWeight: 900, color: st.grandTotal > 0 ? C.green : C.muted }}>{st.grandTotal}</div>
+              <div style={{ fontSize: 9, color: C.subtle, fontWeight: 700 }}>TOTAL AÇÕES</div>
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", fontSize: 11 }}>
             {types.repairs && <Tag color={C.green} small>🔧 {st.repairs} consertos</Tag>}
             {types.alreadyGood && st.alreadyGood > 0 && <Tag color={C.accent} small>✅ {st.alreadyGood} já ok</Tag>}
-            {types.tests && <Tag color={C.blue} small>🧪 {st.tests} testes</Tag>}
+            {types.tests && st.tests > 0 && <Tag color={C.blue} small>🧪 {st.tests} testes</Tag>}
           </div>
         </Card>
       ))}
