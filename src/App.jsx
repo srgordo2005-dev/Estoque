@@ -2023,10 +2023,68 @@ function TestQueuePeek({data,setTab,showStartBtn}){
 }
 
 function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
-  const{user,data,setTab}=ctx;const today=TODAY();
+  const{user,data,setTab,setModal}=ctx;const today=TODAY();
+
+  // Totais de produção acumulados para o Dashboard Inicial
+  const totalRepairs = data.repairs.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+  const totalAlreadyGood = data.repairs.filter(r => r.type === "already_good").length;
+  const totalTests = data.tests.length;
+  const grandTotalProduction = totalRepairs + totalAlreadyGood + totalTests;
+
   return<div>
     <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
-    <div style={{color:C.muted,fontSize:12,marginBottom:18}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
+    <div style={{color:C.muted,fontSize:12,marginBottom:14}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
+
+    {/* DASHBOARD DE PRODUTIVIDADE EM DESTAQUE NO INÍCIO (CLICÁVEL DA PARA ABA EQUIPE) */}
+    <Card 
+      onClick={() => setTab("team")}
+      style={{
+        background: 'linear-gradient(135deg, #1e2330 0%, #0d111a 100%)',
+        border: `2px solid ${C.accent}`,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 16,
+        cursor: 'pointer',
+        boxShadow: '0 8px 24px rgba(240, 185, 11, 0.15)'
+      }}
+    >
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
+        <div>
+          <div style={{fontSize:11, fontWeight:900, color:C.accent, letterSpacing:1.2, textTransform:'uppercase'}}>
+            ⚡ PAINEL GERAL DE PRODUÇÃO DA EQUIPE
+          </div>
+          <div style={{fontSize:13, color:C.subtle, marginTop:2}}>
+            Clique para ver o relatório completo e gerar PDF na aba Equipe ➔
+          </div>
+        </div>
+        <div style={{background:C.accent+'22', color:C.accent, padding:'6px 14px', borderRadius:20, fontWeight:900, fontSize:12, border:`1px solid ${C.accent}`}}>
+          VER ABA EQUIPE ➔
+        </div>
+      </div>
+
+      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(90px, 1fr))', gap:10}}>
+        <div style={{background:'#141824', borderRadius:12, padding:12, textAlign:'center', border:`1px solid ${C.green}44`}}>
+          <div style={{fontSize:24, fontWeight:900, color:C.green}}>{totalRepairs}</div>
+          <div style={{fontSize:10, color:C.muted, fontWeight:700, marginTop:2}}>🔧 CONSERTADAS</div>
+        </div>
+
+        <div style={{background:'#141824', borderRadius:12, padding:12, textAlign:'center', border:`1px solid ${C.accent}44`}}>
+          <div style={{fontSize:24, fontWeight:900, color:C.accent}}>{totalAlreadyGood}</div>
+          <div style={{fontSize:10, color:C.muted, fontWeight:700, marginTop:2}}>✅ JÁ BOAS</div>
+        </div>
+
+        <div style={{background:'#141824', borderRadius:12, padding:12, textAlign:'center', border:`1px solid ${C.blue}44`}}>
+          <div style={{fontSize:24, fontWeight:900, color:C.blue}}>{totalTests}</div>
+          <div style={{fontSize:10, color:C.muted, fontWeight:700, marginTop:2}}>🧪 TESTADAS</div>
+        </div>
+
+        <div style={{background:'#141824', borderRadius:12, padding:12, textAlign:'center', border:`1px solid ${C.border}`}}>
+          <div style={{fontSize:24, fontWeight:900, color:'#fff'}}>{grandTotalProduction}</div>
+          <div style={{fontSize:10, color:C.muted, fontWeight:700, marginTop:2}}>🏆 TOTAL AÇÕES</div>
+        </div>
+      </div>
+    </Card>
+
     {canApprove&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
     {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
     {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
@@ -7423,20 +7481,18 @@ function TeamPage({ctx,canSeeEmp}){
 // Item 8: relatório com filtro por data mostrando TUDO que foi feito por
 // TODO MUNDO junto naquele dia, com data/hora de cada movimentação.
 function DailyTeamReport({ctx,initEmp="",employees=[]}){
-  const{data}=ctx;
+  const{data,setModal}=ctx;
   const[startDate,setStartDate]=useState("");
   const[endDate,setEndDate]=useState("");
   
   // Multi-seleção de Funcionários: Array de IDs (vazio = todos)
   const[selectedEmps,setSelectedEmps]=useState(initEmp ? [initEmp] : []);
 
-  // Filtros de Tipos de Ação (Conserto, Teste, Já Boa, Remoção, Alterações)
+  // Apenas as 3 categorias essenciais ativas por padrão (Consertos, Já Boas, Testes)
   const[types,setTypes]=useState({
     repairs: true,
-    tests: true,
     alreadyGood: true,
-    removes: true,
-    logs: false
+    tests: true
   });
 
   const toggleEmp = (id) => {
@@ -7449,7 +7505,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     setTypes(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Normalização de data para formato YYYY-MM-DD suportando DD/MM/YYYY e timestamps ISO
+  // Normalização de data para formato YYYY-MM-DD
   const normDate = (str) => {
     if (!str) return "";
     const s = String(str).trim();
@@ -7463,7 +7519,6 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     return s.slice(0, 10);
   };
 
-  // Helper de filtro de funcionário (tolerante a IDs ou Nomes)
   const matchEmp = (byId, byName) => {
     if (selectedEmps.length === 0) return true;
     if (byId && selectedEmps.includes(byId)) return true;
@@ -7474,7 +7529,6 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     return false;
   };
 
-  // Helper de filtro de data
   const inRange = (dateStr) => {
     if (!dateStr) return true;
     const d = normDate(dateStr);
@@ -7489,10 +7543,9 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     if (!matchEmp(r._by || r.employeeId, r._byName)) return false;
     const isAlreadyGood = r.type === "already_good";
     const isRemove = r.type?.startsWith("remove");
-    const isStandardRepair = !isAlreadyGood && !isRemove;
-    if (isStandardRepair && !types.repairs) return false;
+    if (isRemove) return false; // Ignora remoções
+    if (!isAlreadyGood && !types.repairs) return false;
     if (isAlreadyGood && !types.alreadyGood) return false;
-    if (isRemove && !types.removes) return false;
     return true;
   });
 
@@ -7501,61 +7554,113 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     if (!matchEmp(t.employeeId || t._by, t.employeeName || t._byName)) return false;
     return true;
   }) : [];
-  
-  const machineLogs = [];
-  if (types.logs) {
-    data.machines.forEach(m => (m.changeLog || []).forEach(l => {
-      if (inRange(l.at) && matchEmp(null, l.by)) machineLogs.push({ ...l, sn: m.sn });
-    }));
-  }
-
-  const hashLogs = [];
-  if (types.logs) {
-    data.hashes.forEach(h => (h.changeLog || []).forEach(l => {
-      if (inRange(l.at) && matchEmp(null, l.by)) hashLogs.push({ ...l, sn: h.sn });
-    }));
-  }
 
   const items = [
     ...filteredRepairs.map(r => ({
       at: r._at || r.date,
       who: r._byName || employees.find(e => e._id === r.employeeId || e._id === r._by)?.name || "?",
+      empId: r.employeeId || r._by,
       type: r.type,
-      text: r.type === "remove_machine" ? `Removeu máquina ${r.hashSN || "SEM SN"} (${r.model || ""})`
-           : r.type === "remove_hash" ? `Removeu HASH ${r.hashSN || "SEM SN"} (${r.model || ""})`
-           : `Consertou HASH ${r.hashSN || "SEM SN"} (${r.model || ""}) — ${r.type === "already_good" ? "já estava boa" : "conserto"}`
+      sn: r.hashSN,
+      model: r.model,
+      text: `Consertou HASH ${r.hashSN || "SEM SN"} (${r.model || ""}) — ${r.type === "already_good" ? "já estava boa" : "conserto"}`
     })),
     ...filteredTests.map(t => ({
       at: t._at || t.date,
       who: t.employeeName || t._byName || employees.find(e => e._id === t.employeeId || e._id === t._by)?.name || "?",
+      empId: t.employeeId || t._by,
       type: "test",
-      text: `Testou máquina ${t.machineSN || "SEM SN"} — ${t.overallResult === "good" ? "BOA" : "RUIM/pendente"}`
-    })),
-    ...machineLogs.map(l => ({ at: l.at, who: l.by, type: "log", text: `Alterou ${l.label} da máquina ${l.sn || "SEM SN"}: "${l.from || "—"}" para "${l.to || "—"}"` })),
-    ...hashLogs.map(l => ({ at: l.at, who: l.by, type: "log", text: `Alterou ${l.label} da HASH ${l.sn || "SEM SN"}: "${l.from || "—"}" para "${l.to || "—"}"` })),
+      sn: t.machineSN,
+      model: t.model,
+      text: `Testou máquina ${t.machineSN || "SEM SN"} (${t.model || ""}) — ${t.overallResult === "good" ? "BOA" : "RUIM/pendente"}`
+    }))
   ].sort((a, b) => (a.at || "") < (b.at || "") ? 1 : -1);
 
   // Totais Globais
-  const totalRepairs = filteredRepairs.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+  const totalRepairs = filteredRepairs.filter(r => r.type !== "already_good").length;
   const totalAlreadyGood = filteredRepairs.filter(r => r.type === "already_good").length;
   const totalTests = filteredTests.length;
-  const totalRemoves = filteredRepairs.filter(r => r.type?.startsWith("remove")).length;
-  const totalLogs = machineLogs.length + hashLogs.length;
 
   // Totais por Funcionário
   const activeEmployees = employees.filter(e => e.code !== "019" && (selectedEmps.length === 0 || selectedEmps.includes(e._id)));
   const empStats = activeEmployees.map(e => {
     const empR = filteredRepairs.filter(r => (r.employeeId === e._id || r._by === e._id || (r._byName && r._byName.toLowerCase().trim() === e.name.toLowerCase().trim())));
     const empT = filteredTests.filter(t => (t.employeeId === e._id || t._by === e._id || (t.employeeName && t.employeeName.toLowerCase().trim() === e.name.toLowerCase().trim()) || (t._byName && t._byName.toLowerCase().trim() === e.name.toLowerCase().trim())));
-    const repairs = empR.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+    const repairs = empR.filter(r => r.type !== "already_good").length;
     const alreadyGood = empR.filter(r => r.type === "already_good").length;
-    const removes = empR.filter(r => r.type?.startsWith("remove")).length;
     const tests = empT.length;
-    const grandTotal = repairs + alreadyGood + tests + removes;
-    return { emp: e, repairs, alreadyGood, removes, tests, grandTotal };
+    const grandTotal = repairs + alreadyGood + tests;
+    return { emp: e, repairs, alreadyGood, tests, grandTotal, repList: empR, testList: empT };
   }).sort((a, b) => b.grandTotal - a.grandTotal);
 
-  // Geração de PDF Profissional Decorado com Colunas 100% Dinâmicas
+  // Modal para ver todas as máquinas/placas que um técnico específico consertou
+  const openTechDetailsModal = (st) => {
+    setModal(
+      <Modal title={`👷 Produção Detalhada — ${st.emp.name} (#${st.emp.code})`} onClose={() => setModal(null)}>
+        <div style={{padding: 4}}>
+          <div style={{display: 'flex', gap: 8, marginBottom: 14}}>
+            <div style={{background: C.card2, borderRadius: 10, padding: 10, flex: 1, textAlign: 'center'}}>
+              <div style={{fontSize: 20, fontWeight: 900, color: C.green}}>{st.repairs}</div>
+              <div style={{fontSize: 10, color: C.muted}}>🔧 Consertos</div>
+            </div>
+            <div style={{background: C.card2, borderRadius: 10, padding: 10, flex: 1, textAlign: 'center'}}>
+              <div style={{fontSize: 20, fontWeight: 900, color: C.accent}}>{st.alreadyGood}</div>
+              <div style={{fontSize: 10, color: C.muted}}>✅ Já Boas</div>
+            </div>
+            <div style={{background: C.card2, borderRadius: 10, padding: 10, flex: 1, textAlign: 'center'}}>
+              <div style={{fontSize: 20, fontWeight: 900, color: C.blue}}>{st.tests}</div>
+              <div style={{fontSize: 10, color: C.muted}}>🧪 Testes</div>
+            </div>
+          </div>
+
+          <div style={{fontWeight: 800, fontSize: 13, color: C.accent, marginBottom: 8}}>
+            📋 TODAS AS PLACAS & MÁQUINAS TRABALHADAS ({st.grandTotal})
+          </div>
+
+          <div style={{maxHeight: 380, overflowY: 'auto', paddingRight: 4}}>
+            {st.grandTotal === 0 ? (
+              <div style={{textAlign: 'center', color: C.muted, padding: 24, background: C.card2, borderRadius: 8}}>
+                Nenhuma movimentação registrada para este técnico no período selecionado.
+              </div>
+            ) : (
+              [
+                ...st.repList.map(r => ({
+                  at: r._at || r.date,
+                  sn: r.hashSN,
+                  model: r.model,
+                  tag: r.type === "already_good" ? "✅ JÁ OK" : "🔧 CONSERTO",
+                  color: r.type === "already_good" ? C.accent : C.green,
+                  desc: `HASH ${r.hashSN || "SEM SN"} (${r.model || ""})`
+                })),
+                ...st.testList.map(t => ({
+                  at: t._at || t.date,
+                  sn: t.machineSN,
+                  model: t.model,
+                  tag: "🧪 TESTE",
+                  color: C.blue,
+                  desc: `Máquina ${t.machineSN || "SEM SN"} (${t.model || ""}) — ${t.overallResult === "good" ? "BOA" : "RUIM"}`
+                }))
+              ].sort((a,b) => (a.at||"") < (b.at||"") ? 1 : -1).map((item, idx) => (
+                <div key={idx} style={{background: C.card2, borderRadius: 10, padding: 10, marginBottom: 8, border: `1px solid ${C.border}`}}>
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                    <div style={{fontWeight: 800, fontSize: 13, color: '#fff'}}>
+                      {item.desc}
+                    </div>
+                    <Tag color={item.color} small>{item.tag}</Tag>
+                  </div>
+                  <div style={{fontSize: 10, color: C.muted, marginTop: 4}}>
+                    📅 Data/Hora: {fmtTS(item.at)}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </Modal>
+    );
+  };
+
+  // PDF Exportação
   const downloadAdvancedPDF = async () => {
     try {
       const { jsPDF } = await import('jspdf');
@@ -7572,33 +7677,26 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       }
 
       const filterEmpName = selectedEmps.length === 0 ? "Todos os Funcionários" : employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name).join(", ");
-      const selectedTypesStr = Object.entries(types).filter(([_, v]) => v).map(([k]) => k === "repairs" ? "Consertos" : k === "tests" ? "Testes" : k === "alreadyGood" ? "Já Boas" : k === "removes" ? "Remoções" : "Alterações").join(", ");
+      const selectedTypesStr = Object.entries(types).filter(([_, v]) => v).map(([k]) => k === "repairs" ? "Consertos" : k === "tests" ? "Testes" : "Já Boas").join(", ");
 
-      // Monta as colunas dinâmicas ativas conforme filtro do usuário
       const activeCols = [];
       if (types.repairs) activeCols.push({ key: 'repairs', label: 'CONSERTOS', color: [76, 175, 80] });
       if (types.alreadyGood) activeCols.push({ key: 'alreadyGood', label: 'JÁ OK', color: [240, 185, 11] });
       if (types.tests) activeCols.push({ key: 'tests', label: 'TESTES', color: [33, 150, 243] });
-      if (types.removes) activeCols.push({ key: 'removes', label: 'REMOÇÕES', color: [244, 67, 54] });
-      if (types.logs) activeCols.push({ key: 'logs', label: 'ALTERAÇÕES', color: [180, 180, 180] });
 
-      // Cálculo de posições X dinâmicas das colunas da tabela
-      const startX = 92;
+      const startX = 95;
       const endX = 160;
       const colStep = activeCols.length > 1 ? (endX - startX) / (activeCols.length - 1) : 0;
       activeCols.forEach((col, i) => {
-        col.posX = activeCols.length === 1 ? 120 : Math.round(startX + i * colStep);
+        col.posX = activeCols.length === 1 ? 125 : Math.round(startX + i * colStep);
       });
 
-      // Fundo Escuro Elegante
       doc.setFillColor(18, 20, 26);
       doc.rect(0, 0, 210, 297, 'F');
 
-      // Faixa Superior Dourada
       doc.setFillColor(240, 185, 11);
       doc.rect(0, 0, 210, 8, 'F');
 
-      // Cabeçalho Principal
       doc.setTextColor(240, 185, 11);
       doc.setFontSize(22);
       doc.setFont("helvetica", "bold");
@@ -7613,44 +7711,39 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.setLineWidth(0.5);
       doc.line(20, 35, 190, 35);
 
-      // Metadados
       doc.setFontSize(9);
       doc.setTextColor(180, 180, 180);
       doc.text(`Período: ${periodStr}`, 20, 42);
       doc.text(`Técnicos: ${filterEmpName.substring(0, 70)}`, 20, 47);
-      doc.text(`Tipos de Ação Selecionados: ${selectedTypesStr}`, 20, 52);
+      doc.text(`Filtros: ${selectedTypesStr}`, 20, 52);
       doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 190, 42, { align: 'right' });
 
       let y = 60;
 
-      // BOX: TOTAL GERAL DA EMPRESA (Apenas métricas ativas)
       doc.setFillColor(28, 32, 42);
       doc.roundedRect(20, y, 170, 24, 3, 3, 'F');
 
       doc.setFontSize(10);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
-      doc.text("TOTAIS ACUMULADOS NO PERÍODO SELECIONADO:", 26, y + 8);
+      doc.text("TOTAIS ACUMULADOS NO PERÍODO:", 26, y + 8);
 
       doc.setFontSize(9.5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(255, 255, 255);
 
       let summaryX = 26;
-      const summaryStep = activeCols.length > 0 ? 160 / Math.max(1, activeCols.length) : 40;
+      const summaryStep = activeCols.length > 0 ? 160 / Math.max(1, activeCols.length) : 50;
       activeCols.forEach(col => {
         const val = col.key === 'repairs' ? totalRepairs
           : col.key === 'alreadyGood' ? totalAlreadyGood
-          : col.key === 'tests' ? totalTests
-          : col.key === 'removes' ? totalRemoves
-          : totalLogs;
+          : totalTests;
         doc.text(`${col.label}: ${val}`, summaryX, y + 17);
         summaryX += summaryStep;
       });
 
       y += 34;
 
-      // SEÇÃO: TABELA DE PRODUTIVIDADE (Colunas Dinâmicas)
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
@@ -7662,9 +7755,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.setFontSize(8.5);
       doc.setTextColor(240, 185, 11);
       doc.text("FUNCIONÁRIO", 24, y + 5.5);
-      doc.text("CÓD", 73, y + 5.5);
+      doc.text("CÓD", 75, y + 5.5);
 
-      // Renderiza apenas os cabeçalhos das colunas ativas
       activeCols.forEach(col => {
         doc.text(col.label, col.posX, y + 5.5);
       });
@@ -7690,9 +7782,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         doc.setTextColor(255, 255, 255);
         doc.text(st.emp.name.substring(0, 20), 24, y + 5);
         doc.setTextColor(180, 180, 180);
-        doc.text(`#${st.emp.code}`, 73, y + 5);
+        doc.text(`#${st.emp.code}`, 75, y + 5);
 
-        // Renderiza apenas os valores das colunas ativas
         activeCols.forEach(col => {
           const val = st[col.key] || 0;
           doc.setTextColor(col.color[0], col.color[1], col.color[2]);
@@ -7777,8 +7868,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       </div>
 
       {/* MULTI-SELEÇÃO DE FUNCIONÁRIOS */}
-      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>👷 SELECIONAR FUNCIONÁRIOS (MULTI-SELEÇÃO)</div>
-      <div style={{ color: C.subtle, fontSize: 10, marginBottom: 8 }}>Clique nos nomes para marcar/desmarcar vários técnicos ao mesmo tempo:</div>
+      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>👷 SELECIONAR FUNCIONÁRIOS</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
         <button onClick={() => setSelectedEmps([])} style={{ background: selectedEmps.length === 0 ? C.accent : C.card2, color: "#fff", border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>
           {selectedEmps.length === 0 ? "✓ Todos os Funcionários" : "Marcar Todos"}
@@ -7791,16 +7881,13 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         })}
       </div>
 
-      {/* FILTRO DE TIPOS DE HISTÓRICO */}
-      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>🔍 TIPO DE ATIVIDADE NO HISTÓRICO</div>
-      <div style={{ color: C.subtle, fontSize: 10, marginBottom: 8 }}>Escolha quais categorias de ação devem aparecer no relatório:</div>
+      {/* FILTRO DE TIPOS DE HISTÓRICO - FOCO EXCLUSIVO NAS 3 CATEGORIAS PRINCIPAIS */}
+      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>🔍 CATEGORIAS DE ATIVIDADE</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
         {[
           ["repairs", "🔧 Consertos", C.green],
-          ["tests", "🧪 Testes", C.blue],
           ["alreadyGood", "✅ Já Boas", C.accent],
-          ["removes", "🗑️ Remoções", C.red],
-          ["logs", "📝 Alterações de Cadastro", C.subtle]
+          ["tests", "🧪 Testes", C.blue]
         ].map(([key, label, color]) => {
           const isAct = types[key];
           return <button key={key} onClick={() => toggleType(key)} style={{ background: isAct ? color + "22" : C.card2, color: isAct ? color : C.muted, border: `1px solid ${isAct ? color : C.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
@@ -7809,41 +7896,50 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         })}
       </div>
 
-      <Btn v="g" onClick={downloadAdvancedPDF} style={{ width: "100%", padding: "12px 0", fontSize: 13, fontWeight: 900 }}>📄 BAIXAR PDF PROFISSIONAL PERSONALIZADO</Btn>
+      <Btn v="g" onClick={downloadAdvancedPDF} style={{ width: "100%", padding: "12px 0", fontSize: 13, fontWeight: 900 }}>📄 BAIXAR PDF PROFISSIONAL DE PRODUTIVIDADE</Btn>
     </div>
 
     {/* RESUMO GERAL DA EQUIPE */}
     <div style={{ fontWeight: 900, fontSize: 15, color: C.accent, marginBottom: 8 }}>📊 TOTAIS SELECIONADOS NO PERÍODO</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8, marginBottom: 16 }}>
-      {types.repairs && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.green }}>{totalRepairs}</div><div style={{ fontSize: 10, color: C.muted }}>Consertos</div></div>}
-      {types.tests && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.blue }}>{totalTests}</div><div style={{ fontSize: 10, color: C.muted }}>Testes</div></div>}
-      {types.alreadyGood && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.accent }}>{totalAlreadyGood}</div><div style={{ fontSize: 10, color: C.muted }}>Já Boas</div></div>}
-      {types.removes && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.red }}>{totalRemoves}</div><div style={{ fontSize: 10, color: C.muted }}>Remoções</div></div>}
-      {types.logs && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center" }}><div style={{ fontSize: 20, fontWeight: 900, color: C.subtle }}>{totalLogs}</div><div style={{ fontSize: 10, color: C.muted }}>Alterações</div></div>}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8, marginBottom: 16 }}>
+      {types.repairs && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center", border: `1px solid ${C.green}44` }}><div style={{ fontSize: 22, fontWeight: 900, color: C.green }}>{totalRepairs}</div><div style={{ fontSize: 10, color: C.muted }}>Consertos</div></div>}
+      {types.alreadyGood && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center", border: `1px solid ${C.accent}44` }}><div style={{ fontSize: 22, fontWeight: 900, color: C.accent }}>{totalAlreadyGood}</div><div style={{ fontSize: 10, color: C.muted }}>Já Boas</div></div>}
+      {types.tests && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center", border: `1px solid ${C.blue}44` }}><div style={{ fontSize: 22, fontWeight: 900, color: C.blue }}>{totalTests}</div><div style={{ fontSize: 10, color: C.muted }}>Testes</div></div>}
     </div>
 
-    {/* TOTAIS POR FUNCIONÁRIO (CARDS INDIVIDUAIS) */}
-    <div style={{ fontWeight: 900, fontSize: 15, color: C.accent, marginBottom: 8 }}>👷 PRODUTIVIDADE POR FUNCIONÁRIO SELECIONADO</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, marginBottom: 16 }}>
-      {empStats.map(st => <Card key={st.emp._id} style={{ padding: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 14 }}>{st.emp.name} <Tag color={C.accent} small>#{st.emp.code}</Tag></div>
-            <div style={{ fontSize: 10, color: C.muted }}>Total: {st.grandTotal} movimentações</div>
+    {/* TOTAIS POR FUNCIONÁRIO (CARDS CLICÁVEIS DE CADA USUÁRIO) */}
+    <div style={{ fontWeight: 900, fontSize: 15, color: C.accent, marginBottom: 8 }}>👷 PRODUTIVIDADE POR FUNCIONÁRIO (CLIQUE NO CARD PARA VER TUDO)</div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10, marginBottom: 16 }}>
+      {empStats.map(st => (
+        <Card 
+          key={st.emp._id} 
+          onClick={() => openTechDetailsModal(st)}
+          style={{ padding: 14, cursor: 'pointer', border: `1px solid ${st.grandTotal > 0 ? C.accent : C.border}`, transition: 'all 0.2s ease' }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 38, height: 38, borderRadius: '50%', background: C.card2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: C.accent, fontSize: 16, border: `1px solid ${C.border}` }}>
+                {st.emp.name[0]}
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 14, color: '#fff' }}>{st.emp.name} <Tag color={C.accent} small>#{st.emp.code}</Tag></div>
+                <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, marginTop: 2 }}>🔍 Clique para ver lista de máquinas ➔</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: st.grandTotal > 0 ? C.accent : C.muted }}>{st.grandTotal}</div>
           </div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: st.grandTotal > 0 ? C.accent : C.border }}>{st.grandTotal}</div>
-        </div>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", fontSize: 11 }}>
-          {types.repairs && <Tag color={C.green} small>🔧 {st.repairs} consertos</Tag>}
-          {types.tests && <Tag color={C.blue} small>🧪 {st.tests} testes</Tag>}
-          {types.alreadyGood && st.alreadyGood > 0 && <Tag color={C.accent} small>✅ {st.alreadyGood} já ok</Tag>}
-          {types.removes && st.removes > 0 && <Tag color={C.red} small>🗑️ {st.removes} remoções</Tag>}
-        </div>
-      </Card>)}
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", fontSize: 11 }}>
+            {types.repairs && <Tag color={C.green} small>🔧 {st.repairs} consertos</Tag>}
+            {types.alreadyGood && st.alreadyGood > 0 && <Tag color={C.accent} small>✅ {st.alreadyGood} já ok</Tag>}
+            {types.tests && <Tag color={C.blue} small>🧪 {st.tests} testes</Tag>}
+          </div>
+        </Card>
+      ))}
     </div>
 
     {/* LOG DETALHADO */}
-    <div style={{ color: C.muted, fontSize: 12, marginBottom: 8, fontWeight: 700 }}>📋 MOVIMENTAÇÕES SELECIONADAS ({items.length})</div>
+    <div style={{ color: C.muted, fontSize: 12, marginBottom: 8, fontWeight: 700 }}>📋 LOG COMPLETO DE PRODUÇÃO ({items.length})</div>
     {items.length === 0 ? <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 24, background: C.card2, borderRadius: 10 }}>Nenhuma movimentação encontrada com os filtros selecionados.</div>
       : items.map((it, i) => <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
