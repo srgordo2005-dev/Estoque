@@ -2173,7 +2173,7 @@ function AdminSummary({data, setTab}){
     else if (m.situacao === "ENTRADA OFICINA") ms[m.model].conserto++;
     else ms[m.model].ruim++;
   });
-  const irrep = data.hashes.filter(h => h.status === "IRREPARAVEL").length;
+  const totalRepairsAllTime = data.repairs.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
   const totalBoas = Object.values(ms).reduce((sum, s) => sum + s.boa, 0);
 
   const filterAndNav = (modelStr, sitStr, typeStr) => {
@@ -2205,12 +2205,17 @@ function AdminSummary({data, setTab}){
 
         <Card 
           accent={C.blue} 
-          onClick={() => setTab && setTab("hashes")}
+          onClick={() => {
+            localStorage.setItem("hs_team_subtab", "daily");
+            localStorage.setItem("hs_team_start_date", "");
+            localStorage.setItem("hs_team_end_date", "");
+            if (setTab) setTab("team");
+          }}
           style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #122033 0%, #0c1524 100%)'}}
         >
-          <div style={{fontSize: 26, fontWeight: 900, color: C.blue}}>{data.hashes.length}</div>
-          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>⚡ HASHs</div>
-          <div style={{fontSize: 10, color: C.subtle}}>{data.hashes.filter(h => h.status === "TESTAR").length} p/ testar ➔</div>
+          <div style={{fontSize: 26, fontWeight: 900, color: C.blue}}>{totalRepairsAllTime}</div>
+          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>📜 Total Consertadas</div>
+          <div style={{fontSize: 10, color: C.subtle}}>Todo o Histórico ➔</div>
         </Card>
 
         <Card 
