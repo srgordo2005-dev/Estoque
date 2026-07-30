@@ -1540,6 +1540,37 @@ export default function App(){
     const pl=data.pallets.find(p=>p._id===publicPalletId);
     return <PublicPalletView pallet={pl} data={data} onLogin={()=>setPublicPalletId(null)}/>;
   }
+
+  if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
+
+  const p=user.permissions||{};const isAdmin=p.admin;const isSuperAdmin=user.code==="019";
+  const canApprove=isAdmin||p.approvals;
+  const canSeeTeam=isAdmin||p.team;
+  const canSeeClients=isAdmin||p.clients;
+  const canSeeEmp=id=>isAdmin||(user.allowedEmployees||[]).includes(id);
+  const pendingApprs=data.approvals.filter(a=>a.status==="pending");
+  const myFdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===user._id);
+  const myRevisit=data.machines.filter(m=>m.situacao==="REVISAR"&&m.lastTesterId===user._id);
+
+  const TABS=[
+    {id:"home",icon:"🏠",label:"Início"},
+    ...(p.machines||isAdmin?[{id:"mac",icon:"🖥️",label:"Máquinas"}]:[]),
+    ...(p.hashes||isAdmin?[{id:"hsh",icon:"⚡",label:"HASHs"}]:[]),
+    ...(p.repairs?[{id:"conserto",icon:"🔧",label:"Conserto"}]:[]),
+    ...(p.testing?[{id:"teste",icon:"🧪",label:"Teste"}]:[]),
+    ...((p.repairs||p.testing||isAdmin)?[{id:"guia",icon:"📚",label:"Ajuda"}]:[]),
+    ...(p.orders||isAdmin?[{id:"pedidos",icon:"📝",label:"Pedidos"}]:[]),
+    ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
+    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(user?.code==="019"?[{id:"datacenter",icon:"🌐",label:"Fazenda"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
+  ];
+
+  return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:1240,margin:"0 auto",position:"relative",overflowX:"hidden"}}>
+    {/* Floating Animated Background Blobs for PC */}
+    <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
+      <style>{`
+        @keyframes float-blob-1 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(60px, -40px) scale(1.15); }
         }
         @keyframes float-blob-2 {
           0%, 100% { transform: translate(0, 0) scale(1.1); }
@@ -1646,7 +1677,7 @@ export default function App(){
         }
       `}</style>
 
-      {/* SIDEBAR PARA COMPUTADOR (PC) - PREMIUM */}
+      {/* SIDEBAR PARA COMPUTADOR (PC) */}
       <aside className="premium-sidebar">
         <div style={{padding: "24px 20px", borderBottom: `1px solid rgba(191,149,63,0.2)`, display: "flex", alignItems: "center", gap: 12}}>
           <div style={{width:40, height:40, borderRadius:'50%', background:'linear-gradient(135deg, #bf953f, #fcf6ba)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, boxShadow:'0 0 15px rgba(191,149,63,0.5)'}}>⛏️</div>
@@ -1658,7 +1689,6 @@ export default function App(){
           </div>
         </div>
 
-        {/* LISTA DE MENU LATERAL DA SIDEBAR */}
         <div style={{flex: 1, overflowY: "auto", padding: "20px 14px", display: "flex", flexDirection: "column"}}>
           {TABS.map(t => {
             const isActive = tab === t.id;
@@ -1676,7 +1706,6 @@ export default function App(){
           })}
         </div>
 
-        {/* STATUS BAR NO RODAPÉ DA SIDEBAR */}
         <div style={{padding: "20px", borderTop: `1px solid rgba(191,149,63,0.2)`, background: 'rgba(5,7,10,0.8)', display: "flex", flexDirection: "column", gap: 12}}>
           <div style={{display: "flex", justifyContent: "space-between", alignItems: "center", fontSize:11, color:'#8e9eab', fontWeight:600}}>
             <span>Rede (Supabase / Local)</span>
@@ -1686,7 +1715,7 @@ export default function App(){
             </div>
           </div>
           <div style={{display: "flex", gap: 8, marginTop: 4}}>
-            <button onClick={() => { setUser(null); setTab("home"); }} style={{flex: 1, background: 'rgba(248,113,113,0.1)', border: `1px solid rgba(248,113,113,0.3)`, color: '#f87171', borderRadius: 10, padding: "8px 0", fontSize: 12, fontWeight: 800, cursor: "pointer"}}>
+            <button onClick={() => { setUser(null); setTab("home"); }} style={{flex: 1, background: 'rgba(248,113,113,0.1)', border: `1px solid rgba(248,113,113,0.3)`, color: '#f87171', borderRadius: 10, padding: "8px 0", fontSize: 12, fontWeight: 800, cursor: "pointer", transition:'all 0.2s'}}>
               🚪 Sair
             </button>
           </div>
@@ -3060,8 +3089,6 @@ function DataCenterPage({ctx}) {
 
     const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
     const [viewType, setViewType] = useState("btc"); // "btc" | "rack" | "general_btc_tools" | "admin_vpn"
-    
-    // Multiple IP Ranges Logic
     const savedIps = user?.btcToolsIps ? user.btcToolsIps : ["192.168.1.1-255"];
     const [btcScanIpRanges, setBtcScanIpRanges] = useState(savedIps);
     const [ipModalOpen, setIpModalOpen] = useState(false);
@@ -3070,9 +3097,9 @@ function DataCenterPage({ctx}) {
         setBtcScanIpRanges(newRanges);
         if (user?._id) {
             await supabase.from("employees").update({ btcToolsIps: newRanges }).eq("id", user._id);
-            // Optionally update user in local context if necessary
         }
     };
+    
     const [btcScanResults, setBtcScanResults] = useState([]);
     const [vpnConfig, setVpnConfig] = useState(() => {
        return JSON.parse(localStorage.getItem("hs_vpn_config") || '{"server":"","user":"","pass":"","tgToken":"","tgChat":""}');
@@ -3850,62 +3877,21 @@ function DataCenterPage({ctx}) {
                   <div style={{fontSize:12, color:C.subtle, marginBottom:16}}>
                      Digite qualquer faixa de IP (ex: 192.168.1.1-255) e monitore suas mineradoras ao vivo sem precisar salvar posições no banco de dados.
                   </div>
-                  <div className="card-3d" style={{marginBottom: 24}}>
-                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                        <div>
-                            <h3 className="gold-text" style={{margin:0}}>📡 BTC Tools Scanner Global</h3>
-                            <div style={{fontSize:12, color:'#8e9eab', marginTop:4}}>{btcScanIpRanges.length} faixas configuradas prontas para escaneamento.</div>
-                        </div>
-                        <div style={{display:'flex', gap:10}}>
-                            <button onClick={() => setIpModalOpen(true)} style={{background:'rgba(191,149,63,0.1)', border:'1px solid #bf953f', color:'#fcf6ba', padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer'}}>
-                                ⚙️ Configurar IPs
-                            </button>
-                            <button onClick={async () => {
-                                setBtcScanResults([]);
-                                setIsScanning(true);
-                                let allResults = [];
-                                for (const range of btcScanIpRanges) {
-                                    try {
-                                        const res = await fetch(`http://localhost:3001/api/scan-range?range=${encodeURIComponent(range)}`);
-                                        if (res.ok) {
-                                            const data = await res.json();
-                                            allResults = [...allResults, ...(data.miners || [])];
-                                        }
-                                    } catch(e) {}
-                                }
-                                setBtcScanResults(allResults);
-                                setIsScanning(false);
-                            }} style={{background:'linear-gradient(90deg, #bf953f, #aa771c)', border:'none', color:'#000', padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer', boxShadow:'0 4px 15px rgba(191,149,63,0.4)'}}>
-                                {isScanning ? '⏳ Escaneando...' : '🔍 Escanear Todas as Faixas'}
-                            </button>
-                        </div>
-                     </div>
-                     
-                     {ipModalOpen && (
-                         <div style={{position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', backdropFilter:'blur(10px)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center'}}>
-                             <div className="card-3d" style={{width:'90%', maxWidth:500, padding: 30}}>
-                                 <h2 className="gold-text" style={{marginBottom:10}}>Gerenciar Faixas de IP</h2>
-                                 <p style={{fontSize:12, color:'#8e9eab', marginBottom:20}}>Adicione quantas faixas quiser para escanear simultaneamente. Uma por linha.</p>
-                                 <textarea 
-                                     id="ipRangesInput"
-                                     defaultValue={btcScanIpRanges.join('\\n')} 
-                                     rows={6}
-                                     style={{width:'100%', background:'rgba(0,0,0,0.5)', border:'1px solid rgba(191,149,63,0.3)', color:'#fff', padding:16, borderRadius:8, fontFamily:'monospace', marginBottom:20, outline:'none'}}
-                                     placeholder="Ex:\\n192.168.1.1-255\\n10.0.0.1-50"
-                                 />
-                                 <div style={{display:'flex', gap:10, justifyContent:'flex-end'}}>
-                                     <button onClick={()=>setIpModalOpen(false)} style={{background:'transparent', border:'1px solid #8e9eab', color:'#8e9eab', padding:'10px 20px', borderRadius:8, cursor:'pointer', fontWeight:800}}>Cancelar</button>
-                                     <button onClick={()=>{
-                                         const val = document.getElementById('ipRangesInput').value;
-                                         const ranges = val.split('\\n').map(r => r.trim()).filter(Boolean);
-                                         saveIpRanges(ranges);
-                                         setIpModalOpen(false);
-                                     }} style={{background:'linear-gradient(90deg, #bf953f, #aa771c)', border:'none', color:'#000', padding:'10px 20px', borderRadius:8, fontWeight:900, cursor:'pointer', boxShadow:'0 4px 15px rgba(191,149,63,0.4)'}}>💾 Salvar Faixas</button>
-                                 </div>
-                             </div>
-                         </div>
-                     )}
-                  </div>
+                  <div style={{display:'flex', gap:10, marginBottom:16, flexWrap:'wrap'}}>
+                     <input 
+                        type="text" 
+                        value={btcScanIpRange} 
+                        onChange={e => setBtcScanIpRange(e.target.value)} 
+                        placeholder="Faixa de IP ex: 192.168.1.1-255"
+                        style={{background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:'8px 14px', borderRadius:8, fontSize:13, flex:1, minWidth:240}}
+                     />
+                     <Btn onClick={async () => {
+                        setBtcScanResults([]);
+                        try {
+                           const res = await fetch(`http://localhost:3001/api/scan-range?range=${encodeURIComponent(btcScanIpRange)}`);
+                           if (res.ok) {
+                              const data = await res.json();
+                              setBtcScanResults(data.miners || []);
                            } else {
                               alert("Erro ao executar scanner no servidor local.");
                            }
