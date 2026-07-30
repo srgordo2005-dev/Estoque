@@ -2186,7 +2186,7 @@ function AdminSummary({data, setTab}){
     if (typeStr) localStorage.setItem("hs_mac_filter_type", typeStr);
     else localStorage.removeItem("hs_mac_filter_type");
 
-    if (setTab) setTab("machines");
+    if (setTab) setTab("mac");
   };
 
   return (
