@@ -28,21 +28,6 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const TelegramBot = require('node-telegram-bot-api').default || require('node-telegram-bot-api');
-// puppeteer-core is dynamically imported inside /api/screenshot handler to support ESM packaging
-
-const botToken = '8627853322:AAEwVrIwNz3vPejxiaUFGR0sb2I6bBRieyo';
-const bot = new TelegramBot(botToken, {polling: true});
-let telegramChatId = null;
-
-bot.onText(/const sys = info?.system || {};
-if (!info?.miner && !info?.model && !s?.miner_type && !s?.average_hashrate && !summary?.hashrate && !status?.miner) { return null; }/start/, (msg) => {
-  telegramChatId = msg.chat.id;
-  bot.sendMessage(telegramChatId, '🚨 Farm Monitor Bridge conectada! Você passará a receber alertas de superaquecimento e falhas aqui.');
-});
-
-
-const ws = require('ws');
-globalThis.WebSocket = ws;
 
 const { createClient } = require('@supabase/supabase-js');
 

@@ -1,4 +1,12 @@
-require('update-electron-app')({ repo: 'srgordo2005-dev/instaladorhashstock' });
+try {
+    const updateMod = require('update-electron-app');
+    const updateFn = typeof updateMod === 'function' ? updateMod : (updateMod && updateMod.updateElectronApp);
+    if (typeof updateFn === 'function') {
+        updateFn({ repo: 'srgordo2005-dev/instaladorhashstock' });
+    }
+} catch (e) {
+    console.log("Auto-updater skipped:", e.message);
+}
 const { app, BrowserWindow, Tray, Menu, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');

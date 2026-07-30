@@ -2073,17 +2073,170 @@ function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
     {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
     {user.permissions?.testing&&!isAdmin&&<TestQueuePeek data={data} setTab={setTab} showStartBtn/>}
     {isAdmin&&<TestQueuePeek data={data}/>}
-    {isAdmin&&<AdminSummary data={data}/>}
+    {isAdmin&&<AdminSummary data={data} setTab={setTab}/>}
     <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today,ctx.setModal)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
   </div>;
 }
-function AdminSummary({data}){
-  const today=TODAY();const ms={};
-  data.machines.forEach(m=>{if(!ms[m.model])ms[m.model]={model:m.model,boa:0,stock:0,ruim:0,shell:0,conserto:0};if(m.type==="shell")ms[m.model].shell++;else if(["BOA","LIGADA"].includes(m.situacao))ms[m.model].boa++;else if(m.situacao==="STOCK")ms[m.model].stock++;else if(m.situacao==="ENTRADA OFICINA")ms[m.model].conserto++;else ms[m.model].ruim++});
-  const irrep=data.hashes.filter(h=>h.status==="IRREPARAVEL").length;
-  const totalBoas=Object.values(ms).reduce((sum,s)=>sum+s.boa,0);
-  return<><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>{[{label:"Máquinas",v:data.machines.length,sub:`${data.machines.filter(m=>["BOA","STOCK"].includes(m.situacao)).length} ok`,c:C.accent},{label:"HASHs",v:data.hashes.length,sub:`${data.hashes.filter(h=>h.status==="TESTAR").length} p/ testar · ${irrep} irrep.`,c:C.blue},{label:"Consertos Hoje",v:data.repairs.filter(r=>r.date===today&&r.type!=="already_good").length,sub:"HASHs",c:C.green},{label:"Testes Hoje",v:data.tests.filter(t=>t.date===today).length,sub:"máquinas",c:C.purple}].map(s=><Card key={s.label} accent={s.c} style={{margin:0}}><div style={{fontSize:26,fontWeight:900,color:s.c}}>{s.v}</div><div style={{fontWeight:700,fontSize:12,marginTop:4}}>{s.label}</div><div style={{fontSize:10,color:C.muted}}>{s.sub}</div></Card>)}</div>
-  <Card><div style={{fontWeight:800,fontSize:14,marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📊 Por Modelo</span><Tag color={C.green}>{totalBoas} boas no total</Tag></div>{Object.values(ms).sort((a,b)=>(b.boa+b.ruim+b.stock)-(a.boa+a.ruim+a.stock)).map(s=><div key={s.model} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><div style={{fontWeight:700,fontSize:13}}>{s.model}</div><div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{s.boa>0&&<Tag color={C.green} small>{s.boa} boas</Tag>}{s.stock>0&&<Tag color={C.amber} small>{s.stock} stock</Tag>}{s.ruim>0&&<Tag color={C.red} small>{s.ruim} ruins</Tag>}{s.shell>0&&<Tag color="#475569" small>{s.shell} carc.</Tag>}{s.conserto>0&&<Tag color={C.amber} small>{s.conserto} cons.</Tag>}</div></div>)}</Card></>;
+function AdminSummary({data, setTab}){
+  const today = TODAY();
+  const ms = {};
+  data.machines.forEach(m => {
+    if (!ms[m.model]) ms[m.model] = {model: m.model, boa: 0, stock: 0, ruim: 0, shell: 0, conserto: 0};
+    if (m.type === "shell") ms[m.model].shell++;
+    else if (["BOA", "LIGADA"].includes(m.situacao)) ms[m.model].boa++;
+    else if (m.situacao === "STOCK") ms[m.model].stock++;
+    else if (m.situacao === "ENTRADA OFICINA") ms[m.model].conserto++;
+    else ms[m.model].ruim++;
+  });
+  const irrep = data.hashes.filter(h => h.status === "IRREPARAVEL").length;
+  const totalBoas = Object.values(ms).reduce((sum, s) => sum + s.boa, 0);
+
+  const filterAndNav = (modelStr, sitStr, typeStr) => {
+    if (modelStr) localStorage.setItem("hs_mac_filter_model", modelStr);
+    else localStorage.removeItem("hs_mac_filter_model");
+
+    if (sitStr) localStorage.setItem("hs_mac_filter_sit", sitStr);
+    else localStorage.removeItem("hs_mac_filter_sit");
+
+    if (typeStr) localStorage.setItem("hs_mac_filter_type", typeStr);
+    else localStorage.removeItem("hs_mac_filter_type");
+
+    if (setTab) setTab("machines");
+  };
+
+  return (
+    <>
+      {/* CARD GRIDS */}
+      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14}}>
+        <Card 
+          accent={C.accent} 
+          onClick={() => filterAndNav("", "", "")}
+          style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #1e2230 0%, #111420 100%)'}}
+        >
+          <div style={{fontSize: 26, fontWeight: 900, color: C.accent}}>{data.machines.length}</div>
+          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>🖥️ Máquinas</div>
+          <div style={{fontSize: 10, color: C.subtle}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} ok · Ver todas ➔</div>
+        </Card>
+
+        <Card 
+          accent={C.blue} 
+          onClick={() => setTab && setTab("hashes")}
+          style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #122033 0%, #0c1524 100%)'}}
+        >
+          <div style={{fontSize: 26, fontWeight: 900, color: C.blue}}>{data.hashes.length}</div>
+          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>⚡ HASHs</div>
+          <div style={{fontSize: 10, color: C.subtle}}>{data.hashes.filter(h => h.status === "TESTAR").length} p/ testar ➔</div>
+        </Card>
+
+        <Card 
+          accent={C.green} 
+          onClick={() => {
+            localStorage.setItem("hs_team_start_date", today);
+            localStorage.setItem("hs_team_end_date", today);
+            if (setTab) setTab("team");
+          }}
+          style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #12281b 0%, #0b1a11 100%)'}}
+        >
+          <div style={{fontSize: 26, fontWeight: 900, color: C.green}}>{data.repairs.filter(r => r.date === today && r.type !== "already_good").length}</div>
+          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>🔧 Consertos Hoje</div>
+          <div style={{fontSize: 10, color: C.subtle}}>Ver Equipe ➔</div>
+        </Card>
+
+        <Card 
+          accent={C.purple} 
+          onClick={() => {
+            localStorage.setItem("hs_team_start_date", today);
+            localStorage.setItem("hs_team_end_date", today);
+            if (setTab) setTab("team");
+          }}
+          style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #221533 0%, #150d21 100%)'}}
+        >
+          <div style={{fontSize: 26, fontWeight: 900, color: C.purple}}>{data.tests.filter(t => t.date === today).length}</div>
+          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>🧪 Testes Hoje</div>
+          <div style={{fontSize: 10, color: C.subtle}}>Ver Equipe ➔</div>
+        </Card>
+      </div>
+
+      {/* TABELA DE MODELOS COM FILTROS INTERATIVOS COMBINADOS */}
+      <Card style={{background: 'linear-gradient(135deg, #181d28 0%, #10131c 100%)', border: `1px solid ${C.border}`}}>
+        <div style={{fontWeight: 800, fontSize: 14, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+          <span style={{color: C.accent}}>📊 POR MODELO (INTERATIVO)</span>
+          <button 
+            onClick={() => filterAndNav("", "BOA", "")}
+            style={{background: C.green + '22', border: `1px solid ${C.green}`, color: C.green, borderRadius: 12, padding: '3px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4}}
+            title="Clique para ver todas as máquinas BOAS na aba Máquinas"
+          >
+            ✓ {totalBoas} boas no total ➔
+          </button>
+        </div>
+
+        <div style={{fontSize: 11, color: C.subtle, marginBottom: 10}}>
+          Clique no nome do modelo ou em qualquer tag de status para abrir a aba Máquinas filtrada!
+        </div>
+
+        {Object.values(ms).sort((a, b) => (b.boa + b.ruim + b.stock) - (a.boa + a.ruim + a.stock)).map(s => (
+          <div key={s.model} style={{display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap', gap: 6}}>
+            <div 
+              onClick={() => filterAndNav(s.model, "", "")}
+              style={{fontWeight: 800, fontSize: 13, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6}}
+              title={`Clique para ver todas as máquinas ${s.model}`}
+            >
+              <span>🖥️ {s.model}</span>
+              <span style={{fontSize: 10, color: C.accent, fontWeight: 700}}>➔</span>
+            </div>
+
+            <div style={{display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end"}}>
+              {s.boa > 0 && (
+                <button 
+                  onClick={() => filterAndNav(s.model, "BOA", "")} 
+                  style={{background: C.green + '22', border: `1px solid ${C.green}`, color: C.green, borderRadius: 12, padding: '2px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer'}}
+                  title={`Ver ${s.boa} ${s.model} BOA(s)`}
+                >
+                  ✓ {s.boa} boas
+                </button>
+              )}
+              {s.stock > 0 && (
+                <button 
+                  onClick={() => filterAndNav(s.model, "STOCK", "")} 
+                  style={{background: C.amber + '22', border: `1px solid ${C.amber}`, color: C.amber, borderRadius: 12, padding: '2px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer'}}
+                  title={`Ver ${s.stock} ${s.model} STOCK`}
+                >
+                  📦 {s.stock} stock
+                </button>
+              )}
+              {s.ruim > 0 && (
+                <button 
+                  onClick={() => filterAndNav(s.model, "ENTRADA OFICINA", "")} 
+                  style={{background: C.red + '22', border: `1px solid ${C.red}`, color: C.red, borderRadius: 12, padding: '2px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer'}}
+                  title={`Ver ${s.ruim} ${s.model} RUINS`}
+                >
+                  💀 {s.ruim} ruins
+                </button>
+              )}
+              {s.conserto > 0 && (
+                <button 
+                  onClick={() => filterAndNav(s.model, "ENTRADA OFICINA", "")} 
+                  style={{background: C.amber + '22', border: `1px solid ${C.amber}`, color: C.amber, borderRadius: 12, padding: '2px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer'}}
+                  title={`Ver ${s.conserto} ${s.model} em CONSERTO`}
+                >
+                  🔧 {s.conserto} cons.
+                </button>
+              )}
+              {s.shell > 0 && (
+                <button 
+                  onClick={() => filterAndNav(s.model, "", "shell")} 
+                  style={{background: '#47556922', border: '1px solid #475569', color: '#94a3b8', borderRadius: 12, padding: '2px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer'}}
+                  title={`Ver ${s.shell} ${s.model} CARCAÇA(s)`}
+                >
+                  🧱 {s.shell} carc.
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </Card>
+    </>
+  );
 }
 
 /* ═══ MACHINES ══════════════════════════════════════════════════ */
@@ -2115,8 +2268,29 @@ function LastMove({log}){
 }
 
 function MacPage({ctx}){
+  const initialModel = localStorage.getItem("hs_mac_filter_model") || "";
+  const initialSit = localStorage.getItem("hs_mac_filter_sit") || "";
+  const initialType = localStorage.getItem("hs_mac_filter_type") || "";
+
   const{data,setModal,mutate,user}=ctx;
-  const[search,setSearch]=useState(""),[activeFilters,setActiveFilters]=useState({}),[modelFilters,setModelFilters]=useState(new Set()),[selected,setSelected]=useState(new Set()),[selMode,setSelMode]=useState(false),[bulkAction,setBulkAction]=useState(null);
+  const[search,setSearch]=useState("");
+  const[activeFilters,setActiveFilters]=useState(() => {
+    const init = {};
+    if (initialSit) init[initialSit] = true;
+    if (initialType) init[initialType] = true;
+    return init;
+  });
+  const[modelFilters,setModelFilters]=useState(() => {
+    return initialModel ? new Set([initialModel]) : new Set();
+  });
+  const[selected,setSelected]=useState(new Set()),[selMode,setSelMode]=useState(false),[bulkAction,setBulkAction]=useState(null);
+
+  useEffect(() => {
+    localStorage.removeItem("hs_mac_filter_model");
+    localStorage.removeItem("hs_mac_filter_sit");
+    localStorage.removeItem("hs_mac_filter_type");
+  }, []);
+
   const toggleFilter=id=>setActiveFilters(f=>({...f,[id]:!f[id]}));
   const toggleModel=mo=>setModelFilters(s=>{const n=new Set(s);n.has(mo)?n.delete(mo):n.add(mo);return n});
   const allModelsUsed=[...new Set(data.machines.map(m=>m.model).filter(Boolean))].sort();
@@ -2794,7 +2968,12 @@ function DataCenterPage({ctx}) {
     };
 
     const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
-    const [viewType, setViewType] = useState("btc"); // Default "btc" ou "rack"
+    const [viewType, setViewType] = useState("btc"); // "btc" | "rack" | "general_btc_tools" | "admin_vpn"
+    const [btcScanIpRange, setBtcScanIpRange] = useState("192.168.1.1-255");
+    const [btcScanResults, setBtcScanResults] = useState([]);
+    const [vpnConfig, setVpnConfig] = useState(() => {
+       return JSON.parse(localStorage.getItem("hs_vpn_config") || '{"server":"","user":"","pass":"","tgToken":"","tgChat":""}');
+    });
     const [squareSize, setSquareSize] = useState("medium");
     const [hideEmpty, setHideEmpty] = useState(false);
     const [onlyOnline, setOnlyOnline] = useState(() => {
