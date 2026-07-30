@@ -2235,23 +2235,29 @@ function LastMove({log}){
 }
 
 function MacPage({ctx}){
-  const initialModel = localStorage.getItem("hs_mac_filter_model") || "";
-  const initialSit = localStorage.getItem("hs_mac_filter_sit") || "";
-  const initialType = localStorage.getItem("hs_mac_filter_type") || "";
-
   const{data,setModal,mutate,user}=ctx;
-  const[search,setSearch]=useState("");
-  const[activeFilters,setActiveFilters]=useState(() => {
+
+  // Ler e inicializar filtros do localStorage instantaneamente
+  const [activeFilters, setActiveFilters] = useState(() => {
+    const sit = localStorage.getItem("hs_mac_filter_sit");
+    const type = localStorage.getItem("hs_mac_filter_type");
     const init = {};
-    if (initialSit) init[initialSit] = true;
-    if (initialType) init[initialType] = true;
+    if (sit) init[sit] = true;
+    if (type) init[type] = true;
     return init;
   });
-  const[modelFilters,setModelFilters]=useState(() => {
-    return initialModel ? new Set([initialModel]) : new Set();
-  });
-  const[selected,setSelected]=useState(new Set()),[selMode,setSelMode]=useState(false),[bulkAction,setBulkAction]=useState(null);
 
+  const [modelFilters, setModelFilters] = useState(() => {
+    const model = localStorage.getItem("hs_mac_filter_model");
+    return model ? new Set([model]) : new Set();
+  });
+
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(new Set());
+  const [selMode, setSelMode] = useState(false);
+  const [bulkAction, setBulkAction] = useState(null);
+
+  // Limpa o localStorage de filtros após carregar
   useEffect(() => {
     localStorage.removeItem("hs_mac_filter_model");
     localStorage.removeItem("hs_mac_filter_sit");
