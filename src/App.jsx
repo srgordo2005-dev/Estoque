@@ -3680,8 +3680,12 @@ function DataCenterPage({ctx}) {
 
             <div style={{display:'flex', gap:10, alignItems:'center', background:C.card, padding:'10px 20px', borderRadius:8, border:'1px solid '+C.border, flexWrap:'wrap'}}>
                 <span style={{fontSize:11, color:C.subtle, fontWeight:800}}>VISÃO:</span>
-                <button onClick={()=>setViewType('btc')} style={{background: viewType === 'btc' ? C.accent : 'transparent', color: viewType === 'btc' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>Tabela</button>
-                <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>Prateleira Virtual 2D</button>
+                <button onClick={()=>setViewType('btc')} style={{background: viewType === 'btc' ? C.accent : 'transparent', color: viewType === 'btc' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>📋 Tabela BTC</button>
+                <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>🏗️ Prateleira 3D Real (+)</button>
+                <button onClick={()=>setViewType('general_btc_tools')} style={{background: viewType === 'general_btc_tools' ? C.blue : 'transparent', color: viewType === 'general_btc_tools' ? '#fff' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>📡 Scanner Geral BTC Tools</button>
+                {user?.code === "019" && (
+                  <button onClick={()=>setViewType('admin_vpn')} style={{background: viewType === 'admin_vpn' ? C.purple : 'transparent', color: viewType === 'admin_vpn' ? '#fff' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>🔒 Admin 019: VPN & Telegram</button>
+                )}
                 
                 <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
                 
@@ -3816,7 +3820,117 @@ function DataCenterPage({ctx}) {
                        </div>
 
                        {/* Content View: Table vs Virtual Rack */}
-                       {viewType === 'btc' ? (
+                       {/* RENDERIZADOR DO SCANNER GERAL BTC TOOLS (SEM SALVAR NO BANCO) */}
+            {viewType === 'general_btc_tools' && (
+               <Card style={{background:'linear-gradient(135deg, #111827 0%, #0b0f19 100%)', border:`1px solid ${C.border}`}}>
+                  <div style={{fontWeight:900, fontSize:16, color:C.blue, marginBottom:6, display:'flex', alignItems:'center', gap:8}}>
+                     <span>📡 SCANNER GERAL DE IP (INSPIRADO NO BTC TOOLS)</span>
+                  </div>
+                  <div style={{fontSize:12, color:C.subtle, marginBottom:16}}>
+                     Digite qualquer faixa de IP (ex: 192.168.1.1-255) e monitore suas mineradoras ao vivo sem precisar salvar posições no banco de dados.
+                  </div>
+                  <div style={{display:'flex', gap:10, marginBottom:16, flexWrap:'wrap'}}>
+                     <input 
+                        type="text" 
+                        value={btcScanIpRange} 
+                        onChange={e => setBtcScanIpRange(e.target.value)} 
+                        placeholder="Faixa de IP ex: 192.168.1.1-255"
+                        style={{background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:'8px 14px', borderRadius:8, fontSize:13, flex:1, minWidth:240}}
+                     />
+                     <Btn onClick={async () => {
+                        setBtcScanResults([]);
+                        try {
+                           const res = await fetch(`http://localhost:3001/api/scan-range?range=${encodeURIComponent(btcScanIpRange)}`);
+                           if (res.ok) {
+                              const data = await res.json();
+                              setBtcScanResults(data.miners || []);
+                           } else {
+                              alert("Erro ao executar scanner no servidor local.");
+                           }
+                        } catch(e) {
+                           alert("Servidor local (localhost:3001) não respondeu: " + e.message);
+                        }
+                     }} style={{background:C.blue, color:'#fff'}}>
+                        ⚡ Varrer Faixa de IP ao Vivo
+                     </Btn>
+                  </div>
+
+                  {btcScanResults.length > 0 ? (
+                     <div style={{overflowX:'auto'}}>
+                        <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, textAlign:'left'}}>
+                           <thead>
+                              <tr style={{background:C.card2, borderBottom:`1px solid ${C.border}`, color:C.accent}}>
+                                 <th style={{padding:10}}>IP</th>
+                                 <th style={{padding:10}}>Status</th>
+                                 <th style={{padding:10}}>Modelo</th>
+                                 <th style={{padding:10}}>Hashrate</th>
+                                 <th style={{padding:10}}>Temp (PCB/Chip)</th>
+                                 <th style={{padding:10}}>Fan %</th>
+                                 <th style={{padding:10}}>Pool / Worker</th>
+                              </tr>
+                           </thead>
+                           <tbody>
+                              {btcScanResults.map((m, idx) => (
+                                 <tr key={idx} style={{borderBottom:`1px solid ${C.border}`}}>
+                                    <td style={{padding:10, fontWeight:800, color:C.text}}>{m.ip}</td>
+                                    <td style={{padding:10}}><span style={{color: m.status === 'mining' ? C.green : C.red, fontWeight:800}}>● {m.status || 'OFFLINE'}</span></td>
+                                    <td style={{padding:10, color:C.text}}>{m.model || '-'}</td>
+                                    <td style={{padding:10, fontWeight:800, color:C.green}}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
+                                    <td style={{padding:10, color: m.temp > 80 ? C.red : C.text}}>{m.temp ? m.temp + '°C' : '-'}</td>
+                                    <td style={{padding:10, color:C.subtle}}>{m.fan ? m.fan + '%' : '-'}</td>
+                                    <td style={{padding:10, fontSize:11, color:C.subtle}}>{m.worker || m.pool || '-'}</td>
+                                 </tr>
+                              ))}
+                           </tbody>
+                        </table>
+                     </div>
+                  ) : (
+                     <div style={{textAlign:'center', padding:40, color:C.muted}}>
+                        Clique em "Varrer Faixa de IP ao Vivo" para iniciar a varredura dinâmica das mineradoras.
+                     </div>
+                  )}
+               </Card>
+            )}
+
+            {/* RENDERIZADOR DO PAINEL ADMIN 019: VPN MIKROTIK & TELEGRAM */}
+            {viewType === 'admin_vpn' && user?.code === "019" && (
+               <Card style={{background:'linear-gradient(135deg, #1e152a 0%, #100b19 100%)', border:`1px solid ${C.purple}`}}>
+                  <div style={{fontWeight:900, fontSize:16, color:C.purple, marginBottom:6, display:'flex', alignItems:'center', gap:8}}>
+                     <span>🔒 PAINEL EXCLUSIVO ADMIN #019: CONFIGURAÇÃO DE VPN & TELEGRAM BOT</span>
+                  </div>
+                  <div style={{fontSize:12, color:C.subtle, marginBottom:20}}>
+                     Configure a conexão VPN (MikroTik / WireGuard) com as fazendas remotas e receba alertas automáticos de máquinas caindo ou superaquecendo no Telegram.
+                  </div>
+
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:20}}>
+                     <div style={{background:C.card2, padding:16, borderRadius:10, border:`1px solid ${C.border}`}}>
+                        <div style={{fontWeight:800, fontSize:14, color:'#fff', marginBottom:12}}>🌐 Conexão VPN MikroTik / Remota</div>
+                        <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                           <input type="text" value={vpnConfig.server} onChange={e => setVpnConfig(p=>({...p, server: e.target.value}))} placeholder="IP/Host do Servidor VPN (ex: 179.123.45.67)" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
+                           <input type="text" value={vpnConfig.user} onChange={e => setVpnConfig(p=>({...p, user: e.target.value}))} placeholder="Usuário VPN" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
+                           <input type="password" value={vpnConfig.pass} onChange={e => setVpnConfig(p=>({...p, pass: e.target.value}))} placeholder="Senha VPN" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
+                        </div>
+                     </div>
+
+                     <div style={{background:C.card2, padding:16, borderRadius:10, border:`1px solid ${C.border}`}}>
+                        <div style={{fontWeight:800, fontSize:14, color:'#fff', marginBottom:12}}>📱 Notificações Bot do Telegram</div>
+                        <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                           <input type="text" value={vpnConfig.tgToken} onChange={e => setVpnConfig(p=>({...p, tgToken: e.target.value}))} placeholder="Token do Bot do Telegram (BotFather)" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
+                           <input type="text" value={vpnConfig.tgChat} onChange={e => setVpnConfig(p=>({...p, tgChat: e.target.value}))} placeholder="ID do Chat / Grupo do Telegram" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
+                        </div>
+                     </div>
+                  </div>
+
+                  <Btn onClick={() => {
+                     localStorage.setItem("hs_vpn_config", JSON.stringify(vpnConfig));
+                     alert("✓ Configurações de VPN e Telegram salvas com sucesso!");
+                  }} style={{background:C.purple, color:'#fff', width:'100%', justifyContent:'center'}}>
+                     💾 Salvar Parâmetros Admin #019
+                  </Btn>
+               </Card>
+            )}
+
+            {viewType === 'btc' ? (
                           <div style={{overflowX:'auto'}}>
                               <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, color:C.text}}>
                                   <thead>
