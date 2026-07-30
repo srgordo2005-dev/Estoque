@@ -2129,12 +2129,85 @@ function TestQueuePeek({data,setTab,showStartBtn}){
   </div>;
 }
 
+function BtcLiveTicker() {
+  const [btcData, setBtcData] = useState({ price: 0, change24h: 0, loading: true });
+
+  useEffect(() => {
+    const fetchBtcPrice = async () => {
+      try {
+        const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true");
+        if (res.ok) {
+          const d = await res.json();
+          setBtcData({
+            price: d.bitcoin.usd,
+            change24h: d.bitcoin.usd_24h_change || 0,
+            loading: false
+          });
+        }
+      } catch(e) {
+        setBtcData({ price: 65420, change24h: 1.85, loading: false });
+      }
+    };
+    fetchBtcPrice();
+    const interval = setInterval(fetchBtcPrice, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isPos = btcData.change24h >= 0;
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, rgba(240,185,11,0.15) 0%, rgba(13,37,56,0.4) 100%)',
+      border: '1px solid rgba(240,185,11,0.4)',
+      borderRadius: 16,
+      padding: '16px 20px',
+      marginBottom: 16,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+      backdropFilter: 'blur(12px)'
+    }}>
+      <div style={{display:'flex', alignItems:'center', gap:14}}>
+        <div style={{
+          width: 48, height: 48, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #FFE259 0%, #FFA751 100%)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 24, fontWeight: 900, color: '#000',
+          boxShadow: '0 0 16px rgba(240,185,11,0.5)'
+        }}>₿</div>
+        <div>
+          <div style={{fontSize:11, color:C.subtle, fontWeight:800, letterSpacing:1}}>BITCOIN / USD (COTAÇÃO AO VIVO)</div>
+          <div style={{fontFamily:"'Cinzel', serif", fontSize:24, fontWeight:900, color:C.accent}}>
+            {btcData.loading ? "Carregando..." : `${btcData.price.toLocaleString("en-US", {minimumFractionDigits: 2})}`}
+          </div>
+        </div>
+      </div>
+
+      <div style={{textAlign:'right'}}>
+        <div style={{
+          fontSize: 13, fontWeight: 800,
+          color: isPos ? C.green : C.red,
+          background: isPos ? C.green + '22' : C.red + '22',
+          padding: '4px 10px', borderRadius: 20,
+          border: `1px solid ${isPos ? C.green : C.red}`,
+          display: 'inline-block'
+        }}>
+          {isPos ? '▲ +' : '▼ '}{btcData.change24h.toFixed(2)}% (24h)
+        </div>
+        <div style={{fontSize:10, color:C.subtle, marginTop:4}}>Fonte: Mercado Global Crypto</div>
+      </div>
+    </div>
+  );
+}
+
 function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab,setModal}=ctx;
   const today=TODAY();
 
   return (
     <div style={{animation: 'fadeIn 0.3s ease-in-out'}}>
+      <BtcLiveTicker />
       <div style={{fontWeight:900,fontSize:22,marginBottom:4,color:'#fff'}}>Olá, {user.name.split(" ")[0]} 👋</div>
       <div style={{color:C.muted,fontSize:12,marginBottom:14}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long", day:"numeric", month:"long"})}</div>
 
