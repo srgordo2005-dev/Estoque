@@ -1,32 +1,169 @@
 
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Outfit:wght@300;400;600;800;900&display=swap');
+
 body {
-  background: #000 url('https://www.transparenttextures.com/patterns/black-mamba.png');
-  background-color: #050505;
+  /* Fundo Mármore Preto com Veios Dourados/Prateados e Cinza Espacial */
+  background: #02040a url('https://www.transparenttextures.com/patterns/black-mamba.png');
+  background-color: #030509;
+  background-image: 
+    radial-gradient(circle at 20% 30%, rgba(191, 149, 63, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(14, 165, 233, 0.05) 0%, transparent 40%),
+    url('https://www.transparenttextures.com/patterns/black-mamba.png');
   color: #fff;
+  font-family: 'Outfit', sans-serif;
+  overflow-x: hidden;
 }
+
+h1, h2, h3, h4, h5, h6, .serif-title {
+  font-family: 'Cinzel', serif;
+}
+
 .gold-text {
   background: linear-gradient(to right, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 20px rgba(191,149,63,0.2);
 }
+
+.silver-text {
+  background: linear-gradient(to right, #8e9eab, #eef2f3, #8e9eab);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Cards Premium 3D */
 .card-3d {
-  background: linear-gradient(145deg, #111, #222);
-  border: 1px solid #bf953f;
-  box-shadow: 0 10px 20px rgba(0,0,0,0.5), inset 0 0 15px rgba(191,149,63,0.1);
-  border-radius: 16px;
-  padding: 20px;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  background: linear-gradient(145deg, rgba(16, 20, 28, 0.9), rgba(5, 7, 11, 0.95));
+  border: 1px solid rgba(191, 149, 63, 0.4);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.8), inset 0 0 20px rgba(191,149,63,0.05);
+  border-radius: 20px;
+  padding: 24px;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  backdrop-filter: blur(12px);
+  position: relative;
+  overflow: hidden;
 }
+
+.card-3d::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 50%; height: 100%;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,0.05), transparent);
+  transform: skewX(-20deg);
+  transition: 0.5s;
+}
+.card-3d:hover::before {
+  left: 150%;
+}
+
 .card-3d:hover {
-  transform: translateY(-5px) scale(1.02);
-  box-shadow: 0 15px 30px rgba(191,149,63,0.3);
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 20px 40px rgba(191,149,63,0.2), inset 0 0 30px rgba(191,149,63,0.1);
+  border-color: rgba(191, 149, 63, 0.8);
 }
+
+/* Header Congelado */
 .sticky-header {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(5,5,5,0.9);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid #bf953f;
+  background: rgba(3, 5, 9, 0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(191, 149, 63, 0.3);
+  padding: 16px 24px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  border-radius: 0 0 20px 20px;
+  margin-left: -12px; margin-right: -12px;
 }
+
+/* Sidebar Ultra Premium */
+.premium-sidebar {
+  width: 280px; 
+  min-width: 280px; 
+  background: linear-gradient(180deg, #05070a 0%, #0a0d14 100%);
+  border-right: 1px solid rgba(191, 149, 63, 0.3); 
+  display: flex; 
+  flex-direction: column; 
+  position: fixed; 
+  top: 0; bottom: 0; left: 0; 
+  z-index: 300; 
+  box-shadow: 10px 0 30px rgba(0,0,0,0.8);
+}
+.premium-sidebar-btn {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #8e9eab;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.3s ease;
+  margin-bottom: 6px;
+}
+.premium-sidebar-btn:hover {
+  background: rgba(191, 149, 63, 0.1);
+  color: #fff;
+  padding-left: 28px;
+}
+.premium-sidebar-btn.active {
+  border: 1px solid rgba(191, 149, 63, 0.5);
+  background: linear-gradient(90deg, rgba(191,149,63,0.15) 0%, rgba(191,149,63,0.05) 100%);
+  color: #fcf6ba;
+  box-shadow: inset 4px 0 0 #bf953f;
+}
+.premium-sidebar-btn.active .sidebar-icon {
+  filter: drop-shadow(0 0 8px #bf953f);
+}
+
+/* Ícones Flutuantes 3D de Criptomoedas */
+.floating-coins-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.floating-coin {
+  position: absolute;
+  font-size: 40px;
+  opacity: 0.15;
+  filter: drop-shadow(0 0 10px rgba(191,149,63,0.5));
+  animation: float-coin 15s infinite ease-in-out;
+}
+.coin-1 { top: 20%; left: 10%; animation-duration: 18s; font-size: 60px; }
+.coin-2 { top: 60%; left: 80%; animation-duration: 22s; font-size: 50px; animation-delay: -5s; }
+.coin-3 { top: 80%; left: 20%; animation-duration: 25s; font-size: 70px; animation-delay: -12s; }
+.coin-4 { top: 10%; left: 70%; animation-duration: 20s; font-size: 45px; animation-delay: -8s; }
+
+@keyframes float-coin {
+  0% { transform: translateY(0) rotate(0deg) scale(1); }
+  50% { transform: translateY(-40px) rotate(180deg) scale(1.1); }
+  100% { transform: translateY(0) rotate(360deg) scale(1); }
+}
+
+/* Partículas de Luz */
+.light-particle {
+  position: absolute;
+  width: 4px; height: 4px;
+  background: #bf953f;
+  border-radius: 50%;
+  box-shadow: 0 0 10px 2px #bf953f;
+  animation: pulse-particle 4s infinite alternate;
+}
+@keyframes pulse-particle {
+  0% { opacity: 0.2; transform: scale(0.8); }
+  100% { opacity: 0.8; transform: scale(1.5); }
+}
+
+/* Scrollbar Premium */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #05070a; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; border: 1px solid #bf953f; }
+::-webkit-scrollbar-thumb:hover { background: #bf953f; }
 
