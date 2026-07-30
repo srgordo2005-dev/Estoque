@@ -1,45 +1,50 @@
-
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Outfit:wght@300;400;600;800;900&display=swap');
 
 body {
-  /* Fundo M·rmore Preto com Veios Dourados/Prateados e Cinza Espacial */
+  /* Fundo M√°rmore Preto com Veios Dourados/Prateados mais evidentes */
   background: #02040a url('https://www.transparenttextures.com/patterns/black-mamba.png');
-  background-color: #030509;
+  background-color: #05070a;
   background-image: 
-    radial-gradient(circle at 20% 30%, rgba(191, 149, 63, 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 80% 70%, rgba(14, 165, 233, 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 10% 20%, rgba(255, 215, 0, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 90% 80%, rgba(14, 165, 233, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 60%),
     url('https://www.transparenttextures.com/patterns/black-mamba.png');
   color: #fff;
   font-family: 'Outfit', sans-serif;
   overflow-x: hidden;
+  margin: 0;
+  padding: 0;
 }
 
 h1, h2, h3, h4, h5, h6, .serif-title {
   font-family: 'Cinzel', serif;
+  letter-spacing: 1px;
 }
 
 .gold-text {
-  background: linear-gradient(to right, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
+  background: linear-gradient(to right, #ffd700, #ffec8b, #daa520, #fff8dc, #b8860b);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  text-shadow: 0 0 20px rgba(191,149,63,0.2);
+  text-shadow: 0 0 25px rgba(255,215,0,0.4);
+  font-weight: 900;
 }
 
 .silver-text {
-  background: linear-gradient(to right, #8e9eab, #eef2f3, #8e9eab);
+  background: linear-gradient(to right, #e0eaf5, #ffffff, #e0eaf5);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 15px rgba(255,255,255,0.2);
 }
 
 /* Cards Premium 3D */
 .card-3d {
-  background: linear-gradient(145deg, rgba(16, 20, 28, 0.9), rgba(5, 7, 11, 0.95));
-  border: 1px solid rgba(191, 149, 63, 0.4);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.8), inset 0 0 20px rgba(191,149,63,0.05);
+  background: linear-gradient(145deg, rgba(20, 25, 35, 0.8), rgba(10, 15, 25, 0.9));
+  border: 1px solid rgba(255, 215, 0, 0.5);
+  box-shadow: 0 15px 35px rgba(0,0,0,0.9), inset 0 0 25px rgba(255,215,0,0.1);
   border-radius: 20px;
   padding: 24px;
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
   position: relative;
   overflow: hidden;
 }
@@ -49,18 +54,18 @@ h1, h2, h3, h4, h5, h6, .serif-title {
   position: absolute;
   top: 0; left: -100%;
   width: 50%; height: 100%;
-  background: linear-gradient(to right, transparent, rgba(255,255,255,0.05), transparent);
+  background: linear-gradient(to right, transparent, rgba(255,215,0,0.1), transparent);
   transform: skewX(-20deg);
-  transition: 0.5s;
+  transition: 0.7s;
 }
 .card-3d:hover::before {
   left: 150%;
 }
 
 .card-3d:hover {
-  transform: translateY(-8px) scale(1.02);
-  box-shadow: 0 20px 40px rgba(191,149,63,0.2), inset 0 0 30px rgba(191,149,63,0.1);
-  border-color: rgba(191, 149, 63, 0.8);
+  transform: translateY(-10px) scale(1.03);
+  box-shadow: 0 25px 50px rgba(255,215,0,0.25), inset 0 0 35px rgba(255,215,0,0.15);
+  border-color: rgba(255, 215, 0, 1);
 }
 
 /* Header Congelado */
@@ -68,12 +73,12 @@ h1, h2, h3, h4, h5, h6, .serif-title {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(3, 5, 9, 0.85);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(191, 149, 63, 0.3);
-  padding: 16px 24px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-  border-radius: 0 0 20px 20px;
+  background: linear-gradient(90deg, rgba(10,15,25,0.95), rgba(20,25,35,0.95));
+  backdrop-filter: blur(25px);
+  border-bottom: 2px solid rgba(255, 215, 0, 0.4);
+  padding: 18px 28px;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.7);
+  border-radius: 0 0 24px 24px;
   margin-left: -12px; margin-right: -12px;
 }
 
@@ -81,47 +86,74 @@ h1, h2, h3, h4, h5, h6, .serif-title {
 .premium-sidebar {
   width: 280px; 
   min-width: 280px; 
-  background: linear-gradient(180deg, #05070a 0%, #0a0d14 100%);
-  border-right: 1px solid rgba(191, 149, 63, 0.3); 
+  background: linear-gradient(180deg, #0a0f19 0%, #111827 100%);
+  border-right: 1px solid rgba(255, 215, 0, 0.4); 
   display: flex; 
   flex-direction: column; 
   position: fixed; 
   top: 0; bottom: 0; left: 0; 
   z-index: 300; 
-  box-shadow: 10px 0 30px rgba(0,0,0,0.8);
+  box-shadow: 15px 0 40px rgba(0,0,0,0.9);
 }
+
 .premium-sidebar-btn {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 20px;
-  border-radius: 14px;
+  padding: 16px 22px;
+  border-radius: 16px;
   border: 1px solid transparent;
   background: transparent;
-  color: #8e9eab;
-  font-weight: 700;
-  font-size: 14px;
+  color: #9ca3af;
+  font-weight: 800;
+  font-size: 15px;
   cursor: pointer;
   text-align: left;
-  transition: all 0.3s ease;
-  margin-bottom: 6px;
-}
-.premium-sidebar-btn:hover {
-  background: rgba(191, 149, 63, 0.1);
-  color: #fff;
-  padding-left: 28px;
-}
-.premium-sidebar-btn.active {
-  border: 1px solid rgba(191, 149, 63, 0.5);
-  background: linear-gradient(90deg, rgba(191,149,63,0.15) 0%, rgba(191,149,63,0.05) 100%);
-  color: #fcf6ba;
-  box-shadow: inset 4px 0 0 #bf953f;
-}
-.premium-sidebar-btn.active .sidebar-icon {
-  filter: drop-shadow(0 0 8px #bf953f);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-bottom: 8px;
+  position: relative;
+  overflow: hidden;
 }
 
-/* Õcones Flutuantes 3D de Criptomoedas */
+.premium-sidebar-btn::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: linear-gradient(90deg, rgba(255,215,0,0.2), transparent);
+  transform: translateX(-100%);
+  transition: transform 0.4s ease;
+  z-index: -1;
+}
+
+.premium-sidebar-btn:hover {
+  background: rgba(255, 215, 0, 0.15);
+  color: #fff;
+  padding-left: 30px;
+  border-color: rgba(255,215,0,0.3);
+  box-shadow: 0 0 15px rgba(255,215,0,0.1);
+}
+
+.premium-sidebar-btn:hover::after {
+  transform: translateX(0);
+}
+
+.premium-sidebar-btn.active {
+  border: 1px solid rgba(255, 215, 0, 0.8);
+  background: linear-gradient(90deg, rgba(255,215,0,0.25) 0%, rgba(255,215,0,0.05) 100%);
+  color: #ffd700;
+  box-shadow: inset 5px 0 0 #ffd700, 0 0 20px rgba(255,215,0,0.2);
+}
+
+.premium-sidebar-btn.active .sidebar-icon {
+  filter: drop-shadow(0 0 10px #ffd700);
+  transform: scale(1.1);
+}
+
+.sidebar-icon {
+  transition: all 0.3s ease;
+}
+
+/* √çcones Flutuantes 3D de Criptomoedas */
 .floating-coins-container {
   position: fixed;
   inset: 0;
@@ -129,41 +161,56 @@ h1, h2, h3, h4, h5, h6, .serif-title {
   z-index: 0;
   overflow: hidden;
 }
+
 .floating-coin {
   position: absolute;
-  font-size: 40px;
-  opacity: 0.15;
-  filter: drop-shadow(0 0 10px rgba(191,149,63,0.5));
+  opacity: 0.25;
+  filter: drop-shadow(0 0 15px rgba(255,215,0,0.6));
   animation: float-coin 15s infinite ease-in-out;
+  font-weight: bold;
+  color: #ffd700;
 }
-.coin-1 { top: 20%; left: 10%; animation-duration: 18s; font-size: 60px; }
-.coin-2 { top: 60%; left: 80%; animation-duration: 22s; font-size: 50px; animation-delay: -5s; }
-.coin-3 { top: 80%; left: 20%; animation-duration: 25s; font-size: 70px; animation-delay: -12s; }
-.coin-4 { top: 10%; left: 70%; animation-duration: 20s; font-size: 45px; animation-delay: -8s; }
+
+.coin-1 { top: 15%; left: 8%; animation-duration: 18s; font-size: 80px; }
+.coin-2 { top: 65%; left: 85%; animation-duration: 22s; font-size: 65px; animation-delay: -5s; }
+.coin-3 { top: 85%; left: 15%; animation-duration: 25s; font-size: 90px; animation-delay: -12s; }
+.coin-4 { top: 12%; left: 75%; animation-duration: 20s; font-size: 60px; animation-delay: -8s; }
+.coin-5 { top: 50%; left: 10%; animation-duration: 28s; font-size: 50px; animation-delay: -15s; color: #0ea5e9; filter: drop-shadow(0 0 15px rgba(14,165,233,0.6)); }
 
 @keyframes float-coin {
   0% { transform: translateY(0) rotate(0deg) scale(1); }
-  50% { transform: translateY(-40px) rotate(180deg) scale(1.1); }
+  50% { transform: translateY(-50px) rotate(180deg) scale(1.15); }
   100% { transform: translateY(0) rotate(360deg) scale(1); }
 }
 
-/* PartÌculas de Luz */
+/* Part√≠culas de Luz */
 .light-particle {
   position: absolute;
-  width: 4px; height: 4px;
-  background: #bf953f;
+  width: 5px; height: 5px;
+  background: #ffd700;
   border-radius: 50%;
-  box-shadow: 0 0 10px 2px #bf953f;
-  animation: pulse-particle 4s infinite alternate;
+  box-shadow: 0 0 15px 3px #ffd700;
+  animation: pulse-particle 3s infinite alternate;
 }
 @keyframes pulse-particle {
-  0% { opacity: 0.2; transform: scale(0.8); }
-  100% { opacity: 0.8; transform: scale(1.5); }
+  0% { opacity: 0.3; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1.8); box-shadow: 0 0 25px 6px #ffd700; }
 }
 
 /* Scrollbar Premium */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #05070a; }
-::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; border: 1px solid #bf953f; }
-::-webkit-scrollbar-thumb:hover { background: #bf953f; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #0a0f19; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 10px; border: 1px solid #ffd700; }
+::-webkit-scrollbar-thumb:hover { background: #ffd700; }
 
+.premium-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 5px 20px rgba(255,215,0,0.5) !important;
+  border-color: rgba(255,215,0,1) !important;
+}
+
+.premium-inp:focus {
+  border-color: #ffd700 !important;
+  box-shadow: 0 0 15px rgba(255,215,0,0.3) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}

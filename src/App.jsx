@@ -601,7 +601,7 @@ const LIGHT_THEME={bg:"#f4f6f8",card:"#ffffff",card2:"#eef2f6",border:"#dbe2ea",
 // render, sem precisar mudar cada tela uma por uma.
 let C={...DARK_THEME};
 const inp={width:"100%",background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",fontSize:14,boxSizing:"border-box",outline:"none",colorScheme:"dark"};
-const Inp=({label,err,...p})=><div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<input {...p} style={{...inp,borderColor:err?C.red:C.border,...p.style}}/>{err&&<div style={{color:C.red,fontSize:11,marginTop:3}}>⚠️ {err}</div>}</div>;
+const Inp=({label,err,...p})=><div style={{marginBottom:16}}>{label&&<div style={{color:C.accent,fontSize:11,fontWeight:900,marginBottom:6,letterSpacing:1.5,textTransform:"uppercase"}}>{label}</div>}<input className="premium-inp" {...p} style={{...inp,borderColor:err?C.red:C.border,...p.style}}/>{err&&<div style={{color:C.red,fontSize:12,marginTop:4,fontWeight:600}}>⚠️ {err}</div>}</div>;
 // Campo de data — clicar em QUALQUER parte do campo abre o calendário (não só
 // no ícone), usando showPicker() do navegador. Resolve o calendário nativo
 // sendo difícil de abrir/ver em alguns navegadores.
@@ -610,9 +610,9 @@ const DateInp=({label,...p})=>{
   return<div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<input ref={ref} type="date" {...p} onClick={()=>{try{ref.current?.showPicker?.()}catch{}}} style={{...inp,cursor:"pointer",...p.style}}/></div>;
 };
 const Sel=({label,children,...p})=><div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<select {...p} style={{...inp,...p.style}}>{children}</select></div>;
-const Btn=({v="o",children,...p})=>{const vs={o:{bg:C.accent,c:"#fff"},s:{bg:C.card2,c:C.text},d:{bg:C.red,c:"#fff"},g:{bg:C.green,c:"#fff"},b:{bg:"#0c2a3a",c:C.blue},p:{bg:C.purple,c:"#fff"},y:{bg:C.amber,c:"#fff"}};const st=vs[v]||vs.o;return<button {...p} style={{background:st.bg,color:st.c,border:"none",borderRadius:8,padding:"10px 16px",fontWeight:700,fontSize:13,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:6,opacity:p.disabled?.5:1,...p.style}}>{children}</button>};
+const Btn=({v="o",children,...p})=>{const vs={o:{bg:`linear-gradient(135deg, #ffd700, #b8860b)`,c:"#000",b:`0 0 15px rgba(255,215,0,0.4)`},s:{bg:`linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))`,c:C.text,b:`0 0 10px rgba(255,255,255,0.1)`},d:{bg:`linear-gradient(135deg, #ef4444, #991b1b)`,c:"#fff",b:`0 0 10px rgba(239,68,68,0.4)`},g:{bg:`linear-gradient(135deg, #22c55e, #14532d)`,c:"#fff",b:`0 0 10px rgba(34,197,94,0.4)`},b:{bg:`linear-gradient(135deg, #0ea5e9, #075985)`,c:"#fff",b:`0 0 10px rgba(14,165,233,0.4)`},p:{bg:`linear-gradient(135deg, #a855f7, #581c87)`,c:"#fff",b:`0 0 10px rgba(168,85,247,0.4)`},y:{bg:`linear-gradient(135deg, #fbbf24, #b45309)`,c:"#000",b:`0 0 10px rgba(251,191,36,0.4)`}};const st=vs[v]||vs.o;return<button className="premium-btn" {...p} style={{background:st.bg,color:st.c,border:"1px solid rgba(255,255,255,0.2)",boxShadow:st.b,borderRadius:12,padding:"12px 20px",fontWeight:800,fontSize:14,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,textTransform:"uppercase",letterSpacing:1,backdropFilter:"blur(5px)",transition:"all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",opacity:p.disabled?.5:1,...p.style}}>{children}</button>};
 const Modal=({title,onClose,children})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",zIndex:300,display:"flex",alignItems:"flex-end"}}><div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:640,margin:"0 auto",maxHeight:"92vh",overflow:"auto",padding:20,boxSizing:"border-box"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><div style={{fontWeight:800,fontSize:16,color:C.text}}>{title}</div><button onClick={onClose} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:18}}>✕</button></div>{children}</div></div>;
-const Card=({accent,onClick,children,style})=><div onClick={onClick} style={{background:C.card,borderRadius:12,padding:14,marginBottom:10,cursor:onClick?"pointer":"default",borderLeft:accent?`3px solid ${accent}`:undefined,...style}}>{children}</div>;
+const Card=({accent,onClick,children,style})=><div className="card-3d" onClick={onClick} style={{background:C.card,borderRadius:16,padding:20,marginBottom:16,cursor:onClick?"pointer":"default",border:accent?`1px solid ${accent}`:`1px solid rgba(255,215,0,0.1)`,borderLeft:accent?`4px solid ${accent}`:undefined,...style}}>{children}</div>;
 const Tag=({color,children,small})=><span style={{background:color,color:"#fff",borderRadius:6,padding:small?"1px 7px":"3px 9px",fontSize:small?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{children}</span>;
 const SL=({children,mt})=><div style={{color:C.subtle,fontSize:10,fontWeight:800,letterSpacing:1,marginBottom:8,marginTop:mt||0}}>{children}</div>;
 const HP=({s})=><span style={{background:HST_C[s]||C.muted,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:800}}>{s||"—"}</span>;
@@ -1565,6 +1565,14 @@ export default function App(){
   ];
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:1240,margin:"0 auto",position:"relative",overflowX:"hidden"}}>
+    
+    <div className="floating-coins-container">
+      <div className="floating-coin coin-1">₿</div>
+      <div className="floating-coin coin-2">Ξ</div>
+      <div className="floating-coin coin-3">₿</div>
+      <div className="floating-coin coin-4">₮</div>
+      <div className="floating-coin coin-5">₿</div>
+    </div>
     {/* Floating Animated Background Blobs for PC */}
     <div style={{position:"absolute",inset:0,overflow:"hidden",pointerEvents:"none",zIndex:0}}>
       <style>{`
@@ -3844,7 +3852,18 @@ function DataCenterPage({ctx}) {
                return (
                    <div key={farmName} style={{background:C.card, borderRadius:14, border:"1px solid " + C.border, padding:16, marginBottom:24}}>
                         <style>{`.shelves-side-by-side-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; align-items: start; }`}</style>
-                       {/* Farm Section Header */}
+                       
+<style>{`
+  @keyframes alert-pulse {
+    0% { background-color: rgba(220, 38, 38, 0.2); box-shadow: inset 0 0 10px rgba(220, 38, 38, 0.5); }
+    50% { background-color: rgba(220, 38, 38, 0.8); box-shadow: inset 0 0 30px rgba(220, 38, 38, 1); }
+    100% { background-color: rgba(220, 38, 38, 0.2); box-shadow: inset 0 0 10px rgba(220, 38, 38, 0.5); }
+  }
+  .alert-pulse {
+    animation: alert-pulse 1s infinite alternate !important;
+  }
+`}</style>
+{/* Farm Section Header */}
                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, borderBottom:"2px solid " + C.border, paddingBottom:12, marginBottom:16}}>
                           <div>
                              <h3 style={{fontSize:16, fontWeight:900, color:C.accent, display:'flex', alignItems:'center', gap:8}}>
@@ -4003,15 +4022,30 @@ function DataCenterPage({ctx}) {
                                              const stat = farmStatus[m.ip] || null;
                                              const isDummy = m.sn && m.sn.startsWith("FARM-");
                                              const isOnline = stat && stat.status !== 'offline' && stat.status !== 'disconnected';
-                                             const isMining = isOnline && (stat.hashrate > 0 || stat.status === 'mining');
+                                             
+const isMining = isOnline && (stat.hashrate > 0 || stat.status === 'mining');
                                              const isIdle = isOnline && stat.hashrate === 0 && (stat.status === 'idle' || stat.status === 'auto-tuning');
                                              const isChecked = selectedMachineIds.includes(m._id);
                                              
                                              const machineModelName = cleanModelName(stat?.model, cleanModelName(m.model, "Antminer S19"));
+    const expectedTH = DEF_MODELS.find(x => x.m.toUpperCase() === machineModelName.toUpperCase())?.th || 100;
+    const isZeroTH = isOnline && stat.hashrate === 0;
+    const isLowTH = isOnline && stat.hashrate > 0 && stat.hashrate < (expectedTH * 0.7);
+    const maxTemp = Math.max(...(stat.temps || [0]));
+    const isOverheating = maxTemp > 85;
+
+    let intelStyle = 'transparent';
+    let intelClass = '';
+    if (isOverheating) { intelStyle = '#7f1d1d'; intelClass = 'alert-pulse'; } // Flashing Red
+    else if (isZeroTH) { intelStyle = '#991b1b'; } // Solid Red
+    else if (isLowTH) { intelStyle = '#854d0e'; } // Yellow/Amber
+    else if (isMining) { intelStyle = '#064e3b'; } // Solid Green
+    else if (isChecked) { intelStyle = C.accent + "22"; }
+
                                              const shelfLabel = m.shelf || "Prateleira 1";
 
                                              return (
-                                                 <tr key={m._id} style={{borderBottom:"1px solid " + C.border + "44", background: isChecked ? C.accent + "18" : isMining ? '#091c13' : 'transparent'}}>
+                                                 <tr key={m._id} className={intelClass} style={{borderBottom:"1px solid " + C.border + "44", background: typeof intelStyle !== "undefined" ? intelStyle : (isChecked ? C.accent + "18" : isMining ? "#091c13" : "transparent")}}>
                                                      <td style={{padding:8}}>
                                                         <input 
                                                           type="checkbox" 
@@ -8395,6 +8429,11 @@ function EmpProfile({ctx,emp}){
   const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
   const totalRepairs=allR.filter(r=>r.type!=="already_good").length;
   const totalGood=allR.filter(r=>r.type==="already_good").length;
+
+  // Advanced Team Report Logic:
+  const empMachines = data.machines.filter(m => m.employeeId === emp._id || m.lastTesterId === emp._id || m.repairedBy === emp._id);
+  const [selectedMachine, setSelectedMachine] = useState(null);
+
   const wipeHistory=async()=>{
     const step1=confirm(`Apagar TODO o histórico de ${emp.name}? (${allR.length} conserto(s), ${allT.length} teste(s))\n\nIsso NÃO muda o estoque atual, só apaga o histórico dele. Não dá pra desfazer.`);
     if(!step1)return;
@@ -8412,42 +8451,63 @@ function EmpProfile({ctx,emp}){
     await markChanged("repairs");await markChanged("tests");await markChanged("approvals");await markChanged("feedbacks");
     alert(`Histórico de ${emp.name} apagado.`);
   };
-  return<div>
-    {isSuper&&<Btn v="d" onClick={wipeHistory} style={{width:"100%",marginBottom:14}}>🗑️ Apagar Histórico de {emp.name} (só admin 019)</Btn>}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
-      {[[totalRepairs,"Consertos",C.accent],[allT.length,"Testes",C.blue],[fdbs.length,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:C.bg,borderRadius:10,padding:12,textAlign:"center"}}><div style={{fontSize:24,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
-    </div>
-    {totalGood>0&&<div style={{background:"#0c2a0f",borderRadius:10,padding:10,marginBottom:14,color:C.green,fontSize:12,textAlign:"center"}}>✅ {totalGood} HASHs verificadas como "já estavam boas"</div>}
-    {/* Access control — admin can configure which employees this person can see */}
-    <div style={{marginBottom:14}}>
-      <SL>PERMISSÕES DE ACESSO A PERFIS</SL>
-      <div style={{fontSize:12,color:C.subtle,marginBottom:8}}>Funcionários que {emp.name} pode ver:</div>
-      {data.employees.filter(e=>e._id!==emp._id).map(e=>{
-        const allowed=(emp.allowedEmployees||[]).includes(e._id);
-        return<div key={e._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-          <span style={{fontSize:13}}>{e.name} #{e.code}</span>
-          <button onClick={async()=>{const list=emp.allowedEmployees||[];const newList=allowed?list.filter(x=>x!==e._id):[...list,e._id];const u={...emp,allowedEmployees:newList};mutate("employees",arr=>arr.map(x=>x._id===emp._id?u:x));await fbSet("employees",emp._id,u);await markChanged("employees")}} style={{background:allowed?C.green:C.card2,border:"none",color:"#fff",borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{allowed?"ON":"OFF"}</button>
-        </div>})}
-    </div>
-    <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"flex-end"}}>
-      <div style={{flex:1}}><DateInp label="FILTRAR DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>
-      <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📋</Btn>
-    </div>
-    {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
-      {dayR.map(r=>{
-        const isRemove = r.type?.startsWith("remove");
-        const accent = r.type==="already_good"?C.green:r.type==="rework"?C.amber:isRemove?C.red:C.blue;
-        const icon = r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":r.type==="remove_machine"?"🗑️ REMOVEU MÁQUINA":r.type==="remove_hash"?"🗑️ REMOVEU HASH":"🔧";
-        return<Card key={r._id} accent={accent}><div style={{fontWeight:700,fontSize:13,color:accent}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(r._at)}</div>{!isRemove&&r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}</Card>
-      })}
-      {dayT.map(t=>{const stC=t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red;return<Card key={t._id} accent={stC}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(t._at)}</div><Tag color={stC} small>{t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"}</Tag></Card>})}
-    </>}
-    <SL mt={12}>HISTÓRICO</SL>
-    {Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13,cursor:"pointer"}}><span style={{color:d===dateFilter?C.accent:C.text}}>{fmtDate(d)}</span><span style={{fontWeight:700,color:C.accent}}>{byDate[d]} itens</span></div>)}
-    {fdbs.length>0&&<><SL mt={12}>PENDÊNCIAS</SL>{fdbs.map(f=><Card key={f._id} accent={C.red}><div style={{color:C.red,fontWeight:700}}>⚡ {f.hashSN}</div><div style={{fontSize:12}}>{f.notes}</div></Card>)}</>}
-    <SL mt={12}>PERMISSÕES</SL>
-    {PERMS.map(({key,label})=><div key={key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:13}}>{label}</span><button onClick={async()=>{const u={...emp,permissions:{...emp.permissions,[key]:!emp.permissions?.[key]}};mutate("employees",arr=>arr.map(x=>x._id===emp._id?u:x));await fbSet("employees",emp._id,u)}} style={{background:emp.permissions?.[key]?C.green:C.card2,border:"none",color:"#fff",borderRadius:20,padding:"4px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{emp.permissions?.[key]?"ON":"OFF"}</button></div>)}
-    <Btn v="d" onClick={async()=>{mutate("employees",arr=>arr.filter(x=>x._id!==emp._id));await fbDel("employees",emp._id);await markChanged("employees");setModal(null)}} style={{width:"100%",marginTop:16}}>🗑 Remover</Btn>
+
+  return <div>
+    {selectedMachine ? (
+      <div style={{background:C.card2, borderRadius:16, padding:20, border:`1px solid ${C.accent}`}}>
+         <Btn v="s" onClick={() => setSelectedMachine(null)} style={{marginBottom:15}}>⬅️ Voltar ao Resumo</Btn>
+         <h3 style={{color:C.accent, margin:0, marginBottom:10}}>Detalhes da Máquina</h3>
+         <div style={{fontSize:16, fontWeight:"bold"}}>{selectedMachine.model} - {selectedMachine.sn || "SEM SN"}</div>
+         <div style={{marginTop:10}}><SP s={selectedMachine.situacao}/></div>
+         {selectedMachine.photoKey && (
+            <div style={{marginTop:15}}>
+              <SL>FOTO DA MÁQUINA</SL>
+              <img src={selectedMachine.photoKey} alt="Foto" style={{width:"100%", borderRadius:12, border:`1px solid ${C.border}`, objectFit:"cover", maxHeight:300}} />
+            </div>
+         )}
+         <div style={{fontSize:11, color:C.muted, marginTop:10}}>
+            Última atualização: {fmtTS(selectedMachine.updatedAt || selectedMachine._at)}
+         </div>
+      </div>
+    ) : (
+      <>
+        {isSuper&&<Btn v="d" onClick={wipeHistory} style={{width:"100%",marginBottom:14}}>🗑️ Apagar Histórico de {emp.name} (só admin 019)</Btn>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
+          {[[totalRepairs,"Consertos",C.accent],[allT.length,"Testes",C.blue],[empMachines.length,"Máquinas",C.purple]].map(([v,l,c])=><div key={l} style={{background:C.bg,borderRadius:10,padding:12,textAlign:"center", border:`1px solid ${C.border}`, boxShadow:`0 0 10px ${c}22`}}><div style={{fontSize:24,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
+        </div>
+        
+        {empMachines.length > 0 && (
+          <div style={{marginBottom: 16}}>
+             <SL mt={12}>MÁQUINAS ASSOCIADAS (RELATÓRIO AVANÇADO)</SL>
+             <div style={{display:"flex", flexDirection:"column", gap:8, maxHeight:250, overflowY:"auto", paddingRight:5}}>
+                {empMachines.map(m => (
+                   <div key={m._id} onClick={() => setSelectedMachine(m)} className="premium-sidebar-btn" style={{margin:0, padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                      <div>
+                         <div style={{fontWeight:"bold", fontSize:13, color:C.text}}>{m.sn || "SEM SN"}</div>
+                         <div style={{fontSize:11, color:C.subtle}}>{m.model}</div>
+                      </div>
+                      <SP s={m.situacao}/>
+                   </div>
+                ))}
+             </div>
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"flex-end"}}>
+          <div style={{flex:1}}><DateInp label="FILTRAR DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>
+          <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📋</Btn>
+        </div>
+        {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
+          {dayR.map(r=>{
+            const isRemove = r.type?.startsWith("remove");
+            const accent = r.type==="already_good"?C.green:r.type==="rework"?C.amber:isRemove?C.red:C.blue;
+            const icon = r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":r.type==="remove_machine"?"🗑️ REMOVEU MÁQUINA":r.type==="remove_hash"?"🗑️ REMOVEU HASH":"🔧";
+            return<Card key={r._id} accent={accent}><div style={{fontWeight:700,fontSize:13,color:accent}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(r._at)}</div>{!isRemove&&r.type!=="already_good"&&<div style={{fontSize:10,color:C.subtle}}>Chips:{r.chips||0} Sens:{r.sensores||0} LDOs:{r.ldos||0}{r.obsManual?` · ${r.obsManual}`:""}</div>}</Card>
+          })}
+          {dayT.map(t=>{const stC=t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red;return<Card key={t._id} accent={stC}><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:11,color:C.muted}}>{fmtTS(t._at)}</div><Tag color={stC} small>{t.status==="pending"?"Aguard.Revisão":t.status==="rejected"?"REPROVADA":t.overallResult==="good"?"BOA":"RUIM"}</Tag></Card>})}
+        </>}
+      </>
+    )}
   </div>;
 }
 
