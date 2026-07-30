@@ -402,6 +402,7 @@ async function triggerSheetSync(url) {
       // Re-queue
       wQ = [...b, ...wQ];
       saveSheetQueue();
+      setTimeout(() => triggerSheetSync(currentUrl), 15000); // Tenta de novo em 15s
     } else {
       console.log(`✓ syncSheet: ${b.length} ação(ões) enviada(s) pra planilha`,b.map(x=>x.action));
     }
@@ -411,6 +412,7 @@ async function triggerSheetSync(url) {
     // Re-queue
     wQ = [...b, ...wQ];
     saveSheetQueue();
+    setTimeout(() => triggerSheetSync(currentUrl), 15000); // Tenta de novo em 15s
   } finally {
     decrementWrites();
   }
