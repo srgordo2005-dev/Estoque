@@ -1615,7 +1615,7 @@ export default function App(){
 
     <div style={{position:"relative",zIndex:1}}>
       <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:20}}>⛏️</span>
+        <img src="/logo.jpg" style={{width:24, height:24, borderRadius:"20%"}} alt="logo" />
         <div style={{flex:1, display:'flex', alignItems:'center', gap:8}}>
            <div><div style={{fontWeight:900,fontSize:14,color:C.accent}}>HashStock</div><div style={{fontSize:10,color:C.muted}}>{user.name} #{user.code}{syncing?" · 🔄":""}</div></div>
                       {/* Luz 1: Internet / Banco de Dados */}
@@ -1688,7 +1688,7 @@ export default function App(){
       {/* SIDEBAR PARA COMPUTADOR (PC) */}
       <aside className="premium-sidebar">
         <div style={{padding: "24px 20px", borderBottom: `1px solid rgba(191,149,63,0.2)`, display: "flex", alignItems: "center", gap: 12}}>
-          <div style={{width:40, height:40, borderRadius:'50%', background:'linear-gradient(135deg, #bf953f, #fcf6ba)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, boxShadow:'0 0 15px rgba(191,149,63,0.5)'}}>⛏️</div>
+          <div style={{width:40, height:40, borderRadius:"20%", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 0 15px rgba(255,215,0,0.5)", overflow:"hidden", border:"1px solid rgba(255,215,0,0.5)"}}><img src="/logo.jpg" style={{width:"100%", height:"100%", objectFit:"cover"}} alt="logo" /></div>
           <div>
             <div className="gold-text" style={{fontWeight: 900, fontSize: 18, letterSpacing: 1}}>HASHSTOCK</div>
             <div style={{fontSize: 11, color: '#8e9eab', fontWeight: 600}}>
@@ -1768,7 +1768,7 @@ export default function App(){
   </div>;
 }
 
-const Splash=()=><div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><div style={{fontSize:52}}>⛏️</div><div style={{fontWeight:900,color:C.text,fontSize:18,marginTop:8}}>HashStock</div><div style={{color:C.muted,fontSize:12,marginTop:4}}>Conectando...</div></div></div>;
+const Splash=()=><div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{textAlign:"center"}}><div style={{width:80, height:80, margin:"0 auto", borderRadius:"20%", overflow:"hidden", boxShadow:"0 0 20px rgba(255,215,0,0.3)", border:"2px solid rgba(255,215,0,0.4)"}}><img src="/logo.jpg" style={{width:"100%", height:"100%", objectFit:"cover"}} alt="logo" /></div><div style={{fontWeight:900,color:C.text,fontSize:18,marginTop:8}}>HashStock</div><div style={{color:C.muted,fontSize:12,marginTop:4}}>Conectando...</div></div></div>;
 
 // Mostrado apenas se, mesmo após todas as tentativas e o cache local, não foi
 // possível carregar NENHUM funcionário. Evita mostrar a tela de login normal
@@ -1925,7 +1925,7 @@ function LoginPage({employees,onLogin}){
   };
   return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
     <div style={{width:"100%",maxWidth:360,textAlign:"center"}}>
-      <div style={{fontSize:56,marginBottom:6}}>⛏️</div>
+      <div style={{width:90, height:90, margin:"0 auto 12px auto", borderRadius:"20%", overflow:"hidden", boxShadow:"0 0 25px rgba(255,215,0,0.4)", border:"2px solid rgba(255,215,0,0.5)"}}><img src="/logo.jpg" style={{width:"100%", height:"100%", objectFit:"cover"}} alt="logo" /></div>
       <div style={{fontWeight:900,fontSize:24,color:C.accent,marginBottom:4}}>HashStock</div>
       <div style={{color:C.muted,fontSize:12,marginBottom:28}}>Sistema de Gestão</div>
       <div style={{background:C.card,borderRadius:20,padding:28,border:`1px solid ${C.border}`,textAlign:"left"}}>
