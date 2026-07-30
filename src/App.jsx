@@ -2023,59 +2023,24 @@ function TestQueuePeek({data,setTab,showStartBtn}){
 }
 
 function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
-  const{user,data,setTab,setModal}=ctx;const today=TODAY();
+  const{user,data,setTab,setModal}=ctx;
+  const today=TODAY();
 
-  // Totais de consertos de HASHs (Geral e Hoje)
-  const totalRepairsAllTime = data.repairs.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
-  const totalRepairsToday = data.repairs.filter(r => (r.date === today || r._at?.slice(0,10) === today) && r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+  return (
+    <div style={{animation: 'fadeIn 0.3s ease-in-out'}}>
+      <div style={{fontWeight:900,fontSize:22,marginBottom:4,color:'#fff'}}>Olá, {user.name.split(" ")[0]} 👋</div>
+      <div style={{color:C.muted,fontSize:12,marginBottom:14}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long", day:"numeric", month:"long"})}</div>
 
-  const navToTeam = (isToday) => {
-    // Guarda datas no localStorage para o DailyTeamReport ler automaticamente ao abrir
-    if (isToday) {
-      localStorage.setItem("hs_team_start_date", today);
-      localStorage.setItem("hs_team_end_date", today);
-    } else {
-      localStorage.setItem("hs_team_start_date", "");
-      localStorage.setItem("hs_team_end_date", "");
-    }
-    setTab("team");
-  };
+      {canApprove&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14, cursor:'pointer'}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
+      {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10,color:C.red}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
+      {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10,color:C.red}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
 
-  return<div>
-    <div style={{fontWeight:900,fontSize:22,marginBottom:4}}>Olá, {user.name.split(" ")[0]} 👋</div>
-    <div style={{color:C.muted,fontSize:12,marginBottom:14}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long"})}</div>
+      {/* DASHBOARD PRINCIPAL DE RESUMO DE ESTOQUE E PRODUTIVIDADE */}
+      <AdminSummary data={data} setTab={setTab}/>
 
-    {/* QUADROS IGUAIS AOS DO RESUMO ADMIN PARA HASHs CONSERTADAS */}
-    <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16}}>
-      <Card 
-        accent={C.green}
-        onClick={() => navToTeam(false)}
-        style={{margin:0, cursor:'pointer', border:`2px solid ${C.green}`, background:'linear-gradient(135deg, #142418 0%, #0d140e 100%)'}}
-      >
-        <div style={{fontSize:32, fontWeight:900, color:C.green}}>{totalRepairsAllTime}</div>
-        <div style={{fontWeight:900, fontSize:13, color:'#fff', marginTop:4}}>🔧 HASHs CONSERTADAS</div>
-        <div style={{fontSize:10, color:C.subtle, marginTop:4}}>📜 Todo o Histórico · Clique para ver ➔</div>
-      </Card>
-
-      <Card 
-        accent={C.accent}
-        onClick={() => navToTeam(true)}
-        style={{margin:0, cursor:'pointer', border:`2px solid ${C.accent}`, background:'linear-gradient(135deg, #2a220c 0%, #141006 100%)'}}
-      >
-        <div style={{fontSize:32, fontWeight:900, color:C.accent}}>{totalRepairsToday}</div>
-        <div style={{fontWeight:900, fontSize:13, color:'#fff', marginTop:4}}>⚡ CONSERTOS HOJE</div>
-        <div style={{fontSize:10, color:C.subtle, marginTop:4}}>📅 Produção de Hoje · Clique para ver ➔</div>
-      </Card>
+      <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today,ctx.setModal)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
     </div>
-
-    {canApprove&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
-    {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
-    {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
-    {user.permissions?.testing&&!isAdmin&&<TestQueuePeek data={data} setTab={setTab} showStartBtn/>}
-    {isAdmin&&<TestQueuePeek data={data}/>}
-    {isAdmin&&<AdminSummary data={data} setTab={setTab}/>}
-    <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today,ctx.setModal)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
-  </div>;
+  );
 }
 function AdminSummary({data, setTab}){
   const today = TODAY();
