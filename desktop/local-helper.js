@@ -29,6 +29,11 @@ const path = require('path');
 const { exec } = require('child_process');
 const TelegramBot = require('node-telegram-bot-api').default || require('node-telegram-bot-api');
 
+// Telegram config placeholders to prevent ReferenceError crashes
+let telegramChatId = null;
+let bot = { sendMessage: () => {} }; // Dummy bot to prevent TypeError if telegramChatId is set but bot is not initialized
+
+
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = 'https://paelbarlmayswqilhoxa.supabase.co';
