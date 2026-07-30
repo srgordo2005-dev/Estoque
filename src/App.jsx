@@ -2450,21 +2450,33 @@ function MacPage({ctx}){
   const openDetail=m=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>);
   const selMachines=filtered.filter(m=>selected.has(m._id));
   return<div>
-    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}><div><div style={{fontWeight:900,fontSize:18}}>Máquinas</div><div style={{color:C.muted,fontSize:12}}>{data.machines.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={()=>setModal(<Modal title="Mapeamento de Prateleira" onClose={()=>setModal(null)}><MapeamentoPrateleira ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.blue}}>📍 Mapear Prateleira</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div></div>
-    <div style={{background:C.card,borderRadius:10,padding:"8px 12px",display:"flex",gap:8,marginBottom:10}}>🔍<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="SN, modelo, local, destino, ref..." style={{background:"none",border:"none",color:C.text,fontSize:13,flex:1,outline:"none"}}/></div>
-    <FilterBar filters={macFilters} active={activeFilters} onToggle={toggleFilter} counts={macCounts} label={"Situação/Tipo ("+filtered.length+"/"+data.machines.length+")"}/>
-    {allModelsUsed.length>0&&<div style={{marginBottom:10}}>
-      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>MODELO (múltipla escolha){modelFilters.size>0&&<button onClick={()=>setModelFilters(new Set())} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:10,marginLeft:8}}>limpar</button>}</div>
-      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{allModelsUsed.map(mo=><button key={mo} onClick={()=>toggleModel(mo)} style={{background:modelFilters.has(mo)?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{mo}</button>)}</div>
-    </div>}
-    {selMode&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      <button onClick={()=>{const all=new Set(filtered.map(m=>m._id));setSelected(prev=>prev.size===filtered.length?new Set():all)}} style={{background:selected.size===filtered.length&&filtered.length>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{selected.size===filtered.length&&filtered.length>0?"✓ Todos selecionados":"Selecionar tudo ("+filtered.length+")"}</button>
-      {selected.size>0&&<><Tag color={C.accent}>{selected.size} selecionadas</Tag>
-      <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🏷️ Mudar Status</Btn>
-      <Btn v="p" onClick={()=>setBulkAction("pallet")} style={{fontSize:11,padding:"6px 10px"}}>📦 Mover p/ Palete</Btn>
-      <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>👤 Enviar p/ Cliente</Btn>
-      <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn></> }
-    </div>}
+    <div className="sticky-header" style={{display:"flex", flexDirection:"column", gap: 14, marginBottom:14, padding: "20px 28px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+<div><div style={{fontWeight:900,fontSize:18}}>Máquinas</div><div style={{color:C.muted,fontSize:12}}>{data.machines.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={()=>setModal(<Modal title="Mapeamento de Prateleira" onClose={()=>setModal(null)}><MapeamentoPrateleira ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.blue}}>📍 Mapear Prateleira</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div>
+      </div>
+      
+      {/* Search Bar - Larger */}
+      <div style={{background:C.card,borderRadius:14,padding:"14px 18px",display:"flex",gap:12, alignItems:"center", border: `1px solid rgba(255,215,0,0.3)`, boxShadow: 'inset 0 0 10px rgba(255,215,0,0.05)'}}>
+        <span style={{fontSize: 22}}>🔍</span>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por SN, modelo, local, destino..." style={{background:"none",border:"none",color:C.text,fontSize:16,flex:1,outline:"none", fontWeight:600}}/>
+      </div>
+
+      <FilterBar filters={macFilters} active={activeFilters} onToggle={toggleFilter} counts={macCounts} label={"Situação/Tipo ("+filtered.length+"/"+data.machines.length+")"}/>
+      
+      {allModelsUsed.length>0&&<div>
+        <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>MODELO (múltipla escolha){modelFilters.size>0&&<button onClick={()=>setModelFilters(new Set())} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:10,marginLeft:8}}>limpar</button>}</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{allModelsUsed.map(mo=><button key={mo} onClick={()=>toggleModel(mo)} style={{background:modelFilters.has(mo)?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{mo}</button>)}</div>
+      </div>}
+
+      {selMode&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <button onClick={()=>{const all=new Set(filtered.map(m=>m._id));setSelected(prev=>prev.size===filtered.length?new Set():all)}} style={{background:selected.size===filtered.length&&filtered.length>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{selected.size===filtered.length&&filtered.length>0?"✅ Todos selecionados":"Selecionar tudo ("+filtered.length+")"}</button>
+        {selected.size>0&&<><Tag color={C.accent}>{selected.size} selecionadas</Tag>
+        <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🛠️ Mudar Status</Btn>
+        <Btn v="p" onClick={()=>setBulkAction("pallet")} style={{fontSize:11,padding:"6px 10px"}}>📦 Mover p/ Palete</Btn>
+        <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>🚚 Enviar p/ Cliente</Btn>
+        <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn></> }
+      </div>}
+    </div>
     {sorted.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}>
         <div style={{fontSize:40}}>🖥️</div>
         <div>Nenhuma máquina</div>
@@ -3757,7 +3769,7 @@ function DataCenterPage({ctx}) {
                 
                 <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
                 
-                <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="🔍 Buscar IP, SN, Slot..." style={{background:C.card2, border:'1px solid '+C.border, color:C.text, padding:'4px 10px', borderRadius:4, fontSize:11, width:200}} />
+                <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="🔍 Buscar IP, SN, Slot..." style={{background:C.card2, border:'1px solid rgba(255,215,0,0.5)', color:C.text, padding:'8px 14px', borderRadius:8, fontSize:14, width:280, fontWeight:600}} />
                 {viewType === 'rack' && (
                     <div style={{display:'flex', alignItems:'center', gap:8, marginLeft:'auto'}}>
                         <span style={{fontSize:11, color:C.subtle, fontWeight:800}}>TAMANHO SLOT:</span>
@@ -5147,21 +5159,37 @@ function HashPage({ctx}){
   const counts=Object.fromEntries(HST_OPTS.map(s=>[s,data.hashes.filter(h=>h.status===s).length]));
   const selHashes=filtered.filter(h=>selected.has(h._id));
   return<div>
-    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}><div><div style={{fontWeight:900,fontSize:18}}>HASHboards</div><div style={{color:C.muted,fontSize:12}}>{data.hashes.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div></div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>{[["TESTAR",C.amber,"Testar"],["REPARO",C.purple,"Reparo"],["ON",C.green,"ON"],["NA MAQUINA",C.blue,"Na Máq."],["OFF",C.red,"OFF"]].map(([s,c,l])=><div key={s} style={{background:C.card,borderRadius:10,padding:"10px 4px",textAlign:"center",borderTop:`2px solid ${c}`}}><div style={{fontSize:20,fontWeight:900,color:c}}>{counts[s]||0}</div><div style={{fontSize:8,color:C.muted,fontWeight:700}}>{l}</div></div>)}</div>
-    <div style={{background:C.card,borderRadius:10,padding:"8px 12px",display:"flex",gap:8,marginBottom:10}}>🔍<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="SN, modelo ou local..." style={{background:"none",border:"none",color:C.text,fontSize:13,flex:1,outline:"none"}}/></div>
-    <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}><button onClick={()=>setFS("all")} style={{background:fS==="all"?C.accent:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todas</button>{HST_OPTS.map(s=><button key={s} onClick={()=>setFS(s)} style={{background:fS===s?HST_C[s]:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{s}</button>)}</div>
-    {allModelsUsed.length>0&&<div style={{marginBottom:10}}>
-      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>MODELO (múltipla escolha){modelFilters.size>0&&<button onClick={()=>setModelFilters(new Set())} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:10,marginLeft:8}}>limpar</button>}</div>
-      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{allModelsUsed.map(mo=><button key={mo} onClick={()=>toggleModel(mo)} style={{background:modelFilters.has(mo)?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{mo}</button>)}</div>
-    </div>}
-    {selMode&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,marginBottom:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      <button onClick={()=>{const all=new Set(filtered.map(h=>h._id));setSelected(prev=>prev.size===filtered.length&&filtered.length>0?new Set():all)}} style={{background:selected.size===filtered.length&&filtered.length>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{selected.size===filtered.length&&filtered.length>0?"✓ Todos selecionados":"Selecionar tudo ("+filtered.length+")"}</button>
-      <Tag color={C.accent}>{selected.size} selecionadas</Tag>
-      <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🏷️ Mudar Status</Btn>
-      <Btn v="p" onClick={()=>setBulkAction("location")} style={{fontSize:11,padding:"6px 10px"}}>📍 Mudar Local</Btn>
-      <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn>
-    </div>}
+    <div className="sticky-header" style={{display:"flex", flexDirection:"column", gap: 14, marginBottom:14, padding: "20px 28px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+<div><div style={{fontWeight:900,fontSize:18}}>HASHboards</div><div style={{color:C.muted,fontSize:12}}>{data.hashes.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div>
+      </div>
+      
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:8}}>
+{[["TESTAR",C.amber,"Testar"],["REPARO",C.purple,"Reparo"],["ON",C.green,"ON"],["NA MAQUINA",C.blue,"Na Máq."],["OFF",C.red,"OFF"]].map(([s,c,l])=><div key={s} style={{background:C.card,borderRadius:10,padding:"10px 4px",textAlign:"center",borderTop:`2px solid ${c}`}}><div style={{fontSize:20,fontWeight:900,color:c}}>{counts[s]||0}</div><div style={{fontSize:8,color:C.muted,fontWeight:700}}>{l}</div></div>)}
+      </div>
+
+      {/* Search Bar - Larger */}
+      <div style={{background:C.card,borderRadius:14,padding:"14px 18px",display:"flex",gap:12, alignItems:"center", border: `1px solid rgba(255,215,0,0.3)`, boxShadow: 'inset 0 0 10px rgba(255,215,0,0.05)'}}>
+        <span style={{fontSize: 22}}>🔍</span>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por SN, modelo, local..." style={{background:"none",border:"none",color:C.text,fontSize:16,flex:1,outline:"none", fontWeight:600}}/>
+      </div>
+
+      <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
+<button onClick={()=>setFS("all")} style={{background:fS==="all"?C.accent:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todas</button>{HST_OPTS.map(s=><button key={s} onClick={()=>setFS(s)} style={{background:fS===s?HST_C[s]:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{s}</button>)}
+      </div>
+      
+      {allModelsUsed.length>0&&<div>
+        <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>MODELO (múltipla escolha){modelFilters.size>0&&<button onClick={()=>setModelFilters(new Set())} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:10,marginLeft:8}}>limpar</button>}</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>{allModelsUsed.map(mo=><button key={mo} onClick={()=>toggleModel(mo)} style={{background:modelFilters.has(mo)?C.accent:C.card2,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{mo}</button>)}</div>
+      </div>}
+
+      {selMode&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <button onClick={()=>{const all=new Set(filtered.map(h=>h._id));setSelected(prev=>prev.size===filtered.length?new Set():all)}} style={{background:selected.size===filtered.length&&filtered.length>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{selected.size===filtered.length&&filtered.length>0?"✅ Todas selecionadas":"Selecionar tudo ("+filtered.length+")"}</button>
+        {selected.size>0&&<><Tag color={C.accent}>{selected.size} selecionadas</Tag>
+        <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🛠️ Mudar Status</Btn>
+        <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn></> }
+      </div>}
+    </div>
     {sorted.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}>
         <div style={{fontSize:40}}>⚡</div>
         <div>Nenhuma HASH</div>

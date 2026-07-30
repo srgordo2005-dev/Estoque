@@ -3,10 +3,10 @@
 body {
   /* Fundo Mármore Preto com Veios Dourados/Prateados mais evidentes */
   background: #02040a url('https://www.transparenttextures.com/patterns/black-mamba.png');
-  background-color: #05070a;
+  background-color: #0a0f19;
   background-image: 
-    radial-gradient(circle at 10% 20%, rgba(255, 215, 0, 0.15) 0%, transparent 50%),
-    radial-gradient(circle at 90% 80%, rgba(14, 165, 233, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 10% 20%, rgba(255, 215, 0, 0.3) 0%, transparent 50%),
+    radial-gradient(circle at 90% 80%, rgba(14, 165, 233, 0.25) 0%, transparent 50%),
     radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 60%),
     url('https://www.transparenttextures.com/patterns/black-mamba.png');
   color: #fff;
@@ -164,8 +164,8 @@ h1, h2, h3, h4, h5, h6, .serif-title {
 
 .floating-coin {
   position: absolute;
-  opacity: 0.25;
-  filter: drop-shadow(0 0 15px rgba(255,215,0,0.6));
+  opacity: 0.5;
+  filter: drop-shadow(0 0 20px rgba(255,215,0,0.9));
   animation: float-coin 15s infinite ease-in-out;
   font-weight: bold;
   color: #ffd700;
