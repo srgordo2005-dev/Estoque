@@ -33,6 +33,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = 'https://paelbarlmayswqilhoxa.supabase.co';
 const supabaseKey = 'sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h';
+global.WebSocket = require('ws');
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Parse --farm argument from command line or default to "Fazenda Principal"

@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Outfit:wght@300;400;600;800;900&display=swap');
 
 body {
-  overflow-x: hidden;
+  
   /* Fundo Mármore Preto com Veios Dourados/Prateados mais evidentes */
   background: #02040a url('https://www.transparenttextures.com/patterns/black-mamba.png');
   background-color: #0a0f19;
@@ -12,7 +12,7 @@ body {
     url('https://www.transparenttextures.com/patterns/black-mamba.png');
   color: #fff;
   font-family: 'Outfit', sans-serif;
-  overflow-x: hidden;
+  
   margin: 0;
   padding: 0;
 }
