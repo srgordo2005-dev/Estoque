@@ -2160,7 +2160,17 @@ function AdminSummary({data, setTab}){
     else if (m.situacao === "ENTRADA OFICINA") ms[m.model].conserto++;
     else ms[m.model].ruim++;
   });
-  const totalRepairsAllTime = data.repairs.filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+  const normD = d => {
+    if (!d) return "";
+    if (d.includes("/")) {
+      const p = d.split("/");
+      if (p.length === 3) return `${p[2]}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`;
+    }
+    return d.slice(0, 10);
+  };
+  const totalRepairsAllTime = (data.repairs || []).filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+  const repairsTodayCount = (data.repairs || []).filter(r => (normD(r.date) === today || normD(r._at) === today) && r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+  const testsTodayCount = (data.tests || []).filter(t => normD(t.date) === today || normD(t._at) === today).length;
   const totalBoas = Object.values(ms).reduce((sum, s) => sum + s.boa, 0);
 
   const filterAndNav = (modelStr, sitStr, typeStr) => {
@@ -2215,7 +2225,7 @@ function AdminSummary({data, setTab}){
           }}
           style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #12281b 0%, #0b1a11 100%)'}}
         >
-          <div style={{fontSize: 26, fontWeight: 900, color: C.green}}>{data.repairs.filter(r => r.date === today && r.type !== "already_good").length}</div>
+          <div style={{fontSize: 26, fontWeight: 900, color: C.green}}>{repairsTodayCount}</div>
           <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>🔧 Consertos Hoje</div>
           <div style={{fontSize: 10, color: C.subtle}}>Ver Equipe ➔</div>
         </Card>
@@ -2230,7 +2240,7 @@ function AdminSummary({data, setTab}){
           }}
           style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #221533 0%, #150d21 100%)'}}
         >
-          <div style={{fontSize: 26, fontWeight: 900, color: C.purple}}>{data.tests.filter(t => t.date === today).length}</div>
+          <div style={{fontSize: 26, fontWeight: 900, color: C.purple}}>{testsTodayCount}</div>
           <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>🧪 Testes Hoje</div>
           <div style={{fontSize: 10, color: C.subtle}}>Ver Equipe ➔</div>
         </Card>
@@ -3509,6 +3519,9 @@ function DataCenterPage({ctx}) {
     const farmsList = useMemo(() => {
         const list = Array.from(new Set(farmMachines.map(m => m.location || "Fazenda Principal"))).filter(Boolean);
         if (list.length === 0) list.push("Fazenda Principal");
+        if (!list.includes("📡 Scanner BTC Tools (Geral)")) {
+            list.push("📡 Scanner BTC Tools (Geral)");
+        }
         return list;
     }, [farmMachines]);
 
