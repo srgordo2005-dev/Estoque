@@ -2096,6 +2096,7 @@ function AdminSummary({data, setTab}){
         <Card 
           accent={C.green} 
           onClick={() => {
+            localStorage.setItem("hs_team_subtab", "daily");
             localStorage.setItem("hs_team_start_date", today);
             localStorage.setItem("hs_team_end_date", today);
             if (setTab) setTab("team");
@@ -2110,6 +2111,7 @@ function AdminSummary({data, setTab}){
         <Card 
           accent={C.purple} 
           onClick={() => {
+            localStorage.setItem("hs_team_subtab", "daily");
             localStorage.setItem("hs_team_start_date", today);
             localStorage.setItem("hs_team_end_date", today);
             if (setTab) setTab("team");
@@ -7567,7 +7569,13 @@ function ApprovalsPage({ctx}){
 /* ═══ TEAM ══════════════════════════════════════════════════════ */
 function TeamPage({ctx,canSeeEmp}){
   const{data,mutate,setModal,user}=ctx;const today=TODAY();
-  const[subTab,setSubTab]=useState("list"),[dailyEmp,setDailyEmp]=useState("");
+  const savedSubTab = localStorage.getItem("hs_team_subtab");
+  const[subTab,setSubTab]=useState(savedSubTab || "list"),[dailyEmp,setDailyEmp]=useState("");
+
+  useEffect(() => {
+    localStorage.removeItem("hs_team_subtab");
+  }, []);
+
   const isSuper=user.code==="019";const openAdd=()=>setModal(<Modal title="Novo Funcionário" onClose={()=>setModal(null)}><AddEmpForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openProfile=e=>setModal(<Modal title={`${e.name} #${e.code}`} onClose={()=>setModal(null)}><EmpProfile ctx={ctx} emp={e}/></Modal>);
   return<div>
