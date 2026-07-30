@@ -1743,20 +1743,7 @@ export default function App(){
 
       {/* MAIN CONTENT WRAPPER */}
       <div className="app-main-content">
-        {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} canApprove={canApprove} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
-        {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
-        {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
-        {tab==="conserto"&&p.repairs&&<ConsertaPage ctx={ctx}/>}
-        {tab==="teste"&&p.testing&&<TestePage ctx={ctx}/>}
-        {tab==="guia"&&(p.repairs||p.testing||isAdmin)&&<GuiaTecnicoPage ctx={ctx} C={C} Tag={Tag}/>}
-        {tab==="pedidos"&&(p.orders||isAdmin)&&<SafeTab><OrdersPage ctx={ctx}/></SafeTab>}
-        {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
-        {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}
-        {tab==="cli"&&canSeeClients&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}
-        {tab==="approvals"&&canApprove&&<ApprovalsPage ctx={ctx}/>}
-        {tab==="team"&&canSeeTeam&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
-        {tab==="datacenter"&&user?.code==="019"&&<DataCenterPage ctx={ctx}/>}
-        {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
+        
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
