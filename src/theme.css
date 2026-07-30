@@ -1,0 +1,32 @@
+
+body {
+  background: #000 url('https://www.transparenttextures.com/patterns/black-mamba.png');
+  background-color: #050505;
+  color: #fff;
+}
+.gold-text {
+  background: linear-gradient(to right, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.card-3d {
+  background: linear-gradient(145deg, #111, #222);
+  border: 1px solid #bf953f;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.5), inset 0 0 15px rgba(191,149,63,0.1);
+  border-radius: 16px;
+  padding: 20px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.card-3d:hover {
+  transform: translateY(-5px) scale(1.02);
+  box-shadow: 0 15px 30px rgba(191,149,63,0.3);
+}
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(5,5,5,0.9);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid #bf953f;
+}
+

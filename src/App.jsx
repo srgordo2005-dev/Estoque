@@ -2130,22 +2130,23 @@ function TestQueuePeek({data,setTab,showStartBtn}){
 }
 
 function BtcLiveTicker() {
-  const [btcData, setBtcData] = useState({ price: 0, change24h: 0, loading: true });
+  const [btcData, setBtcData] = useState({ priceUSD: 0, priceBRL: 0, change24h: 0, loading: true });
 
   useEffect(() => {
     const fetchBtcPrice = async () => {
       try {
-        const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true");
+        const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,brl&include_24hr_change=true");
         if (res.ok) {
           const d = await res.json();
           setBtcData({
-            price: d.bitcoin.usd,
+            priceUSD: d.bitcoin.usd,
+            priceBRL: d.bitcoin.brl,
             change24h: d.bitcoin.usd_24h_change || 0,
             loading: false
           });
         }
       } catch(e) {
-        setBtcData({ price: 65420, change24h: 1.85, loading: false });
+        setBtcData({ priceUSD: 65420, priceBRL: 327100, change24h: 1.85, loading: false });
       }
     };
     fetchBtcPrice();
@@ -2156,46 +2157,34 @@ function BtcLiveTicker() {
   const isPos = btcData.change24h >= 0;
 
   return (
-    <div style={{
-      background: 'linear-gradient(135deg, rgba(240,185,11,0.15) 0%, rgba(13,37,56,0.4) 100%)',
-      border: '1px solid rgba(240,185,11,0.4)',
-      borderRadius: 16,
-      padding: '16px 20px',
-      marginBottom: 16,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-      backdropFilter: 'blur(12px)'
-    }}>
-      <div style={{display:'flex', alignItems:'center', gap:14}}>
+    <div className="card-3d" style={{ marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 30px' }}>
+      <div style={{display:'flex', alignItems:'center', gap:20}}>
         <div style={{
-          width: 48, height: 48, borderRadius: '50%',
+          width: 64, height: 64, borderRadius: '50%',
           background: 'linear-gradient(135deg, #FFE259 0%, #FFA751 100%)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 24, fontWeight: 900, color: '#000',
-          boxShadow: '0 0 16px rgba(240,185,11,0.5)'
+          fontSize: 32, fontWeight: 900, color: '#000',
+          boxShadow: '0 0 20px rgba(240,185,11,0.6)'
         }}>₿</div>
         <div>
-          <div style={{fontSize:11, color:C.subtle, fontWeight:800, letterSpacing:1}}>BITCOIN / USD (COTAÇÃO AO VIVO)</div>
-          <div style={{fontFamily:"'Cinzel', serif", fontSize:24, fontWeight:900, color:C.accent}}>
-            {btcData.loading ? "Carregando..." : `${btcData.price.toLocaleString("en-US", {minimumFractionDigits: 2})}`}
+          <div style={{fontSize:14, color:'#aaa', fontWeight:800, letterSpacing:2}}>COTAÇÃO BITCOIN AO VIVO</div>
+          <div className="gold-text" style={{fontFamily:"'Cinzel', serif", fontSize:32, fontWeight:900, marginTop:4}}>
+            {btcData.loading ? "Carregando..." : "U$ " + btcData.priceUSD.toLocaleString("en-US", {minimumFractionDigits: 2})}
           </div>
         </div>
       </div>
-
       <div style={{textAlign:'right'}}>
         <div style={{
-          fontSize: 13, fontWeight: 800,
-          color: isPos ? C.green : C.red,
-          background: isPos ? C.green + '22' : C.red + '22',
-          padding: '4px 10px', borderRadius: 20,
-          border: `1px solid ${isPos ? C.green : C.red}`,
+          fontSize: 16, fontWeight: 900,
+          color: isPos ? '#4ade80' : '#f87171',
+          background: isPos ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)',
+          padding: '8px 16px', borderRadius: 30,
+          border: '1px solid ' + (isPos ? '#4ade80' : '#f87171'),
           display: 'inline-block'
         }}>
           {isPos ? '▲ +' : '▼ '}{btcData.change24h.toFixed(2)}% (24h)
         </div>
-        <div style={{fontSize:10, color:C.subtle, marginTop:4}}>Fonte: Mercado Global Crypto</div>
+        <div style={{fontSize:12, color:'#888', marginTop:8}}>Fonte: Mercado Global Crypto</div>
       </div>
     </div>
   );
@@ -2261,65 +2250,47 @@ function AdminSummary({data, setTab}){
 
   return (
     <>
-      {/* CARD GRIDS */}
-      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14}}>
-        <Card 
-          accent={C.accent} 
-          onClick={() => filterAndNav("", "", "")}
-          style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #1e2230 0%, #111420 100%)'}}
-        >
-          <div style={{fontSize: 26, fontWeight: 900, color: C.accent}}>{data.machines.length}</div>
-          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>🖥️ Máquinas</div>
-          <div style={{fontSize: 10, color: C.subtle}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} ok · Ver todas ➔</div>
-        </Card>
+      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24}}>
+        <div className="card-3d" onClick={() => filterAndNav("", "", "")} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{data.machines.length}</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🖥️ Máquinas Cadastradas</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} Prontas · Ver todas ➔</div>
+        </div>
 
-        <Card 
-          accent={C.blue} 
-          onClick={() => {
+        <div className="card-3d" onClick={() => {
             localStorage.setItem("hs_team_subtab", "daily");
             localStorage.setItem("hs_team_start_date", "");
             localStorage.setItem("hs_team_end_date", "");
             if (setTab) setTab("team");
-          }}
-          style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #122033 0%, #0c1524 100%)'}}
-        >
-          <div style={{fontSize: 26, fontWeight: 900, color: C.blue}}>{totalRepairsAllTime}</div>
-          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>📜 Total Consertadas</div>
-          <div style={{fontSize: 10, color: C.subtle}}>Todo o Histórico ➔</div>
-        </Card>
+          }} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{totalRepairsAllTime}</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>📜 Total Consertadas (Geral)</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Acessar Histórico ➔</div>
+        </div>
 
-        <Card 
-          accent={C.green} 
-          onClick={() => {
+        <div className="card-3d" onClick={() => {
             localStorage.setItem("hs_team_subtab", "daily");
             localStorage.setItem("hs_team_start_date", today);
             localStorage.setItem("hs_team_end_date", today);
             if (setTab) setTab("team");
-          }}
-          style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #12281b 0%, #0b1a11 100%)'}}
-        >
-          <div style={{fontSize: 26, fontWeight: 900, color: C.green}}>{repairsTodayCount}</div>
-          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>🔧 Consertos Hoje</div>
-          <div style={{fontSize: 10, color: C.subtle}}>Ver Equipe ➔</div>
-        </Card>
+          }} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{repairsTodayCount}</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🔧 Consertos Hoje</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
+        </div>
 
-        <Card 
-          accent={C.purple} 
-          onClick={() => {
+        <div className="card-3d" onClick={() => {
             localStorage.setItem("hs_team_subtab", "daily");
             localStorage.setItem("hs_team_start_date", today);
             localStorage.setItem("hs_team_end_date", today);
             if (setTab) setTab("team");
-          }}
-          style={{margin: 0, cursor: 'pointer', background: 'linear-gradient(135deg, #221533 0%, #150d21 100%)'}}
-        >
-          <div style={{fontSize: 26, fontWeight: 900, color: C.purple}}>{testsTodayCount}</div>
-          <div style={{fontWeight: 700, fontSize: 12, marginTop: 4, color: '#fff'}}>🧪 Testes Hoje</div>
-          <div style={{fontSize: 10, color: C.subtle}}>Ver Equipe ➔</div>
-        </Card>
+          }} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{testsTodayCount}</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🧪 Testes Hoje</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
+        </div>
       </div>
-
-      {/* TABELA DE MODELOS COM FILTROS INTERATIVOS COMBINADOS */}
+{/* TABELA DE MODELOS COM FILTROS INTERATIVOS COMBINADOS */}
       <Card style={{background: 'linear-gradient(135deg, #181d28 0%, #10131c 100%)', border: `1px solid ${C.border}`}}>
         <div style={{fontWeight: 800, fontSize: 14, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
           <span style={{color: C.accent}}>📊 POR MODELO (INTERATIVO)</span>
@@ -2490,7 +2461,7 @@ function MacPage({ctx}){
   const openDetail=m=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>);
   const selMachines=filtered.filter(m=>selected.has(m._id));
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>Máquinas</div><div style={{color:C.muted,fontSize:12}}>{data.machines.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={()=>setModal(<Modal title="Mapeamento de Prateleira" onClose={()=>setModal(null)}><MapeamentoPrateleira ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.blue}}>📍 Mapear Prateleira</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div></div>
+    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}><div><div style={{fontWeight:900,fontSize:18}}>Máquinas</div><div style={{color:C.muted,fontSize:12}}>{data.machines.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={()=>setModal(<Modal title="Mapeamento de Prateleira" onClose={()=>setModal(null)}><MapeamentoPrateleira ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.blue}}>📍 Mapear Prateleira</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div></div>
     <div style={{background:C.card,borderRadius:10,padding:"8px 12px",display:"flex",gap:8,marginBottom:10}}>🔍<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="SN, modelo, local, destino, ref..." style={{background:"none",border:"none",color:C.text,fontSize:13,flex:1,outline:"none"}}/></div>
     <FilterBar filters={macFilters} active={activeFilters} onToggle={toggleFilter} counts={macCounts} label={"Situação/Tipo ("+filtered.length+"/"+data.machines.length+")"}/>
     {allModelsUsed.length>0&&<div style={{marginBottom:10}}>
@@ -5151,7 +5122,7 @@ function HashPage({ctx}){
   const counts=Object.fromEntries(HST_OPTS.map(s=>[s,data.hashes.filter(h=>h.status===s).length]));
   const selHashes=filtered.filter(h=>selected.has(h._id));
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>HASHboards</div><div style={{color:C.muted,fontSize:12}}>{data.hashes.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div></div>
+    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}><div><div style={{fontWeight:900,fontSize:18}}>HASHboards</div><div style={{color:C.muted,fontSize:12}}>{data.hashes.length} cadastradas</div></div><div style={{display:"flex",gap:6}}><Btn v={selMode?"d":"s"} onClick={()=>{setSelMode(s=>!s);setSelected(new Set())}} style={{fontSize:12,padding:"8px 10px"}}>{selMode?"✕":"☑️"}</Btn><Btn onClick={openAdd}>+ Adicionar</Btn></div></div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:8,marginBottom:14}}>{[["TESTAR",C.amber,"Testar"],["REPARO",C.purple,"Reparo"],["ON",C.green,"ON"],["NA MAQUINA",C.blue,"Na Máq."],["OFF",C.red,"OFF"]].map(([s,c,l])=><div key={s} style={{background:C.card,borderRadius:10,padding:"10px 4px",textAlign:"center",borderTop:`2px solid ${c}`}}><div style={{fontSize:20,fontWeight:900,color:c}}>{counts[s]||0}</div><div style={{fontSize:8,color:C.muted,fontWeight:700}}>{l}</div></div>)}</div>
     <div style={{background:C.card,borderRadius:10,padding:"8px 12px",display:"flex",gap:8,marginBottom:10}}>🔍<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="SN, modelo ou local..." style={{background:"none",border:"none",color:C.text,fontSize:13,flex:1,outline:"none"}}/></div>
     <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:2}}><button onClick={()=>setFS("all")} style={{background:fS==="all"?C.accent:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todas</button>{HST_OPTS.map(s=><button key={s} onClick={()=>setFS(s)} style={{background:fS===s?HST_C[s]:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{s}</button>)}</div>
@@ -7349,7 +7320,7 @@ function HistPage({ctx,canSeeEmp}){
     await markChanged(col);
   };
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,dateFilter||TODAY(),ctx.setModal)}>📋 Relatório</Btn></div>
+    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}><div style={{fontWeight:900,fontSize:18}}>Histórico</div><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,dateFilter||TODAY(),ctx.setModal)}>📋 Relatório</Btn></div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>{[["mine","Meus"],["all","Todos"]].map(([id,l])=><button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?C.accent:C.card,color:filter===id?"#fff":C.muted,border:"none",borderRadius:20,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>)}</div>
     <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="📅 FILTRAR POR DATA" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div>{dateFilter&&<Btn v="s" onClick={()=>setDateFilter("")} style={{marginBottom:12}}>Limpar</Btn>}</div>
     {all.length===0&&<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>{dateFilter?"Sem registros nesta data":"Sem histórico ainda"}</div>}
@@ -9665,7 +9636,7 @@ function ClientesPage({ctx}){
   const openAdd=()=>setModal(<Modal title="Novo Cliente" onClose={()=>setModal(null)}><AddClientForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openDetail=c=>setModal(<Modal title={"👤 "+c.name} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={c}/></Modal>);
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}><div><div style={{fontWeight:900,fontSize:18}}>Clientes</div><div style={{color:C.muted,fontSize:12}}>{clients.length} clientes</div></div><Btn onClick={openAdd}>+ Cliente</Btn></div>
+    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}><div><div style={{fontWeight:900,fontSize:18}}>Clientes</div><div style={{color:C.muted,fontSize:12}}>{clients.length} clientes</div></div><Btn onClick={openAdd}>+ Cliente</Btn></div>
     {clients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente</div></div>
       :clients.map(c=>{const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);return<Card key={c._id} onClick={()=>openDetail(c)}>
         <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:14}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.muted,fontSize:12}}>📱 {c.phone}</div>}</div><Tag color={C.accent}>{macs.length} máq.</Tag></div>
@@ -9693,7 +9664,7 @@ function OrdersPage({ctx}){
   const orders=(data.orders||[]).filter(o=>o.status!=="cancelled").slice().sort((a,b)=>(b.number||0)-(a.number||0));
   const openAdd=()=>setModal(<Modal title="📝 Novo Pedido" onClose={()=>setModal(null)}><AddOrderForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   return<div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}>
       <div><div style={{fontWeight:900,fontSize:18}}>Pedidos</div><div style={{color:C.muted,fontSize:12}}>{orders.length} pedido(s)</div></div>
       <Btn onClick={openAdd}>+ Novo Pedido</Btn>
     </div>
