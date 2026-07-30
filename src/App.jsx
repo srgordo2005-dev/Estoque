@@ -1662,8 +1662,128 @@ export default function App(){
         {tab==="datacenter"&&user?.code==="019"&&<DataCenterPage ctx={ctx}/>}
         {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
       </div>
-      <nav style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:1240,background:C.card,borderTop:`1px solid ${C.border}`,display:"flex",zIndex:100}}>
-        {TABS.map(t=><button key={t.id} onClick={()=>changeTab(t.id)} style={{flex:1,background:"none",border:"none",padding:"8px 2px 12px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:tab===t.id?C.accent:C.muted}}><span style={{fontSize:17}}>{t.icon}</span><span style={{fontSize:8,fontWeight:800}}>{t.label}</span></button>)}
+      {/* NAVEGAÇÃO LATERAL TECNOLÓGICA & RESPONSIVA */}
+      <style>{`
+        @media (min-width: 900px) {
+          .app-layout-wrapper { display: flex !important; min-height: 100vh; }
+          .app-sidebar { width: 250px; min-width: 250px; background: #0c1017; border-right: 1px solid ${C.border}; display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 200; backdrop-filter: blur(16px); }
+          .app-main-content { flex: 1; margin-left: 250px; padding: 20px 24px 40px !important; max-width: calc(100% - 250px); }
+          .mobile-bottom-nav { display: none !important; }
+        }
+        @media (max-width: 899px) {
+          .app-sidebar { display: none !important; }
+          .app-main-content { padding: 14px 12px 100px !important; }
+          .mobile-bottom-nav { display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; background: #0c1017; border-top: 1px solid ${C.border}; z-index: 200; }
+        }
+      `}</style>
+
+      {/* SIDEBAR PARA COMPUTADOR (PC) */}
+      <aside className="app-sidebar">
+        <div style={{padding: "20px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10}}>
+          <span style={{fontSize: 24, animation: 'bounce 2s infinite'}}>⛏️</span>
+          <div>
+            <div style={{fontWeight: 900, fontSize: 16, color: C.accent, letterSpacing: 0.5}}>HASHSTOCK</div>
+            <div style={{fontSize: 11, color: C.muted, fontWeight: 700}}>
+              {user.name} #{user.code} {syncing ? "· 🔄" : ""}
+            </div>
+          </div>
+        </div>
+
+        {/* LISTA DE MENU LATERAL DA SIDEBAR */}
+        <div style={{flex: 1, overflowY: "auto", padding: "14px 10px", display: "flex", flexDirection: "column", gap: 4}}>
+          {TABS.map(t => {
+            const isActive = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => changeTab(t.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "11px 14px",
+                  borderRadius: 12,
+                  border: isActive ? `1px solid ${C.accent}55` : "1px solid transparent",
+                  background: isActive ? `linear-gradient(90deg, ${C.accent}22 0%, ${C.card2} 100%)` : "transparent",
+                  color: isActive ? C.accent : C.subtle,
+                  fontWeight: isActive ? 900 : 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "all 0.2s ease"
+                }}
+              >
+                <span style={{fontSize: 18, filter: isActive ? `drop-shadow(0 0 6px ${C.accent})` : "none"}}>{t.icon}</span>
+                <span style={{flex: 1}}>{t.label}</span>
+                {isActive && <div style={{width: 6, height: 6, borderRadius: "50%", background: C.accent, boxShadow: `0 0 8px ${C.accent}`}}></div>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* STATUS BAR NO RODAPÉ DA SIDEBAR */}
+        <div style={{padding: "14px 16px", borderTop: `1px solid ${C.border}`, background: C.card2, fontSize: 11, color: C.subtle, display: "flex", flexDirection: "column", gap: 8}}>
+          <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+            <span>Status da Conexão:</span>
+            <div style={{display: "flex", gap: 6}}>
+              <div title="Supabase" style={{width: 8, height: 8, borderRadius: "50%", background: dbConnected ? C.green : C.red}} />
+              <div title="Local Helper" style={{width: 8, height: 8, borderRadius: "50%", background: localConnected ? C.green : C.red}} />
+            </div>
+          </div>
+          <div style={{display: "flex", gap: 6, marginTop: 4}}>
+            <button onClick={toggleTheme} style={{flex: 1, background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "6px 0", fontSize: 11, fontWeight: 700, cursor: "pointer"}}>
+              {theme === "dark" ? "☀️ Claro" : "🌙 Escuro"}
+            </button>
+            <button onClick={() => { setUser(null); setTab("home"); }} style={{flex: 1, background: C.red + '22', border: `1px solid ${C.red}`, color: C.red, borderRadius: 8, padding: "6px 0", fontSize: 11, fontWeight: 800, cursor: "pointer"}}>
+              🚪 Sair
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT WRAPPER */}
+      <div className="app-main-content">
+        {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} canApprove={canApprove} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
+        {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
+        {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
+        {tab==="conserto"&&p.repairs&&<ConsertaPage ctx={ctx}/>}
+        {tab==="teste"&&p.testing&&<TestePage ctx={ctx}/>}
+        {tab==="guia"&&(p.repairs||p.testing||isAdmin)&&<GuiaTecnicoPage ctx={ctx} C={C} Tag={Tag}/>}
+        {tab==="pedidos"&&(p.orders||isAdmin)&&<SafeTab><OrdersPage ctx={ctx}/></SafeTab>}
+        {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+        {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}
+        {tab==="cli"&&canSeeClients&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}
+        {tab==="approvals"&&canApprove&&<ApprovalsPage ctx={ctx}/>}
+        {tab==="team"&&canSeeTeam&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+        {tab==="datacenter"&&user?.code==="019"&&<DataCenterPage ctx={ctx}/>}
+        {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
+      </div>
+
+      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      <nav className="mobile-bottom-nav">
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => changeTab(t.id)}
+            style={{
+              flex: 1,
+              background: "none",
+              border: "none",
+              padding: "8px 2px 10px",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              color: tab === t.id ? C.accent : C.subtle,
+              fontSize: 10,
+              fontWeight: tab === t.id ? 800 : 400
+            }}
+          >
+            <span style={{fontSize: 18}}>{t.icon}</span>
+            <span>{t.label}</span>
+          </button>
+        ))}
       </nav>
     </div>
     <button onClick={()=>setCamOpen(true)} style={{position:"fixed",right:16,bottom:72,width:52,height:52,borderRadius:"50%",background:C.accent,border:"none",cursor:"pointer",fontSize:22,zIndex:99,boxShadow:"0 4px 16px rgba(249,115,22,.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>
