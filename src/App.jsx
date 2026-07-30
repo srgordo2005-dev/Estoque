@@ -60,7 +60,7 @@ function ServerSelfUpdateModal({ctx, updateInfo, onClose}) {
     setUpdating(true);
     setStatus("⬇️ Baixando nova versão do código e atualizando arquivos locais...");
     try {
-      const res = await fetch("http://127.0.0.1:3001/api/self-update", { method: "POST" });
+      const res = await fetch("http://localhost:3001/api/self-update", { method: "POST" });
       const data = await res.json();
       if (data.success) {
         setStatus("⚡ Arquivos atualizados! Reiniciando o serviço local...");
@@ -1193,7 +1193,7 @@ export default function App(){
   useEffect(() => {
      const checkLocal = async () => {
         try {
-            const res = await fetch("http://127.0.0.1:3001/api/version");
+            const res = await fetch("http://localhost:3001/api/version");
             if (res.ok) {
                 setLocalConnected(true);
                 const verInfo = await res.json();
@@ -2609,11 +2609,11 @@ function MapeamentoPrateleira({ctx, onClose}){
   useEffect(() => {
     let interval;
     if (started && grid[currentIdx] && grid[currentIdx].status === "waiting_ip") {
-      fetch('http://127.0.0.1:3001/api/ipreport').catch(()=>null); 
+      fetch('http://localhost:3001/api/ipreport').catch(()=>null); 
       let startWait = Date.now();
       interval = setInterval(async () => {
          try {
-           const res = await fetch('http://127.0.0.1:3001/api/ipreport');
+           const res = await fetch('http://localhost:3001/api/ipreport');
            const reports = await res.json();
            const valid = reports.find(r => r.timestamp >= startWait);
            if (valid) {
@@ -2932,7 +2932,7 @@ function EditFarmModal({ ctx, farmName, onClose }) {
          <button 
              onClick={async () => {
                  try {
-                     const r = await fetch('http://127.0.0.1:3001/api/self-update', { method: 'POST' });
+                     const r = await fetch('http://localhost:3001/api/self-update', { method: 'POST' });
                      const res = await r.json();
                      alert(res.message || res.error);
                  } catch(e) {
@@ -2967,7 +2967,7 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
     if (!isListening) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('http://127.0.0.1:3001/api/ipreport');
+        const res = await fetch('http://localhost:3001/api/ipreport');
         if (res.ok) {
           const report = await res.json();
           if (report && report.ip && report.ip !== ipInput) {
@@ -3016,7 +3016,7 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
     // Clear inputs and advance to next slot automatically
     setSnInput("");
     setIpInput("");
-    try { await fetch('http://127.0.0.1:3001/api/ipreport?clear=true'); } catch(e) {}
+    try { await fetch('http://localhost:3001/api/ipreport?clear=true'); } catch(e) {}
     
     if (currentSlotNum < totalSlots) {
       setCurrentSlotNum(prev => prev + 1);
@@ -3146,7 +3146,7 @@ function DataCenterPage({ctx}) {
     const executeRemoteAction = useCallback(async (ip, actionName, args = {}) => {
         // Try locally first
         try {
-            const res = await fetch(`http://127.0.0.1:3001/api/${actionName}`, {
+            const res = await fetch(`http://localhost:3001/api/${actionName}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ ip, ...args })
@@ -3188,7 +3188,7 @@ function DataCenterPage({ctx}) {
     // Fetch farm status (manual + 5s loop)
     const fetchFarmStatus = useCallback(async () => {
        try {
-         const r = await fetch('http://127.0.0.1:3001/api/farm-status');
+         const r = await fetch('http://localhost:3001/api/farm-status');
          if (r.ok) {
             const d = await r.json();
             setFarmStatus(d);
@@ -3207,7 +3207,7 @@ function DataCenterPage({ctx}) {
     useEffect(() => {
       const fetchIPReports = async () => {
          try {
-           const r = await fetch('http://127.0.0.1:3001/api/ipreport');
+           const r = await fetch('http://localhost:3001/api/ipreport');
            if (r.ok) {
               const d = await r.json();
               setRecentIPs(d);
@@ -3238,7 +3238,7 @@ function DataCenterPage({ctx}) {
                             onClick={async () => {
                                 try {
                                     alert("⏳ Baixando atualização do servidor local...");
-                                    const r = await fetch('http://127.0.0.1:3001/api/self-update', { method: 'POST' });
+                                    const r = await fetch('http://localhost:3001/api/self-update', { method: 'POST' });
                                     const res = await r.json();
                                     alert(res.message || "Servidor atualizado!");
                                 } catch(e) {
@@ -3260,7 +3260,7 @@ function DataCenterPage({ctx}) {
       try {
           alert("☁️ Enviando comprovante do teste de 3h para o Google Drive... Aguarde.");
           // Trigger screenshot upload safely
-          const res = await fetch('http://127.0.0.1:3001/api/screenshot', {
+          const res = await fetch('http://localhost:3001/api/screenshot', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({ ip: machineItem.ip })
@@ -3310,7 +3310,7 @@ function DataCenterPage({ctx}) {
     // Keep helper sync updated
     useEffect(() => {
         if(farmMachines.length > 0) {
-           fetch('http://127.0.0.1:3001/api/set-farm', {
+           fetch('http://localhost:3001/api/set-farm', {
                method: 'POST',
                headers: {'Content-Type': 'application/json'},
                body: JSON.stringify({machines: farmMachines.map(m => ({sn: m.sn, ip: m.ip, location: m.shelf}))})
@@ -3429,7 +3429,7 @@ function DataCenterPage({ctx}) {
                        🔍 Consultando logs de mineração em tempo real...
                     </div>
                     <iframe 
-                        src={"http://127.0.0.1:3001/api/miner-log?ip=" + m.ip}
+                        src={"http://localhost:3001/api/miner-log?ip=" + m.ip}
                         style={{width:'100%', height:300, background:'#090d16', color:'#10b981', border:'1px solid '+C.border, borderRadius:8, padding:10, fontFamily:'monospace', fontSize:11}}
                     />
                     <div style={{marginTop:12, textAlign:'right'}}>
@@ -3451,7 +3451,7 @@ function DataCenterPage({ctx}) {
           </Modal>
         );
         try {
-          const r = await fetch('http://127.0.0.1:3001/api/screenshot', {
+          const r = await fetch('http://localhost:3001/api/screenshot', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ip: m.ip })
@@ -3919,7 +3919,7 @@ function DataCenterPage({ctx}) {
                      <Btn onClick={async () => {
                         setBtcScanResults([]);
                         try {
-                           const res = await fetch(`http://127.0.0.1:3001/api/scan-range?range=${encodeURIComponent(btcScanIpRange)}`);
+                           const res = await fetch(`http://localhost:3001/api/scan-range?range=${encodeURIComponent(btcScanIpRange)}`);
                            if (res.ok) {
                               const data = await res.json();
                               setBtcScanResults(data.miners || []);
@@ -5989,7 +5989,7 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
     if (isManual) setIsScanning(true);
     try {
       // First check local farm-status cache
-      const res = await fetch('http://127.0.0.1:3001/api/farm-status');
+      const res = await fetch('http://localhost:3001/api/farm-status');
       if (res.ok) {
         const cache = await res.json();
         const list = Object.values(cache).filter(m => m.ip && m.status !== 'offline');
@@ -5999,7 +5999,7 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
       // If manual scan requested, trigger range scan
       if (isManual) {
         setStatusMsg("Escaneando faixa " + subnet + ".1 - " + subnet + ".254...");
-        const scanRes = await fetch('http://127.0.0.1:3001/api/scan-range', {
+        const scanRes = await fetch('http://localhost:3001/api/scan-range', {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({ subnet })
@@ -6145,7 +6145,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
 
     const startManualCapture = async () => {
         try {
-            await fetch('http://127.0.0.1:3001/api/ipreport?clear=true');
+            await fetch('http://localhost:3001/api/ipreport?clear=true');
         } catch(e) {}
         setListening(true);
     };
@@ -6206,7 +6206,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
     const fetchAndApplyMinerInfo = async (ip) => {
         if (!ip) return;
         try {
-            const infoRes = await fetch(`http://127.0.0.1:3001/api/miner-info?ip=${ip}`);
+            const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${ip}`);
             if (infoRes.ok) {
                 const info = await infoRes.json();
                 if (info.sn) {
@@ -6224,7 +6224,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         if (!listening) return;
         const interval = setInterval(async () => {
             try {
-                const res = await fetch('http://127.0.0.1:3001/api/ipreport');
+                const res = await fetch('http://localhost:3001/api/ipreport');
                 if (!res.ok) return;
                 const reports = await res.json();
                 if (reports && reports.length > 0) {
@@ -6249,7 +6249,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         }
         setIsTakingPrint(true);
         try {
-            const res = await fetch('http://127.0.0.1:3001/api/screenshot', {
+            const res = await fetch('http://localhost:3001/api/screenshot', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ip })
@@ -6281,7 +6281,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
 
         const checkUptime = async () => {
             try {
-                const r = await fetch(`http://127.0.0.1:3001/api/miner-info?ip=${ip}`);
+                const r = await fetch(`http://localhost:3001/api/miner-info?ip=${ip}`);
                 if (r.ok) {
                     const info = await r.json();
                     if (info.uptime) {
@@ -6332,7 +6332,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         const ip = session?.ip || lastCapturedIP || prompt("Digite o IP da máquina na bancada para piscar:");
         if (!ip) return;
         try {
-            await fetch('http://127.0.0.1:3001/api/blink', {
+            await fetch('http://localhost:3001/api/blink', {
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
                 body: JSON.stringify({ip, firmware: "vnish", on: !blinkOn})
@@ -6350,7 +6350,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
     useEffect(() => {
         const checkUdpDiagnostics = async () => {
             try {
-                const res = await fetch('http://127.0.0.1:3001/api/ipreport-status');
+                const res = await fetch('http://localhost:3001/api/ipreport-status');
                 if (res.ok) {
                     const status = await res.json();
                     const errors = [];
@@ -6728,7 +6728,7 @@ function TestePage({ctx}){
       const machine = data.farmMachines.find(m => m.sn === session.machineSN) || data.machines.find(m => m.sn === session.machineSN);
       if (machine?.ip) {
         try {
-          const r = await fetch('http://127.0.0.1:3001/api/screenshot', {
+          const r = await fetch('http://localhost:3001/api/screenshot', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ip: machine.ip })
@@ -7292,7 +7292,7 @@ function RuimSlotForm({ctx,session,slotIndex,onSave}){
     const machine = data.farmMachines.find(m => m.sn === session.machineSN) || data.machines.find(m => m.sn === session.machineSN);
     if (machine?.ip) {
       try {
-        const r = await fetch('http://127.0.0.1:3001/api/screenshot', {
+        const r = await fetch('http://localhost:3001/api/screenshot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ip: machine.ip })
