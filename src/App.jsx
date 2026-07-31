@@ -1244,6 +1244,7 @@ export default function App(){
   const toggleTheme=()=>{const next=theme==="dark"?"light":"dark";localStorage.setItem("hs_theme",next);setTheme(next)};
   const DEFAULT_WEBHOOK_URL="https://script.google.com/macros/s/AKfycbxZ1WpUhjvKWYEUAvQdaRHuu-mb1WLorVMOreihxvSJlMrddJYa-U1obUlu5tGtRjBv/exec";
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||DEFAULT_WEBHOOK_URL);
+  const [farmsConfig, setFarmsConfig] = usePersistedField("hs_farmsConfig", []);
   const setCol=(col,val)=>setData(d=>({...d,[col]:val}));
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
   const allModels=useCallback(()=>{
