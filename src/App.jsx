@@ -3114,1248 +3114,169 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
 
 function DataCenterPage({ctx}) {
     const {data, mutate, setModal, user} = ctx;
-    const dbFarmMachines = data.farmMachines || [];
-    const [recentIPs, setRecentIPs] = useState([]);
     
-    // Global Status Cache fetched from local server helper
-    const [farmStatus, setFarmStatus] = useState(() => {
-        try {
-            const cached = localStorage.getItem("hs_farm_status");
-            return cached ? JSON.parse(cached) : {};
-        } catch(e) {
-            return {};
-        }
-     });
-    const [activeFarm, setActiveFarm] = useState("ALL");
-
-    const [isFullscreenRack, setIsFullscreenRack] = useState(false);
-    const [slotSize, setSlotSize] = useState(() => localStorage.getItem("hs_slot_size") || "medium"); // "small" | "medium" | "large"
-    const handleSetSlotSize = (sz) => {
-        setSlotSize(sz);
-        localStorage.setItem("hs_slot_size", sz);
-    };
-
-    const [viewMode, setViewMode] = useState("number"); // "number" | "temp" | "hashrate"
-    const [viewType, setViewType] = useState("btc"); // "btc" | "rack" | "general_btc_tools" | "admin_vpn"
+    const [viewType, setViewType] = useState("general_btc_tools"); // Default to the scanner
     const savedIps = user?.btcToolsIps ? user.btcToolsIps : ["192.168.1.1-255"];
-    const [btcScanIpRanges, setBtcScanIpRanges] = useState(savedIps);
-    const [ipModalOpen, setIpModalOpen] = useState(false);
-    
-    const saveIpRanges = async (newRanges) => {
-        setBtcScanIpRanges(newRanges);
-        if (user?._id) {
-            await supabase.from("employees").update({ btcToolsIps: newRanges }).eq("id", user._id);
-        }
-    };
-    
+    const [btcScanIpRange, setBtcScanIpRange] = useState(savedIps[0] || "");
     const [btcScanResults, setBtcScanResults] = useState([]);
-    const [vpnConfig, setVpnConfig] = useState(() => {
-       return JSON.parse(localStorage.getItem("hs_vpn_config") || '{"server":"","user":"","pass":"","tgToken":"","tgChat":""}');
-    });
-    const [squareSize, setSquareSize] = useState("medium");
-    const [hideEmpty, setHideEmpty] = useState(false);
-    const [onlyOnline, setOnlyOnline] = useState(() => {
-        const key = user?._id ? "hs_only_online_" + user._id : "hs_only_online";
-        return localStorage.getItem(key) === "true";
-    });
+    const [scanning, setScanning] = useState(false);
+    
+    // Pool configs
+    const [pool1, setPool1] = useState("");
+    const [pool2, setPool2] = useState("");
+    const [pool3, setPool3] = useState("");
+    const [workerSuffix, setWorkerSuffix] = useState("IP"); // IP, No Change, Empty
 
-    const handleSetOnlyOnline = useCallback((val) => {
-        setOnlyOnline(val);
-        const key = user?._id ? "hs_only_online_" + user._id : "hs_only_online";
-        localStorage.setItem(key, String(val));
-    }, [user?._id]);
-    const [autoScan, setAutoScan] = useState(true);
-    const [selectedSubnet, setSelectedSubnet] = useState('ALL');
-    const [searchQuery, setSearchQuery] = useState('');
-    const [selectedMachineIds, setSelectedMachineIds] = useState([]);
-    const [isScanning, setIsScanning] = useState(false);
+    // Selection
+    const [selectedIPs, setSelectedIPs] = useState(new Set());
 
-    // Execute action locally first, fallback to Supabase Realtime broadcast globally
-    const executeRemoteAction = useCallback(async (ip, actionName, args = {}) => {
-        // Try locally first
+    const toggleIP = (ip) => {
+        const s = new Set(selectedIPs);
+        if(s.has(ip)) s.delete(ip);
+        else s.add(ip);
+        setSelectedIPs(s);
+    };
+
+    const toggleAll = () => {
+        if(selectedIPs.size === btcScanResults.length && btcScanResults.length > 0) {
+            setSelectedIPs(new Set());
+        } else {
+            setSelectedIPs(new Set(btcScanResults.map(m => m.ip)));
+        }
+    };
+
+    const doScan = async () => {
+        if (!btcScanIpRange) return alert("Preencha a faixa de IP. Ex: 192.168.1.1-255");
+        setScanning(true);
+        setBtcScanResults([]);
         try {
-            const res = await fetch(`http://localhost:3001/api/${actionName}`, {
+            // Usa o helper local
+            const res = await fetch(`http://localhost:3001/api/scan-range`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ ip, ...args })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start: btcScanIpRange.split('-')[0], end: btcScanIpRange.split('-')[0].split('.').slice(0,3).join('.') + '.' + btcScanIpRange.split('-')[1] }) // Simplified parser
             });
-            if (res.ok) return true;
-        } catch(e) {}
-
-        // Fallback to Supabase Realtime broadcast
-        console.log(`[HashStock Client] Local helper offline. Relay command "${actionName}" to Cloud Realtime...`);
-        const channelName = `farm-${activeFarm.replace(/\s+/g, '_')}`;
-        const channel = supabase.channel(channelName);
-        channel.send({
-            type: 'broadcast',
-            event: 'command',
-            payload: { type: actionName, ip, ...args }
-        });
-        return true;
-    }, [activeFarm]);
-
-    // Subscribe to Cloud Realtime status broadcasts when local helper is unreachable
-    useEffect(() => {
-        if (activeFarm === "ALL") return;
-        const channelName = `farm-${activeFarm.replace(/\s+/g, '_')}`;
-        const channel = supabase.channel(channelName);
-
-        channel.on('broadcast', { event: 'status-update' }, ({ payload }) => {
-            if (payload && payload.statusCache) {
-                console.log("[HashStock Client] Received live status update from cloud relay:", payload);
-                setFarmStatus(prev => ({ ...prev, ...payload.statusCache }));
-            }
-        });
-
-        channel.subscribe();
-        return () => {
-            channel.unsubscribe();
-        };
-    }, [activeFarm]);
-
-    // Fetch farm status (manual + 5s loop)
-    const fetchFarmStatus = useCallback(async () => {
-       try {
-         const r = await fetch('http://localhost:3001/api/farm-status');
-         if (r.ok) {
-            const d = await r.json();
-            setFarmStatus(d);
-         }
-       } catch(e) {}
-    }, []);
-
-    useEffect(() => {
-      fetchFarmStatus();
-      if (!autoScan) return;
-      const interval = setInterval(fetchFarmStatus, 4000);
-      return () => clearInterval(interval);
-    }, [autoScan, fetchFarmStatus]);
-
-    // Periodically fetch IP reports
-    useEffect(() => {
-      const fetchIPReports = async () => {
-         try {
-           const r = await fetch('http://localhost:3001/api/ipreport');
-           if (r.ok) {
-              const d = await r.json();
-              setRecentIPs(d);
-           }
-         } catch(e) {}
-      };
-      fetchIPReports();
-      const interval = setInterval(fetchIPReports, 3000);
-      return () => clearInterval(interval);
-    }, []);
-
-    
-    const handleOpenServerManager = () => {
-        setModal(
-            <Modal title="🖥️ Gerenciador Global de Servidores Locais" onClose={() => setModal(null)}>
-                <div style={{padding:16, display:'flex', flexDirection:'column', gap:14}}>
-                    <div style={{background:C.card2, padding:14, borderRadius:8, border:'1px solid '+C.border}}>
-                        <div style={{fontWeight:800, fontSize:14, color:C.text, marginBottom:4}}>📡 Servidor Local Desta Fazenda (localhost:3001)</div>
-                        <div style={{fontSize:12, color:C.subtle, display:'flex', gap:12, marginTop:6}}>
-                            <span>Status: <b style={{color: localConnected ? C.green : C.red}}>{localConnected ? "🟢 ONLINE" : "🔴 OFFLINE"}</b></span>
-                            <span>Versão: <b>v{serverUpdateAvailable?.version || "1.0.1"}</b></span>
-                        </div>
-                    </div>
-
-                    <div style={{display:'flex', flexDirection:'column', gap:8}}>
-                        <Btn 
-                            disabled={!localConnected}
-                            onClick={async () => {
-                                try {
-                                    alert("⏳ Baixando atualização do servidor local...");
-                                    const r = await fetch('http://localhost:3001/api/self-update', { method: 'POST' });
-                                    const res = await r.json();
-                                    alert(res.message || "Servidor atualizado!");
-                                } catch(e) {
-                                    alert("Erro ao comunicar com servidor local: " + e.message);
-                                }
-                            }}
-                            style={{background:C.blue, color:'#fff', justifyContent:'center'}}
-                        >
-                            🔄 Atualizar Servidor Local sem Reinstalar
-                        </Btn>
-                    </div>
-                </div>
-            </Modal>
-        );
-    };
-
-    
-  const safeUploadAndMoveToRevision = async (machineItem) => {
-      try {
-          alert("☁️ Enviando comprovante do teste de 3h para o Google Drive... Aguarde.");
-          // Trigger screenshot upload safely
-          const res = await fetch('http://localhost:3001/api/screenshot', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ ip: machineItem.ip })
-          });
-          if (res.ok) {
-              const data = await res.json();
-              alert("✓ Comprovante gravado no Google Drive! Transicionado para REVISÃO.");
-          } else {
-              alert("⚠️ Não foi possível salvar o print no Drive, mas a máquina continuará para Revisão.");
-          }
-      } catch(e) {
-          console.warn("Drive upload skipped:", e.message);
-      }
-  };
-
-    const handleManualRefresh = async () => {
-        setIsScanning(true);
-        await fetchFarmStatus();
-        setTimeout(() => setIsScanning(false), 600);
-    };
-
-    // Synthesize live network machines for any IP responding in farmStatus that is not in DB
-    const farmMachines = useMemo(() => {
-        const merged = [...dbFarmMachines];
-        const knownIPs = new Set(dbFarmMachines.map(m => m.ip).filter(Boolean));
-
-        for (const ip in farmStatus) {
-            const stat = farmStatus[ip];
-            if (stat && stat.status !== 'offline' && !knownIPs.has(ip)) {
-                const lastOctet = ip.split('.').pop() || '1';
-                merged.push({
-                    _id: 'live-' + ip,
-                    ip: ip,
-                    sn: stat.sn || 'SN-' + lastOctet,
-                    model: stat.model || 'Antminer S19j Pro',
-                    shelf: 'Prateleira 1',
-                    notes: lastOctet,
-                    location: 'Fazenda Principal',
-                    status: 'ACTIVE',
-                    isLiveAutoDiscovered: true
-                });
-            }
-        }
-        return merged;
-    }, [dbFarmMachines, farmStatus]);
-
-    // Keep helper sync updated
-    useEffect(() => {
-        if(farmMachines.length > 0) {
-           fetch('http://localhost:3001/api/set-farm', {
-               method: 'POST',
-               headers: {'Content-Type': 'application/json'},
-               body: JSON.stringify({machines: farmMachines.map(m => ({sn: m.sn, ip: m.ip, location: m.shelf}))})
-           }).catch(()=>null);
-        }
-    }, [farmMachines]);
-
-    const handleUnlink = async (m) => {
-       if(!confirm('Deseja desvincular a máquina ' + (m.sn.startsWith('FARM-') ? '' : m.sn) + ' deste slot?')) return;
-       const u = {
-          ...m,
-          sn: 'FARM-' + Date.now() + '-' + (m.ip ? m.ip.split('.').pop() : 'empty'),
-          status: 'MAPPED',
-          updatedAt: stamp()
-       };
-       mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
-       const res = await fbSet("farmMachines", m._id, u);
-       if(!res.ok) alert("Erro ao salvar desvinculação no banco de dados.");
-    };
-
-    const handleLinkSN = (m) => {
-       let typedSN = "";
-       setModal(
-          <Modal title={"Vincular SN à Prateleira: " + m.shelf + " - Slot " + m.notes} onClose={() => setModal(null)}>
-             <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                <Inp label="Número de Série (Bipe ou digite)" onChange={e => { typedSN = e.target.value; }} />
-                <div style={{fontSize:11, color:C.subtle}}>
-                   Digite ou bipe o SN físico para registrar a máquina neste slot.
-                </div>
-                <Btn onClick={async () => {
-                   const cleanSN = typedSN.trim().toUpperCase();
-                   if(!cleanSN) return alert("Digite um SN válido.");
-                   const u = { ...m, sn: cleanSN, status: 'ACTIVE', updatedAt: stamp() };
-                   mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
-                   const res = await fbSet("farmMachines", m._id, u);
-                   if(!res.ok) alert("Erro ao salvar no banco.");
-                   setModal(null);
-                }}>Vincular SN</Btn>
-             </div>
-          </Modal>
-       );
-    };
-
-    const handleBindIP = (m) => {
-       let typedIP = m.ip || "";
-       setModal(
-          <Modal title={"Configurar IP: " + m.shelf + " - Slot " + m.notes} onClose={() => setModal(null)}>
-             <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                <Inp label="Endereço IP do Minerador" defaultValue={m.ip || ""} onChange={e => { typedIP = e.target.value; }} />
-                <Btn onClick={async () => {
-                   const cleanIP = typedIP.trim();
-                   if(!cleanIP) return alert("Digite um IP válido.");
-                   const conflict = farmMachines.find(x => x._id !== m._id && x.ip === cleanIP);
-                   if (conflict) {
-                      return alert(`Esse IP já está em uso na prateleira ${conflict.shelf} - Slot ${conflict.notes}!\nPor favor, desvincule-o primeiro.`);
-                   }
-                   const u = { ...m, ip: cleanIP, updatedAt: stamp() };
-                   mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
-                   const res = await fbSet("farmMachines", m._id, u);
-                   if(!res.ok) alert("Erro ao salvar no banco.");
-                   setModal(null);
-                }}>Configurar IP</Btn>
-             </div>
-          </Modal>
-       );
-    };
-
-    const handleBindIPReport = (ip) => {
-       setModal(
-          <Modal title={"Vincular IP Detectado: " + ip} onClose={() => setModal(null)}>
-             <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                <div style={{fontSize:12, color:C.text}}>Escolha qual prateleira/slot deseja associar a este IP:</div>
-                <select id="bind-shelf-select" style={{...inp, padding:8}}>
-                   {farmMachines.map(fm => (
-                      <option key={fm._id} value={fm._id}>
-                         [{fm.location || 'Sem Fazenda'}] {fm.shelf} - Slot {fm.notes} {fm.ip ? "(IP: " + fm.ip + ")" : '(Sem IP)'} - {fm.sn.startsWith('FARM-') ? 'Vazio' : fm.sn}
-                      </option>
-                   ))}
-                </select>
-                <Btn onClick={async () => {
-                   const selectVal = document.getElementById("bind-shelf-select").value;
-                   const targetMachine = farmMachines.find(x => x._id === selectVal);
-                   if(!targetMachine) return alert("Erro ao achar slot de prateleira");
-                   const conflict = farmMachines.find(x => x._id !== targetMachine._id && x.ip === ip);
-                   if (conflict) {
-                      return alert(`Esse IP já está em uso na prateleira ${conflict.shelf} - Slot ${conflict.notes}!\nPor favor, desvincule-o primeiro.`);
-                   }
-                   const u = { ...targetMachine, ip: ip, updatedAt: stamp() };
-                   mutate("farmMachines", prev => prev.map(x => x._id === targetMachine._id ? u : x));
-                   const res = await fbSet("farmMachines", targetMachine._id, u);
-                   if(!res.ok) alert("Erro ao salvar no banco.");
-                   setModal(null);
-                }}>Confirmar Vinculação</Btn>
-             </div>
-          </Modal>
-       );
-    };
-
-    const triggerBlink = async (m, currentState) => {
-        if (!m.ip) return;
-        const nextState = !currentState;
-        try {
-          await executeRemoteAction(m.ip, 'blink', { on: nextState });
-        } catch (e) {
-          alert("Erro ao acionar LED: " + e.message);
-        }
-    };
-
-    
-    const handleFetchMinerLog = async (m) => {
-        if (!m.ip) return alert("Esta posição não possui IP configurado.");
-        setModal(
-            <Modal title={"📋 Log & Diagnóstico - " + m.ip} onClose={() => setModal(null)}>
-                <div style={{padding:16}}>
-                    <div style={{marginBottom:10, fontSize:13, fontWeight:700, color:C.text}}>
-                       🔍 Consultando logs de mineração em tempo real...
-                    </div>
-                    <iframe 
-                        src={"http://localhost:3001/api/miner-log?ip=" + m.ip}
-                        style={{width:'100%', height:300, background:'#090d16', color:'#10b981', border:'1px solid '+C.border, borderRadius:8, padding:10, fontFamily:'monospace', fontSize:11}}
-                    />
-                    <div style={{marginTop:12, textAlign:'right'}}>
-                        <Btn onClick={() => window.open("http://" + m.ip, '_blank')}>🌐 Web UI</Btn>
-                        <Btn v="b" onClick={() => setModal(null)} style={{marginLeft:8}}>Fechar</Btn>
-                    </div>
-                </div>
-            </Modal>
-        );
-    };
-
-    const triggerScreenshot = async (m) => {
-        if (!m.ip) return;
-        setModal(
-          <Modal title={"Capturando Tela... - " + m.ip} onClose={() => null}>
-             <div style={{padding:20, textAlign:'center', color:C.subtle}}>
-                 Iniciando o navegador e gerando print, aguarde...
-             </div>
-          </Modal>
-        );
-        try {
-          const r = await fetch('http://localhost:3001/api/screenshot', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ip: m.ip })
-          });
-          if (r.ok) {
-            const res = await r.json();
-            if (res.success && res.image) {
-              setModal(
-                <Modal title={"Print do Minerador - " + m.ip} onClose={() => setModal(null)}>
-                  <div style={{ textAlign: 'center', padding: 10 }}>
-                    <img src={res.image} alt="Screenshot" style={{ maxWidth: '100%', borderRadius: 8, border: "1px solid " + C.border }} />
-                  </div>
-                </Modal>
-              );
+            if (res.ok) {
+                const data = await res.json();
+                setBtcScanResults(data.miners || []);
             } else {
-              alert("Erro no helper: " + (res.error || "Desconhecido"));
-              setModal(null);
+                alert("Erro ao executar scanner no servidor local.");
             }
-          } else {
-            const errData = await r.json();
-            alert("Erro ao obter print: " + (errData.error || r.statusText));
-            setModal(null);
-          }
-        } catch (e) {
-          alert("Falha ao tirar print: " + e.message);
-          setModal(null);
+        } catch(e) {
+            alert("Servidor local (localhost:3001) não respondeu: " + e.message + "\\n\\nCertifique-se que o App Desktop está rodando!");
         }
+        setScanning(false);
     };
 
-    // HASHSTOCK MASS OPERATIONS
-    const handleBulkReboot = async () => {
-        const targets = farmMachines.filter(m => selectedMachineIds.includes(m._id) && m.ip);
-        if (targets.length === 0) return alert("Nenhuma máquina com IP selecionada.");
-        if (!confirm(`Deseja REINICIAR ${targets.length} minerador(es) selecionado(s)?`)) return;
-
-        setModal(
-           <Modal title="HashStock - Reinicialização em Massa" onClose={() => setModal(null)}>
-              <div style={{padding:15, textAlign:'center'}}>
-                 Enviando comando de reboot para {targets.length} mineradores...
-              </div>
-           </Modal>
-        );
-
-        let success = 0;
-        for (const m of targets) {
-           try {
-              await executeRemoteAction(m.ip, 'reboot');
-              success++;
-           } catch(e) {}
-        }
-
-        alert(`Reboot enviado com sucesso para ${success} de ${targets.length} mineradores!`);
-        setSelectedMachineIds([]);
-        setModal(null);
-    };
-
-    const handleBulkLED = async (turnOn) => {
-        const targets = farmMachines.filter(m => selectedMachineIds.includes(m._id) && m.ip);
-        if (targets.length === 0) return alert("Nenhuma máquina com IP selecionada.");
-
-        for (const m of targets) {
-           try {
-              await executeRemoteAction(m.ip, 'blink', { on: turnOn });
-           } catch(e) {}
-        }
-        alert(`LEDs ${turnOn ? 'ativados' : 'desativados'} para ${targets.length} mineradores!`);
-    };
-
-    const handleBulkChangePool = () => {
-        const targets = farmMachines.filter(m => selectedMachineIds.includes(m._id) && m.ip);
-        if (targets.length === 0) return alert("Nenhuma máquina com IP selecionada.");
-
-        let poolUrl = "";
-        let worker = "";
-        let pwd = "123";
-
-        setModal(
-           <Modal title={`HashStock - Troca de Pool em Lote (${targets.length} Mineradores)`} onClose={() => setModal(null)}>
-              <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                 <Inp label="URL da Pool (stratum+tcp://...)" onChange={e => poolUrl = e.target.value} placeholder="stratum+tcp://btc.viabtc.top:3333" />
-                 <Inp label="Nome do Worker (Ex: usuario.worker)" onChange={e => worker = e.target.value} placeholder="minhafarme.001" />
-                 <Inp label="Senha da Pool (Opcional)" defaultValue="123" onChange={e => pwd = e.target.value} />
-                 <Btn onClick={async () => {
-                    if (!poolUrl || !worker) return alert("Preencha URL e Worker.");
-                    setModal(<Modal title="Enviando..." onClose={()=>null}><div style={{padding:20}}>Aplicando nova pool na frota...</div></Modal>);
-                    
-                    let ok = 0;
-                    for (const m of targets) {
-                       try {
-                          await executeRemoteAction(m.ip, 'set-pool', { url: poolUrl, worker, password: pwd });
-                          ok++;
-                       } catch(e) {}
-                    }
-                    alert(`Pool atualizada com sucesso em ${ok} de ${targets.length} mineradores!`);
-                    setSelectedMachineIds([]);
-                    setModal(null);
-                 }}>Aplicar Pool na Frota</Btn>
-              </div>
-           </Modal>
-        );
-    };
-
-    const handleDeleteShelf = async (shelfName, farmLocation) => {
-        if (!confirm("Tem certeza que deseja APAGAR a prateleira \"" + shelfName + "\" e todas as suas posições?")) return;
-        const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === farmLocation && m.shelf === shelfName);
-        mutate("farmMachines", prev => prev.filter(x => !targets.some(t => t._id === x._id)));
-        const promises = targets.map(t => fbDel("farmMachines", t._id));
-        await Promise.all(promises);
-    };
-
-    const handleDeleteFarm = async (farmName) => {
-        if (!confirm("Tem certeza que deseja APAGAR a fazenda \"" + farmName + "\" e TODAS as suas prateleiras?")) return;
-        const targets = farmMachines.filter(m => (m.location || "Fazenda Principal") === farmName);
-        mutate("farmMachines", prev => prev.filter(x => !targets.some(t => t._id === x._id)));
-        const promises = targets.map(t => fbDel("farmMachines", t._id));
-        await Promise.all(promises);
-    };
-
-    // Extract all unique farms
-    const farmsList = useMemo(() => {
-        const list = Array.from(new Set(farmMachines.map(m => m.location || "Fazenda Principal"))).filter(Boolean);
-        if (list.length === 0) list.push("Fazenda Principal");
-        if (!list.includes("📡 Scanner BTC Tools (Geral)")) {
-            list.push("📡 Scanner BTC Tools (Geral)");
-        }
-        return list;
-    }, [farmMachines]);
-
-    // Filter list of farms to display (All vs Single)
-    const displayedFarms = useMemo(() => {
-        if (activeFarm === "ALL") return farmsList;
-        return farmsList.filter(f => f === activeFarm);
-    }, [farmsList, activeFarm]);
-
-    // Extract available IP subnets across all machines
-    const availableSubnets = useMemo(() => {
-        const set = new Set();
-        farmMachines.forEach(m => {
-            if (m.ip && m.ip.includes('.')) {
-                const parts = m.ip.split('.');
-                set.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
-            }
-        });
-        return Array.from(set);
-    }, [farmMachines]);
-
-    // Global Stats for All/Filtered Machines
-    const totalSlotsGlobal = farmMachines.length;
-    const onlineCountGlobal = farmMachines.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
-    const idleCountGlobal = farmMachines.filter(m => m.ip && farmStatus[m.ip]?.status && farmStatus[m.ip]?.status !== 'mining' && farmStatus[m.ip]?.status !== 'offline').length;
-    const totalFarmTHGlobal = farmMachines.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
-
-    const squareStyles = {
-        small: { size: 38, font: 10 },
-        medium: { size: 56, font: 12 },
-        large: { size: 76, font: 14 }
-    };
-    const activeStyle = squareStyles[squareSize] || squareStyles.medium;
-
-    const openSlotDetailsModal = (m) => {
-        const stat = farmStatus[m.ip] || null;
-        const isDummy = m.sn && m.sn.startsWith("FARM-");
-        const isOnline = stat && stat.status !== 'offline';
-        const snMismatch = isOnline && stat.sn && m.sn && !isDummy && stat.sn.trim().toUpperCase() !== m.sn.trim().toUpperCase();
-
-        setModal(
-            <Modal title={"Gerenciar Slot " + m.notes + " - " + m.shelf} onClose={() => setModal(null)}>
-                <div style={{display:'flex', flexDirection:'column', gap:14}}>
-                    <div style={{background:C.card, padding:10, borderRadius:8, border:"1px solid " + C.border, display:'flex', flexDirection:'column', gap:6, fontSize:12}}>
-                        <div><span style={{color:C.muted}}>Local:</span> <span style={{fontWeight:700}}>{m.location || "Fazenda Principal"} / {m.shelf}</span></div>
-                        <div><span style={{color:C.muted}}>Posição:</span> <span style={{fontWeight:700}}>Slot #{m.notes}</span></div>
-                        <div>
-                          <span style={{color:C.muted}}>Endereço IP:</span>{' '}
-                          <span style={{fontWeight:700, color:C.blue}}>{m.ip || "Não configurado"}</span>
-                          {m.ip && (
-                            <button
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (!window.confirm("Deseja mesmo desvincular o IP desta máquina?")) return;
-                                const u = { ...m, ip: "", updatedAt: stamp() };
-                                mutate("farmMachines", prev => prev.map(x => x._id === m._id ? u : x));
-                                const res = await fbSet("farmMachines", m._id, u);
-                                if(!res.ok) alert("Erro ao salvar no banco.");
-                                setModal(null);
-                              }}
-                              style={{ background: 'none', border: 'none', color: C.red, fontWeight: 'bold', marginLeft: 8, cursor: 'pointer', fontSize: 12 }}
-                              title="Desvincular IP"
-                            >
-                              ❌
-                            </button>
-                          )}
-                        </div>
-                        <div><span style={{color:C.muted}}>SN Registrado:</span> <span style={{fontWeight:700}}>{isDummy ? "(Slot Vago)" : m.sn}</span></div>
-                        {isOnline && (
-                            <>
-                                <div style={{height:1, background:C.border, margin:'4px 0'}} />
-                                <div><span style={{color:C.muted}}>Status Físico:</span> <span style={{fontWeight:800, color: stat.status === 'mining' ? C.green : C.amber}}>{stat.status === 'mining' ? 'MINANDO' : 'OCIOSO/ERRO'}</span></div>
-                                <div><span style={{color:C.muted}}>Modelo Físico:</span> <span style={{fontWeight:700}}>{stat.model || m.model || "Antminer S19j Pro"}</span></div>
-                                <div><span style={{color:C.muted}}>SN Reportado:</span> <span style={{fontWeight:700}}>{stat.sn || "Não reportado"}</span></div>
-                                <div><span style={{color:C.muted}}>Uptime:</span> <span style={{fontWeight:700}}>{formatUptime(stat.uptime)}</span></div>
-                                <div><span style={{color:C.muted}}>Média Hashrate:</span> <span style={{fontWeight:700, color:C.green}}>{stat.hashrate.toFixed(1)} TH/s</span></div>
-                                <div><span style={{color:C.muted}}>Temperatura Máxima:</span> <span style={{fontWeight:700, color: stat.temp > 85 ? C.red : C.text}}>{stat.temp}°C</span></div>
-                            </>
-                        )}
-                    </div>
-
-                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8}}>
-                        <Btn onClick={() => { setModal(null); handleLinkSN(m); }}>📋 Vincular SN</Btn>
-                        <Btn onClick={() => { setModal(null); handleBindIP(m); }}>🌐 Configurar IP</Btn>
-                        <Btn disabled={!m.ip} onClick={() => triggerBlink(m, false)}>💡 Piscar LED</Btn>
-                        <Btn disabled={!m.ip} onClick={() => { setModal(null); triggerScreenshot(m); }}>📸 Tirar Print</Btn>
-                        <Btn disabled={!m.ip} onClick={() => handleFetchMinerLog(m)} style={{background:C.purple, color:'#fff'}}>📋 Log & Erros</Btn>
-                    </div>
-                    
-                    {!isDummy && (
-                        <Btn v="d" onClick={async () => { setModal(null); await handleUnlink(m); }} style={{width:'100%', marginTop:6}}>🗑️ Desvincular / Limpar Slot</Btn>
-                    )}
+    return (
+        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 120px)"}}>
+            {/* TOP BAR / LOGO */}
+            <div style={{padding:"10px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`}}>
+                <div style={{fontWeight:900, fontSize:18, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
+                   <span style={{fontSize:24}}>⚡</span> SCANER ASIC 
                 </div>
-            </Modal>
-        );
-    };
-
-    const cssStyles = '@keyframes alertPulseRed { 0%, 100% { border-color: #ef4444; box-shadow: 0 0 16px rgba(239,68,68,0.9); } 50% { border-color: #7f1d1d; box-shadow: 0 0 4px rgba(239,68,68,0.2); } } @keyframes alertPulseYellow { 0%, 100% { border-color: #f59e0b; box-shadow: 0 0 16px rgba(245,158,11,0.9); } 50% { border-color: #78350f; box-shadow: 0 0 4px rgba(245,158,11,0.2); } }  .shelf-rack-cabinet { background: #0d1520; border: 3px solid #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 24px; box-shadow: inset 0 0 30px rgba(0,0,0,0.8), 0 8px 24px rgba(0,0,0,0.5); border-bottom: 8px solid #0f172a; } .shelf-rack-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 10px; margin-bottom: 14px; } .shelf-rack-grid { display: flex; flex-wrap: wrap; gap: 8px; } .shelf-slot-box { display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 8px; font-weight: 800; cursor: pointer; transition: all 0.2s ease-in-out; position: relative; box-shadow: 0 2px 4px rgba(0,0,0,0.2); } .shelf-slot-box:hover { transform: scale(1.1); z-index: 10; box-shadow: 0 0 14px rgba(14,165,233,0.3); } .shelf-slot-tooltip { visibility: hidden; opacity: 0; position: absolute; bottom: 120%; left: 50%; transform: translateX(-50%); background: rgba(13, 21, 32, 0.96); border: 1px solid #334155; color: #f1f5f9; padding: 10px; border-radius: 8px; width: 210px; font-size: 10px; font-weight: 500; z-index: 9999; transition: opacity 0.2s ease, visibility 0.2s ease; box-shadow: 0 10px 20px rgba(0,0,0,0.6), 0 0 15px rgba(14,165,233,0.2); backdrop-filter: blur(8px); pointer-events: none; text-align: left; } .shelf-slot-box:hover .shelf-slot-tooltip { visibility: visible; opacity: 1; }';
-
-    return <div style={{padding: 20}}>
-        <style>{cssStyles}</style>
-
-        {activeFarm === "ALL" ? (
-        // --- 🚀 LOBBY DE FAZENDAS ---
-        <div style={{display:'flex', flexDirection:'column', gap:20, paddingBottom: 40}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                <div>
-                    <div style={{fontSize:28, fontWeight:900, display:'flex', alignItems:'center', gap:12}}>
-                       🏭 Data Center / Fazendas <span style={{background:C.accent, color:'#000', padding:'2px 8px', borderRadius:10, fontSize:12, fontWeight:900}}>V2.3 CLOUD</span>
-                    </div>
-                    <div style={{color:C.subtle, fontSize:14, marginTop:4}}>Selecione uma Fazenda abaixo para acessar as Prateleiras</div>
+                <div style={{fontSize:12, color:C.subtle}}>
+                   Insira as faixas de IP e use os botões para controlar suas máquinas em lote.
                 </div>
-                <button 
-                    onClick={() => setModal(<Modal title="🏭 Criar Nova Fazenda" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}
-                    style={{background:C.blue, color:'#fff', padding:'10px 20px', borderRadius:8, fontWeight:800, border:'none', cursor:'pointer'}}
-                >
-                    + Criar Nova Fazenda
-                </button>
             </div>
 
-            <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:20, marginTop:20}}>
-                {farmsList.map(f => {
-                    const fMachines = dbFarmMachines.filter(m => (m.location || "Fazenda Principal") === f);
-                    const onlineM = fMachines.filter(m => m.ip && farmStatus[m.ip] && farmStatus[m.ip].status !== 'offline').length;
-                    return (
-                        <div 
-                            key={f} 
-                            onClick={() => setActiveFarm(f)}
-                            style={{background:C.card, border:'1px solid '+C.border, borderRadius:12, padding:20, cursor:'pointer', transition:'all 0.2s'}}
-                            onMouseOver={e => Object.assign(e.currentTarget.style, {borderColor:C.accent, transform:'translateY(-2px)', boxShadow:'0 10px 20px rgba(0,0,0,0.4)'})}
-                            onMouseOut={e => Object.assign(e.currentTarget.style, {borderColor:C.border, transform:'translateY(0)', boxShadow:'none'})}
-                        >
-                            <div style={{fontSize:20, fontWeight:900, color:C.accent, marginBottom:10}}>🏭 {f}</div>
-                            <div style={{display:'flex', justifyContent:'space-between', color:C.subtle, fontSize:13}}>
-                                <span>{fMachines.length} Posições</span>
-                                <span style={{color:C.green}}>🟢 {onlineM} Online</span>
+            <div style={{display:"flex", flex:1, overflow:"hidden"}}>
+                {/* LEFT SIDEBAR (IP RANGES) */}
+                <div style={{width: 250, borderRight:`1px solid ${C.border}`, background:C.bg, display:"flex", flexDirection:"column"}}>
+                    <div style={{padding: 10, borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                        <div style={{fontWeight:800, fontSize:12, color:C.accent}}>FAIXAS DE IP (Ranges)</div>
+                        <div style={{display:'flex', gap:4}}>
+                            <button style={{background:C.card2, border:'none', color:C.text, borderRadius:4, width:24, height:24, cursor:'pointer'}}>+</button>
+                            <button style={{background:C.card2, border:'none', color:C.text, borderRadius:4, width:24, height:24, cursor:'pointer'}}>-</button>
+                        </div>
+                    </div>
+                    <div style={{padding: 10, flex:1, overflowY:"auto"}}>
+                        <div style={{display:'flex', alignItems:'center', gap:8, fontSize:12}}>
+                            <input type="checkbox" checked readOnly />
+                            <input type="text" value={btcScanIpRange} onChange={e=>setBtcScanIpRange(e.target.value)} style={{background:'none', border:`1px solid ${C.border}`, color:C.text, flex:1, fontSize:12, padding:'2px 4px'}} placeholder="192.168.1.1-255"/>
+                        </div>
+                    </div>
+                </div>
+
+                {/* MAIN CONTENT AREA */}
+                <div style={{flex:1, display:"flex", flexDirection:"column", overflow:"hidden"}}>
+                    {/* BUTTONS BAR */}
+                    <div style={{padding: 10, display:"flex", gap:10, borderBottom:`1px solid ${C.border}`, background:C.card, flexWrap:"wrap"}}>
+                        <Btn onClick={doScan} style={{background:C.blue, color:"#fff", padding:"6px 20px", fontWeight:800}}>
+                            {scanning ? "Escaneando..." : "Scan"}
+                        </Btn>
+                        <Btn onClick={doScan} style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Monitor</Btn>
+                        <Btn style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Config All</Btn>
+                        <Btn style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Config Selected</Btn>
+                        <Btn style={{background:C.red, color:"#fff", padding:"6px 20px"}}>Reboot All</Btn>
+                        <Btn style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Reboot Selected</Btn>
+                        <Btn style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Export</Btn>
+                    </div>
+
+                    {/* POOL CONFIG BAR */}
+                    <div style={{padding: 10, borderBottom:`1px solid ${C.border}`, background:C.bg, fontSize:12, display:"flex", flexDirection:"column", gap:8}}>
+                        {[1,2,3].map(n => (
+                            <div key={n} style={{display:"flex", alignItems:"center", gap:10}}>
+                                <input type="checkbox" />
+                                <span style={{width: 50}}>Pool {n}:</span>
+                                <input type="text" placeholder="stratum+tcp://pool..." style={{flex:1, background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:"4px 8px"}} />
+                                <span style={{width: 60, textAlign:'right'}}>Worker:</span>
+                                <input type="text" placeholder="Nome" style={{flex:0.5, background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:"4px 8px"}} />
+                                <span style={{width: 40, textAlign:'right'}}>PWD:</span>
+                                <input type="text" placeholder="123" style={{width:80, background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:"4px 8px"}} />
                             </div>
-                        </div>
-                    )
-                })}
-            </div>
-        </div>
-    ) : (
-        // --- 🚀 DENTRO DA FAZENDA ESCOLHIDA ---
-        <div style={{display:'flex', flexDirection:'column', gap:20}}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', background:C.card, padding:20, borderRadius:12, border:'1px solid '+C.border}}>
-                <div>
-                    <button onClick={() => setActiveFarm("ALL")} style={{background:'transparent', border:'none', color:C.subtle, cursor:'pointer', display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:800, marginBottom:10}}>
-                        ⬅️ Voltar para Todas as Fazendas
-                    </button>
-                    <div style={{fontSize:24, fontWeight:900, color:C.accent}}>🏭 FAZENDA: {activeFarm.toUpperCase()}</div>
-                </div>
-
-                <div style={{display:'flex', gap:10}}>
-                    <button onClick={handleOpenServerManager} style={{background:C.purple, border:'none', color:'#fff', padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer', marginRight:8}}>🖥️ Servidores Locais</button>
-                    <button onClick={handleManualRefresh} disabled={isScanning} style={{background:C.card2, border:'1px solid '+C.border, color:C.text, padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer'}}>
-                        {isScanning ? "⏳ Escaneando..." : "📡 Escanear Frota"}
-                    </button>
-                    <button onClick={() => setModal(<Modal title="🏢 Adicionar Armário/Prateleira" onClose={()=>setModal(null)}><AddFarmForm ctx={ctx} isRack={true} farmName={activeFarm} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.blue, border:'none', color:'#fff', padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer'}}>
-                        + Adicionar Armário
-                    </button>
-                    {user?.role === 'admin' && (
-                        <button onClick={() => setModal(<Modal title="Configurações da Fazenda" onClose={()=>setModal(null)}><EditFarmModal ctx={ctx} farmName={activeFarm} onClose={()=>setModal(null)}/></Modal>)} style={{background:C.amber, border:'none', color:'#000', padding:'8px 16px', borderRadius:8, fontWeight:800, cursor:'pointer'}}>
-                            ⚙️ Configurar Fazenda
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            <div style={{display:'flex', gap:10, alignItems:'center', background:C.card, padding:'10px 20px', borderRadius:8, border:'1px solid '+C.border, flexWrap:'wrap'}}>
-                <span style={{fontSize:11, color:C.subtle, fontWeight:800}}>VISÃO:</span>
-                <button onClick={()=>setViewType('btc')} style={{background: viewType === 'btc' ? C.accent : 'transparent', color: viewType === 'btc' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>📋 Tabela BTC</button>
-                <button onClick={()=>setViewType('rack')} style={{background: viewType === 'rack' ? C.accent : 'transparent', color: viewType === 'rack' ? '#000' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>🏗️ Prateleira 3D Real (+)</button>
-                <button onClick={()=>setViewType('general_btc_tools')} style={{background: viewType === 'general_btc_tools' ? C.blue : 'transparent', color: viewType === 'general_btc_tools' ? '#fff' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>📡 Scanner Geral BTC Tools</button>
-                {user?.code === "019" && (
-                  <button onClick={()=>setViewType('admin_vpn')} style={{background: viewType === 'admin_vpn' ? C.purple : 'transparent', color: viewType === 'admin_vpn' ? '#fff' : C.subtle, border:'none', padding:'4px 10px', borderRadius:4, fontWeight:800, cursor:'pointer', fontSize:11}}>🔒 Admin 019: VPN & Telegram</button>
-                )}
-                
-                <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
-                
-                <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color:C.subtle, cursor:'pointer', fontWeight:800}}>
-                    <input type="checkbox" checked={onlyOnline} onChange={e=>handleSetOnlyOnline(e.target.checked)}/> Somente Online
-                </label>
-
-                <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
-
-                <label style={{display:'flex', alignItems:'center', gap:6, fontSize:11, color: autoScan ? C.blue : C.subtle, cursor:'pointer', fontWeight:800}}>
-                    <input type="checkbox" checked={autoScan} onChange={e=>setAutoScan(e.target.checked)}/> ⏱️ Auto-Scan (5s)
-                </label>
-                
-                <div style={{width:1, height:20, background:C.border, margin:'0 10px'}}></div>
-                
-                <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="🔍 Buscar IP, SN, Slot..." style={{background:C.card2, border:'1px solid rgba(255,215,0,0.5)', color:C.text, padding:'8px 14px', borderRadius:8, fontSize:14, width:280, fontWeight:600}} />
-                {viewType === 'rack' && (
-                    <div style={{display:'flex', alignItems:'center', gap:8, marginLeft:'auto'}}>
-                        <span style={{fontSize:11, color:C.subtle, fontWeight:800}}>TAMANHO SLOT:</span>
-                        {['small', 'medium', 'large'].map(sz => (
-                            <button 
-                                key={sz}
-                                onClick={() => handleSetSlotSize(sz)}
-                                style={{
-                                    background: slotSize === sz ? C.accent : C.card2,
-                                    color: slotSize === sz ? '#000' : C.text,
-                                    border: '1px solid '+C.border,
-                                    borderRadius: 4,
-                                    padding: '2px 8px',
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                {sz === 'small' ? 'Pequeno' : sz === 'medium' ? 'Médio' : 'Grande'}
-                            </button>
                         ))}
-                        <button 
-                            onClick={() => setIsFullscreenRack(!isFullscreenRack)}
-                            style={{background:C.blue, color:'#fff', border:'none', borderRadius:4, padding:'4px 10px', fontSize:10, fontWeight:800, cursor:'pointer', marginLeft:6}}
-                        >
-                            {isFullscreenRack ? '📉 Sair da Tela Cheia' : '🖥️ Tela Cheia'}
-                        </button>
                     </div>
-                )}
 
-            </div>
-            
-            {/* INÍCIO DA RENDERIZAÇÃO DA FAZENDA SELECIONADA */}
-        {displayedFarms.length === 0 ? (
-           <div style={{textAlign:'center', padding:40, color:C.subtle, border: "2px dashed " + C.border, borderRadius:10, width:'100%'}}>
-               Nenhuma fazenda encontrada. Clique em "+ Nova Fazenda" para começar.
-           </div>
-        ) : (
-           displayedFarms.map(farmName => {
-               // Filter machines for this specific farm in the list
-               const farmMachinesList = farmMachines.filter(m => (m.location || "Fazenda Principal") === farmName);
-               
-               // Apply subnet filter, search query & online only filter
-               const filteredFarmMachines = farmMachinesList.filter(m => {
-                   if (selectedSubnet !== 'ALL' && m.ip && !m.ip.startsWith(selectedSubnet)) return false;
-                   if (onlyOnline) {
-                       const stat = farmStatus[m.ip];
-                       return stat && stat.status !== 'offline';
-                   }
-                   if (hideEmpty) {
-                       if (m.sn.startsWith('FARM-') && !m.ip) return false;
-                   }
-                   if (searchQuery.trim()) {
-                       const q = searchQuery.toLowerCase().trim();
-                       const stat = farmStatus[m.ip] || {};
-                       const matchIP = m.ip && m.ip.toLowerCase().includes(q);
-                       const matchSN = m.sn && m.sn.toLowerCase().includes(q);
-                       const matchModel = (stat.model || m.model || "").toLowerCase().includes(q);
-                       const matchSlot = m.notes && m.notes.toLowerCase().includes(q);
-                       const matchShelf = m.shelf && m.shelf.toLowerCase().includes(q);
-                       if (!matchIP && !matchSN && !matchModel && !matchSlot && !matchShelf) return false;
-                   }
-                   return true;
-               });
-
-               if (onlyOnline && filteredFarmMachines.length === 0) return null;
-
-               const farmOnlineCount = farmMachinesList.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
-               const farmTotalTH = farmMachinesList.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
-
-               // Group machines by shelf name for this farm
-               const shelfGroups = {};
-               filteredFarmMachines.forEach(m => {
-                   if (!shelfGroups[m.shelf]) shelfGroups[m.shelf] = [];
-                   shelfGroups[m.shelf].push(m);
-               });
-               for (const shelf in shelfGroups) {
-                   shelfGroups[shelf].sort((a, b) => (parseInt(a.notes || 0) || 0) - (parseInt(b.notes || 0) || 0));
-               }
-
-               const allFilteredIds = filteredFarmMachines.map(m => m._id);
-               const isAllSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selectedMachineIds.includes(id));
-
-               const toggleSelectAll = () => {
-                   if (isAllSelected) {
-                       setSelectedMachineIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
-                   } else {
-                       setSelectedMachineIds(prev => Array.from(new Set([...prev, ...allFilteredIds])));
-                   }
-               };
-
-               return (
-                   <div key={farmName} style={{background:C.card, borderRadius:14, border:"1px solid " + C.border, padding:16, marginBottom:24}}>
-                        <style>{`.shelves-side-by-side-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; align-items: start; }`}</style>
-                       
-<style>{`
-  @keyframes alert-pulse {
-    0% { background-color: rgba(220, 38, 38, 0.2); box-shadow: inset 0 0 10px rgba(220, 38, 38, 0.5); }
-    50% { background-color: rgba(220, 38, 38, 0.8); box-shadow: inset 0 0 30px rgba(220, 38, 38, 1); }
-    100% { background-color: rgba(220, 38, 38, 0.2); box-shadow: inset 0 0 10px rgba(220, 38, 38, 0.5); }
-  }
-  .alert-pulse {
-    animation: alert-pulse 1s infinite alternate !important;
-  }
-`}</style>
-{/* Farm Section Header */}
-                       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10, borderBottom:"2px solid " + C.border, paddingBottom:12, marginBottom:16}}>
-                          <div>
-                             <h3 style={{fontSize:16, fontWeight:900, color:C.accent, display:'flex', alignItems:'center', gap:8}}>
-                                🏠 FAZENDA: {farmName.toUpperCase()}
-                             </h3>
-                             <div style={{fontSize:11, color:C.subtle, marginTop:4}}>
-                                {farmMachinesList.length} posições cadastradas · {farmOnlineCount} online
-                             </div>
-                          </div>
-
-                          <div style={{display:'flex', alignItems:'center', gap:12}}>
-                             <div style={{background:C.green + "15", border:"1px solid " + C.green + "44", color:C.green, padding:'4px 12px', borderRadius:8, fontSize:13, fontWeight:900}}>
-                                ⛏️ {farmTotalTH.toFixed(1)} TH/s
-                             </div>
-                             {farmsList.length > 1 && (
-                                <button onClick={() => handleDeleteFarm(farmName)} style={{background:'transparent', border:'none', color:C.red, fontSize:11, fontWeight:700, cursor:'pointer'}}>
-                                   Apagar Fazenda
-                                </button>
-                             )}
-                          </div>
-                       </div>
-
-                       {/* Content View: Table vs Virtual Rack */}
-                       {/* RENDERIZADOR DO SCANNER GERAL BTC TOOLS (SEM SALVAR NO BANCO) */}
-            {viewType === 'general_btc_tools' && (
-               <Card style={{background:'linear-gradient(135deg, #111827 0%, #0b0f19 100%)', border:`1px solid ${C.border}`}}>
-                  <div style={{fontWeight:900, fontSize:16, color:C.blue, marginBottom:6, display:'flex', alignItems:'center', gap:8}}>
-                     <span>📡 SCANNER GERAL DE IP (INSPIRADO NO BTC TOOLS)</span>
-                  </div>
-                  <div style={{fontSize:12, color:C.subtle, marginBottom:16}}>
-                     Digite qualquer faixa de IP (ex: 192.168.1.1-255) e monitore suas mineradoras ao vivo sem precisar salvar posições no banco de dados.
-                  </div>
-                  <div style={{display:'flex', gap:10, marginBottom:16, flexWrap:'wrap'}}>
-                     <input 
-                        type="text" 
-                        value={btcScanIpRange} 
-                        onChange={e => setBtcScanIpRange(e.target.value)} 
-                        placeholder="Faixa de IP ex: 192.168.1.1-255"
-                        style={{background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:'8px 14px', borderRadius:8, fontSize:13, flex:1, minWidth:240}}
-                     />
-                     <Btn onClick={async () => {
-                        setBtcScanResults([]);
-                        try {
-                           const res = await fetch(`http://localhost:3001/api/scan-range?range=${encodeURIComponent(btcScanIpRange)}`);
-                           if (res.ok) {
-                              const data = await res.json();
-                              setBtcScanResults(data.miners || []);
-                           } else {
-                              alert("Erro ao executar scanner no servidor local.");
-                           }
-                        } catch(e) {
-                           alert("Servidor local (localhost:3001) não respondeu: " + e.message);
-                        }
-                     }} style={{background:C.blue, color:'#fff'}}>
-                        ⚡ Varrer Faixa de IP ao Vivo
-                     </Btn>
-                  </div>
-
-                  {btcScanResults.length > 0 ? (
-                     <div style={{overflowX:'auto'}}>
+                    {/* TABLE AREA */}
+                    <div style={{flex:1, overflow:"auto", background:C.card2}}>
                         <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, textAlign:'left'}}>
-                           <thead>
-                              <tr style={{background:C.card2, borderBottom:`1px solid ${C.border}`, color:C.accent}}>
-                                 <th style={{padding:10}}>IP</th>
-                                 <th style={{padding:10}}>Status</th>
-                                 <th style={{padding:10}}>Modelo</th>
-                                 <th style={{padding:10}}>Hashrate</th>
-                                 <th style={{padding:10}}>Temp (PCB/Chip)</th>
-                                 <th style={{padding:10}}>Fan %</th>
-                                 <th style={{padding:10}}>Pool / Worker</th>
-                              </tr>
-                           </thead>
-                           <tbody>
-                              {btcScanResults.map((m, idx) => (
-                                 <tr key={idx} style={{borderBottom:`1px solid ${C.border}`}}>
-                                    <td style={{padding:10, fontWeight:800, color:C.text}}>{m.ip}</td>
-                                    <td style={{padding:10}}><span style={{color: m.status === 'mining' ? C.green : C.red, fontWeight:800}}>● {m.status || 'OFFLINE'}</span></td>
-                                    <td style={{padding:10, color:C.text}}>{m.model || '-'}</td>
-                                    <td style={{padding:10, fontWeight:800, color:C.green}}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
-                                    <td style={{padding:10, color: m.temp > 80 ? C.red : C.text}}>{m.temp ? m.temp + '°C' : '-'}</td>
-                                    <td style={{padding:10, color:C.subtle}}>{m.fan ? m.fan + '%' : '-'}</td>
-                                    <td style={{padding:10, fontSize:11, color:C.subtle}}>{m.worker || m.pool || '-'}</td>
-                                 </tr>
-                              ))}
-                           </tbody>
+                            <thead style={{position:'sticky', top:0, background:C.bg, zIndex:10}}>
+                                <tr style={{borderBottom:`1px solid ${C.border}`, color:C.accent}}>
+                                    <th style={{padding:10, width:40}}><input type="checkbox" checked={selectedIPs.size === btcScanResults.length && btcScanResults.length > 0} onChange={toggleAll}/></th>
+                                    <th style={{padding:10}}>IP</th>
+                                    <th style={{padding:10}}>Status</th>
+                                    <th style={{padding:10}}>Type</th>
+                                    <th style={{padding:10}}>Hash Rate RT</th>
+                                    <th style={{padding:10}}>Hash Rate avg</th>
+                                    <th style={{padding:10}}>Temperature</th>
+                                    <th style={{padding:10}}>Fan Speed</th>
+                                    <th style={{padding:10}}>Elapsed</th>
+                                    <th style={{padding:10}}>Pool 1</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {btcScanResults.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="10" style={{textAlign:'center', padding:40, color:C.muted}}>
+                                            {scanning ? "Procurando dispositivos (pulando DVRs)..." : "Clique em Scan para iniciar a varredura na rede."}
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    btcScanResults.map((m, idx) => (
+                                        <tr key={idx} style={{borderBottom:`1px solid ${C.border}`, background: selectedIPs.has(m.ip) ? 'rgba(255,215,0,0.1)' : 'transparent'}}>
+                                            <td style={{padding:10}}><input type="checkbox" checked={selectedIPs.has(m.ip)} onChange={()=>toggleIP(m.ip)}/></td>
+                                            <td style={{padding:10, fontWeight:800, color:C.text}}>{m.ip}</td>
+                                            <td style={{padding:10}}><span style={{color: m.status === 'mining' ? C.green : C.red, fontWeight:800}}>● {m.status === 'mining' ? 'Normal' : 'Abnormal'}</span></td>
+                                            <td style={{padding:10, color:C.text}}>{m.model || '-'}</td>
+                                            <td style={{padding:10, fontWeight:800, color:C.green}}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
+                                            <td style={{padding:10, fontWeight:800, color:C.green}}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
+                                            <td style={{padding:10, color: m.temp > 80 ? C.red : C.text}}>{m.temp ? m.temp + '°C' : '-'}</td>
+                                            <td style={{padding:10, color:C.subtle}}>{m.fan ? m.fan + '%' : '-'}</td>
+                                            <td style={{padding:10, color:C.subtle}}>{m.uptime ? Math.floor(m.uptime / 60) + 'm' : '-'}</td>
+                                            <td style={{padding:10, fontSize:11, color:C.subtle}}>{m.worker || m.pool || '-'}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
                         </table>
-                     </div>
-                  ) : (
-                     <div style={{textAlign:'center', padding:40, color:C.muted}}>
-                        Clique em "Varrer Faixa de IP ao Vivo" para iniciar a varredura dinâmica das mineradoras.
-                     </div>
-                  )}
-               </Card>
-            )}
-
-            {/* RENDERIZADOR DO PAINEL ADMIN 019: VPN MIKROTIK & TELEGRAM */}
-            {viewType === 'admin_vpn' && user?.code === "019" && (
-               <Card style={{background:'linear-gradient(135deg, #1e152a 0%, #100b19 100%)', border:`1px solid ${C.purple}`}}>
-                  <div style={{fontWeight:900, fontSize:16, color:C.purple, marginBottom:6, display:'flex', alignItems:'center', gap:8}}>
-                     <span>🔒 PAINEL EXCLUSIVO ADMIN #019: CONFIGURAÇÃO DE VPN & TELEGRAM BOT</span>
-                  </div>
-                  <div style={{fontSize:12, color:C.subtle, marginBottom:20}}>
-                     Configure a conexão VPN (MikroTik / WireGuard) com as fazendas remotas e receba alertas automáticos de máquinas caindo ou superaquecendo no Telegram.
-                  </div>
-
-                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:20}}>
-                     <div style={{background:C.card2, padding:16, borderRadius:10, border:`1px solid ${C.border}`}}>
-                        <div style={{fontWeight:800, fontSize:14, color:'#fff', marginBottom:12}}>🌐 Conexão VPN MikroTik / Remota</div>
-                        <div style={{display:'flex', flexDirection:'column', gap:10}}>
-                           <input type="text" value={vpnConfig.server} onChange={e => setVpnConfig(p=>({...p, server: e.target.value}))} placeholder="IP/Host do Servidor VPN (ex: 179.123.45.67)" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
-                           <input type="text" value={vpnConfig.user} onChange={e => setVpnConfig(p=>({...p, user: e.target.value}))} placeholder="Usuário VPN" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
-                           <input type="password" value={vpnConfig.pass} onChange={e => setVpnConfig(p=>({...p, pass: e.target.value}))} placeholder="Senha VPN" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
-                        </div>
-                     </div>
-
-                     <div style={{background:C.card2, padding:16, borderRadius:10, border:`1px solid ${C.border}`}}>
-                        <div style={{fontWeight:800, fontSize:14, color:'#fff', marginBottom:12}}>📱 Notificações Bot do Telegram</div>
-                        <div style={{display:'flex', flexDirection:'column', gap:10}}>
-                           <input type="text" value={vpnConfig.tgToken} onChange={e => setVpnConfig(p=>({...p, tgToken: e.target.value}))} placeholder="Token do Bot do Telegram (BotFather)" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
-                           <input type="text" value={vpnConfig.tgChat} onChange={e => setVpnConfig(p=>({...p, tgChat: e.target.value}))} placeholder="ID do Chat / Grupo do Telegram" style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, padding:8, borderRadius:6, fontSize:12}} />
-                        </div>
-                     </div>
-                  </div>
-
-                  <Btn onClick={() => {
-                     localStorage.setItem("hs_vpn_config", JSON.stringify(vpnConfig));
-                     alert("✓ Configurações de VPN e Telegram salvas com sucesso!");
-                  }} style={{background:C.purple, color:'#fff', width:'100%', justifyContent:'center'}}>
-                     💾 Salvar Parâmetros Admin #019
-                  </Btn>
-               </Card>
-            )}
-
-            {viewType === 'btc' ? (
-                          <div style={{overflowX:'auto'}}>
-                              <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, color:C.text}}>
-                                  <thead>
-                                      <tr style={{borderBottom:"2px solid " + C.border, color:C.subtle, textAlign:'left'}}>
-                                          <th style={{padding:8, width:30}}>
-                                             <input type="checkbox" checked={isAllSelected} onChange={toggleSelectAll} style={{cursor:'pointer'}} title="Selecionar todas desta fazenda" />
-                                          </th>
-                                          <th style={{padding:8}}>Status</th>
-                                          <th style={{padding:8}}>IP (Duplo clique p/ abrir)</th>
-                                          <th style={{padding:8}}>Modelo da Máquina</th>
-                                          <th style={{padding:8}}>Hashrate</th>
-                                          <th style={{padding:8}}>Temp</th>
-                                          <th style={{padding:8}}>Uptime</th>
-                                          <th style={{padding:8}}>Placas Físicas</th>
-                                          <th style={{padding:8}}>Prateleira / Slot</th>
-                                          <th style={{padding:8}}>SN Cadastrado</th>
-                                          <th style={{padding:8, textAlign:'center'}}>Ações</th>
-                                      </tr>
-                                  </thead>
-                                  <tbody>
-                                      {filteredFarmMachines.map(m => {
-                                             const stat = farmStatus[m.ip] || null;
-                                             const isDummy = m.sn && m.sn.startsWith("FARM-");
-                                             const isOnline = stat && stat.status !== 'offline' && stat.status !== 'disconnected';
-                                             
-const isMining = isOnline && (stat.hashrate > 0 || stat.status === 'mining');
-                                             const isIdle = isOnline && stat.hashrate === 0 && (stat.status === 'idle' || stat.status === 'auto-tuning');
-                                             const isChecked = selectedMachineIds.includes(m._id);
-                                             
-                                             const machineModelName = cleanModelName(stat?.model, cleanModelName(m.model, "Antminer S19"));
-    const expectedTH = DEF_MODELS.find(x => x.m.toUpperCase() === machineModelName.toUpperCase())?.th || 100;
-    const isZeroTH = isOnline && stat.hashrate === 0;
-    const isLowTH = isOnline && stat.hashrate > 0 && stat.hashrate < (expectedTH * 0.7);
-    const maxTemp = Math.max(...(stat.temps || [0]));
-    const isOverheating = maxTemp > 85;
-
-    let intelStyle = 'transparent';
-    let intelClass = '';
-    if (isOverheating) { intelStyle = '#7f1d1d'; intelClass = 'alert-pulse'; } // Flashing Red
-    else if (isZeroTH) { intelStyle = '#991b1b'; } // Solid Red
-    else if (isLowTH) { intelStyle = '#854d0e'; } // Yellow/Amber
-    else if (isMining) { intelStyle = '#064e3b'; } // Solid Green
-    else if (isChecked) { intelStyle = C.accent + "22"; }
-
-                                             const shelfLabel = m.shelf || "Prateleira 1";
-
-                                             return (
-                                                 <tr key={m._id} className={intelClass} style={{borderBottom:"1px solid " + C.border + "44", background: typeof intelStyle !== "undefined" ? intelStyle : (isChecked ? C.accent + "18" : isMining ? "#091c13" : "transparent")}}>
-                                                     <td style={{padding:8}}>
-                                                        <input 
-                                                          type="checkbox" 
-                                                          checked={isChecked} 
-                                                          onChange={e => {
-                                                             if (e.target.checked) setSelectedMachineIds(prev => [...prev, m._id]);
-                                                             else setSelectedMachineIds(prev => prev.filter(id => id !== m._id));
-                                                          }} 
-                                                          style={{cursor:'pointer'}}
-                                                        />
-                                                     </td>
-                                                     <td style={{padding:8}}>
-                                                         {isMining ? (
-                                                             <span style={{background:'#0e3925', color:C.green, border:'1px solid ' + C.green, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🟢 MINANDO</span>
-                                                         ) : isIdle ? (
-                                                             <span style={{background:'#3a2e0a', color:C.amber, border:'1px solid ' + C.amber, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🟡 OCIOSO</span>
-                                                         ) : (
-                                                             <span style={{background:'#3a0a0a', color:C.red, border:'1px solid ' + C.red, padding:'2px 8px', borderRadius:10, fontSize:10, fontWeight:800}}>🔴 OFFLINE</span>
-                                                         )}
-                                                     </td>
-                                                     <td 
-                                                       onDoubleClick={() => { if(m.ip) window.open("http://" + m.ip, "_blank"); }}
-                                                       style={{padding:8, fontWeight:800, color: m.ip ? C.blue : C.subtle, cursor: m.ip ? 'pointer' : 'default'}}
-                                                       title={m.ip ? "Clique duplo para abrir no navegador (http://" + m.ip + ")" : "Sem IP"}
-                                                     >
-                                                         {m.ip ? `🌐 ${m.ip}` : "Sem IP"}
-                                                     </td>
-                                                     {/* Modelo Prominente */}
-                                                     <td style={{padding:8, fontWeight:800, color:C.accent}}>{isOnline ? (stat?.model ? cleanModelName(stat.model) : 'Antminer S21') : (m.model && m.model !== 'Antminer S19' ? m.model : '-')}</td>
-                                                     <td style={{padding:8, color:C.green, fontWeight:800}}>{stat?.hashrate ? stat.hashrate.toFixed(1) + ' TH/s' : '-'}</td>
-                                                     <td style={{padding:8, color: stat?.temp > 85 ? C.red : C.text, fontWeight:700}}>{stat?.temp ? stat.temp + '°C' : '-'}</td>
-                                                     <td style={{padding:8, color:C.subtle}}>{stat?.uptime ? formatUptime(stat.uptime) : '-'}</td>
-                                                     <td style={{padding:8}}>
-                                                         <div style={{display:'flex', gap:4}}>
-                                                             {(stat?.slots || [null, null, null]).map((s, idx) => (
-                                                                 <div key={idx} title={s ? "Placa " + (idx+1) + ": " + s : "Placa " + (idx+1) + ": Vazia / Erro"} style={{width:8, height:8, borderRadius:'50%', background: s ? C.green : C.red}} />
-                                                             ))}
-                                                         </div>
-                                                     </td>
-                                                     <td style={{padding:8}}>
-                                                        <span style={{background:C.card2, padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:700}}>
-                                                           {shelfLabel} · Slot #{m.notes}
-                                                        </span>
-                                                     </td>
-                                                     <td style={{padding:8, fontWeight:700, color: isDummy ? C.subtle : C.text}}>{isDummy ? "(Vazio)" : m.sn}</td>
-                                                     <td style={{padding:8, textAlign:'center'}}>
-                                                         <button onClick={() => openSlotDetailsModal(m)} style={{background:C.card2, border:"1px solid " + C.border, color:C.text, borderRadius:6, padding:'4px 10px', fontSize:11, fontWeight:700, cursor:'pointer'}}>⚙️ Gerenciar</button>
-                                                     </td>
-                                                 </tr>
-                                             );
-                                         })}
-                                  </tbody>
-                              </table>
-                          </div>
-                       ) : (
-                          /* View Mode Rack Virtual */
-                          Object.keys(shelfGroups).length === 0 ? (
-                             <div style={{textAlign:'center', padding:20, color:C.subtle}}>Nenhuma máquina encontrada nesta visualização.</div>
-                          ) : (
-                                                           <div className="shelves-side-by-side-grid">
-                              {Object.keys(shelfGroups).map(shelfName => {
-                                 const list = shelfGroups[shelfName];
-                                 const shelfTH = list.reduce((acc, m) => acc + (m.ip && farmStatus[m.ip]?.hashrate ? farmStatus[m.ip].hashrate : 0), 0);
-                                 const shelfOnline = list.filter(m => m.ip && farmStatus[m.ip]?.status === 'mining').length;
-                                 const cleanedShelfName = shelfName.replace(/^ao\s*-\s*/gi, "").replace(/^AutoSlot\s*/gi, "Prateleira ").replace(/AutoSlot/gi, "Prateleira").trim();
-
-                                 const layoutMeta = (() => {
-                                   try { return JSON.parse(localStorage.getItem("hs_layout_" + shelfName) || "{}"); } catch(e) { return {}; }
-                                 })();
-                                 const slotsPerVao = layoutMeta.machinesPerLevel || 6;
-                                 const vaosCount = layoutMeta.levelsCount || Math.max(1, Math.ceil(list.length / slotsPerVao));
-                                 const totalSlotsNeeded = vaosCount * slotsPerVao;
-
-                                 // Pad shelf slots so every level renders a complete metal tray row
-                                 const fullSlots = [];
-                                 for (let i = 1; i <= totalSlotsNeeded; i++) {
-                                   const existing = list.find(m => String(m.notes) === String(i));
-                                   if (existing) {
-                                     fullSlots.push(existing);
-                                   } else {
-                                     fullSlots.push({
-                                       _id: "dummy-" + shelfName + "-" + i,
-                                       sn: "FARM-VAGO-" + i,
-                                       model: "Antminer S19",
-                                       shelf: shelfName,
-                                       notes: String(i),
-                                       location: farmName,
-                                       status: "MAPPED"
-                                     });
-                                   }
-                                 }
-
-                                 const vaos = [];
-                                 for (let i = 0; i < fullSlots.length; i += slotsPerVao) {
-                                   vaos.push(fullSlots.slice(i, i + slotsPerVao));
-                                 }
-
-                                 // Bottom-up display (Vão 1 at bottom, Top Vão on top)
-                                 const reversedVaos = vaos.map((vaoList, idx) => ({ vaoList, realVaoNum: idx + 1 })).reverse();
-
-                                 return (
-                                    <div key={shelfName} style={{
-                                       background: '#1a1f2b', border: '6px solid #475569', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.8), 0 10px 30px rgba(0,0,0,0.5)',
-                                       borderRadius: 14,
-                                       padding: 16,
-                                       marginBottom: 24,
-                                       boxShadow: '0 10px 30px rgba(0,0,0,0.7), inset 0 0 40px rgba(0,0,0,0.9)',
-                                       position: 'relative'
-                                    }}>
-                                        {/* Rack Metallic Beams Header */}
-                                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'2px solid #334155', paddingBottom:12, marginBottom:16}}>
-                                            <div style={{display:'flex', alignItems:'center', gap:10}}>
-                                                <span style={{fontSize:18}}>🗄️</span>
-                                                <div>
-                                                   <div style={{fontWeight:900, fontSize:15, color:'#f8fafc'}}>{cleanedShelfName}</div>
-                                                   <div style={{fontSize:11, color:'#94a3b8'}}>{shelfOnline} de {fullSlots.length} slots ocupados/online</div>
-                                                </div>
-                                            </div>
-                                            <div style={{display:'flex', alignItems:'center', gap:12}}>
-                                                <div style={{background:C.green + "15", border:"1px solid " + C.green + "44", color:C.green, padding:'4px 12px', borderRadius:8, fontSize:12, fontWeight:900}}>
-                                                    ⛏️ {shelfTH.toFixed(1)} TH/s
-                                                </div>
-                                                
-                                                <button 
-                                                  onClick={() => setModal(
-                                                    <Modal title="⚡ Cadastramento Sequencial Rápido" onClose={() => setModal(null)}>
-                                                      <SequentialMappingModal ctx={ctx} shelfName={shelfName} farmName={farmName} totalSlots={fullSlots.length} onClose={() => setModal(null)} />
-                                                    </Modal>
-                                                  )}
-                                                  style={{background:C.accent + "22", border:"1px solid " + C.accent + "66", color:C.accent, padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:800, cursor:'pointer'}}
-                                                >
-                                                  ⚡ Cadastrar Bipando...
-                                                </button>
-                                                
-
-                                            </div>
-                                        </div>
-
-                                        {/* Metal Rack Tray Structure (Levels / Vãos) */}
-                                        <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                                           {reversedVaos.map(({ vaoList, realVaoNum }) => {
-                                              const startSlot = (realVaoNum - 1) * slotsPerVao + 1;
-                                              const endSlot = realVaoNum * slotsPerVao;
-                                              return (
-                                                 <div key={realVaoNum} style={{
-                                                    background: '#0f172a',
-                                                    borderRadius: 10,
-                                                    border: '1px solid #1e293b',
-                                                    padding: 12,
-                                                    borderBottom: '4px solid #475569',
-                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.4)'
-                                                 }}>
-                                                    <div style={{fontSize:11, fontWeight:800, color:'#94a3b8', marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                                      <span>📍 VÃO #{realVaoNum} ({realVaoNum === 1 ? "Base / Chão · Slot #1 à esquerda" : realVaoNum === vaos.length ? "Topo" : "Nível " + realVaoNum})</span>
-                                                      <span style={{fontSize:10, color:'#64748b'}}>Slots #{startSlot} ao #{endSlot}</span>
-                                                    </div>
-
-                                                    {/* Machine Grid Resting on Metal Shelf Bar */}
-                                                    <div style={{display:'grid', gridTemplateColumns:`repeat(${slotsPerVao}, 1fr)`, gap:10}}>
-                                                      {vaoList.map((m, slotIndex) => {
-                                                        const stat = farmStatus[m.ip] || null;
-                                                        const isDummy = m.sn && m.sn.startsWith("FARM-");
-                                                        const isOnline = stat && stat.status !== 'offline';
-                                                        const isMining = isOnline && stat.status === 'mining';
-                                                        const slotNumStr = m.notes || (startSlot + slotIndex);
-                                                        const machineModelName = cleanModelName(stat?.model, cleanModelName(m.model, "Antminer S19"));
-
-                                                        let bg = '#182232'; 
-                                                        let textColor = '#64748b'; 
-                                                        let borderStyle = '1px solid #1e293b';
-                                                        let ledColor = '#334155';
-                                                        let borderGlow = 'none';
-
-                                                        if (m.ip) {
-                                                            if (isMining) {
-                                                                bg = '#064e3b';
-                                                                textColor = '#6ee7b7';
-                                                                borderStyle = '1px solid #10b981';
-                                                                borderGlow = '0 0 12px rgba(16,185,129,0.4)';
-                                                                ledColor = '#10b981';
-                                                            } else if (isOnline) {
-                                                                bg = '#451a03';
-                                                                textColor = '#fde68a';
-                                                                borderStyle = '1px solid #f59e0b';
-                                                                borderGlow = '0 0 10px rgba(245,158,11,0.3)';
-                                                                ledColor = '#f59e0b';
-                                                            } else {
-                                                                bg = '#1e1b2e';
-                                                                textColor = '#cbd5e1';
-                                                                borderStyle = '1px solid #475569';
-                                                                ledColor = '#ef4444';
-                                                            }
-                                                        }
-
-                                                        let valToShow = "Slot #" + slotNumStr;
-                                                        if (viewMode === 'temp') {
-                                                            valToShow = isOnline && stat.temp ? stat.temp + '°C' : '--';
-                                                        } else if (viewMode === 'hashrate') {
-                                                            valToShow = isOnline && stat.hashrate ? stat.hashrate.toFixed(0) + ' TH' : '--';
-                                                        }
-
-                                                        
-                                                        const isOverheating = isOnline && stat && stat.temp > 85;
-                                                        const isIdleError = isOnline && stat && (stat.status === 'idle' || stat.status === 'error' || (stat.slots && stat.slots.includes(0)));
-
-                                                        let warningAnimation = 'none';
-                                                        if (isOverheating) {
-                                                            warningAnimation = 'alertPulseRed 1s ease-in-out infinite';
-                                                            borderStyle = '2px solid #ef4444';
-                                                            bg = '#450a0a';
-                                                            textColor = '#fca5a5';
-                                                        } else if (isIdleError) {
-                                                            warningAnimation = 'alertPulseYellow 1.5s ease-in-out infinite';
-                                                            borderStyle = '2px solid #f59e0b';
-                                                            bg = '#451a03';
-                                                            textColor = '#fde68a';
-                                                        }
-
-                                                        return (
-                                                            <div 
-                                                               key={m._id || slotIndex} 
-                                                               
-                                                               onClick={() => openSlotDetailsModal(m)}
-                                                               title={`Slot #${slotNumStr} · ${machineModelName} ${m.ip ? '· IP: ' + m.ip : '· (Vago)'} ${stat?.pool ? '· Pool: ' + stat.pool : ''}`}
-                                                               style={{
-                                                                   height: 58,
-                                                                   padding: '6px 8px',
-                                                                   fontSize: 11,
-                                                                   background: bg,
-                                                                   color: textColor,
-                                                                   boxShadow: borderGlow,
-                                                                   border: borderStyle,
-                                                                   animation: warningAnimation,
-                                                                   display: 'flex',
-                                                                   flexDirection: 'column',
-                                                                   justify: 'center',
-                                                                   alignItems: 'center',
-                                                                   borderRadius: 8,
-                                                                   position: 'relative',
-                                                                   cursor: 'pointer',
-                                                                   transition: 'all 0.15s ease'
-                                                               }}
-                                                            >
-                                                                <div style={{position:'absolute', top:4, right:4, width:6, height:6, borderRadius:'50%', background: ledColor}} />
-                                                                <div style={{fontWeight: 900, fontSize: 11}}>{valToShow}</div>
-                                                                <div style={{fontSize: 9, color: m.ip ? C.blue : '#475569', marginTop: 2, fontWeight: 700, overflow:'hidden', textOverflow:'ellipsis', maxWidth:'100%', whiteSpace:'nowrap'}}>
-                                                                    {m.ip ? m.ip : "Vago"}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                      })}
-                                                    </div>
-                                                 </div>
-                                              );
-                                           })}
-                                        </div>
-                                     </div>
-                                  );
-                               })}
-                            </div>
-                         )
-                      )}
-                   </div>
-                );
-             })
-          )}
+                    </div>
+                </div>
+            </div>
         </div>
-      )}
-    </div>;
+    );
 }
+
 
 function AddMachineModalWrapper({ctx, initialMode="single", onClose}) {
   const[mode,setMode]=useState(initialMode);
@@ -6170,15 +5091,13 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
     const [isTakingPrint, setIsTakingPrint] = useState(false);
     const [targetUptimeHours, setTargetUptimeHours] = useState(session?.targetUptimeHours || 3);
     const [autoSubmitTriggered, setAutoSubmitTriggered] = useState(false);
+    const [currentUptimeSec, setCurrentUptimeSec] = useState(0);
 
     const startManualCapture = async () => {
-        try {
-            await fetch('http://localhost:3001/api/ipreport?clear=true');
-        } catch(e) {}
+        try { await fetch('http://localhost:3001/api/ipreport?clear=true'); } catch(e) {}
         setListening(true);
     };
 
-    // Auto-fill board SNs, model, and components from miner info
     const applyMinerDetailsToSession = (info, ip) => {
         if (!session || !saveSession) return;
         let updatedSlots = [...session.slots];
@@ -6189,11 +5108,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                 if (boardSN && idx < 3) {
                     const cleanSN = String(boardSN).toUpperCase().trim();
                     if (cleanSN && updatedSlots[idx].hashSN !== cleanSN) {
-                        updatedSlots[idx] = { 
-                            ...updatedSlots[idx], 
-                            hashSN: cleanSN,
-                            status: info.status === 'mining' ? 'good' : (updatedSlots[idx].status || 'good')
-                        };
+                        updatedSlots[idx] = { ...updatedSlots[idx], hashSN: cleanSN, status: info.status === 'mining' ? 'good' : (updatedSlots[idx].status || 'good') };
                         hasChanges = true;
                     }
                 }
@@ -6203,15 +5118,9 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         let updatedModel = session.model;
         if (info.model && info.model.trim()) {
             const detected = info.model.trim();
-            const matched = ctx?.allModels?.()?.find(m => m.m.toLowerCase() === detected.toLowerCase()) || 
-                            ctx?.allModels?.()?.find(m => detected.toLowerCase().includes(m.m.toLowerCase()));
-            if (matched) {
-                updatedModel = matched.m;
-                hasChanges = true;
-            } else if (detected) {
-                updatedModel = detected;
-                hasChanges = true;
-            }
+            const matched = ctx?.allModels?.()?.find(m => m.m.toLowerCase() === detected.toLowerCase()) || ctx?.allModels?.()?.find(m => detected.toLowerCase().includes(m.m.toLowerCase()));
+            if (matched) { updatedModel = matched.m; hasChanges = true; }
+            else if (detected) { updatedModel = detected; hasChanges = true; }
         }
 
         const newSession = {
@@ -6226,9 +5135,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
             updatedAt: stamp()
         };
         
-        if (hasChanges || session.ip !== ip) {
-            saveSession(newSession);
-        }
+        if (hasChanges || session.ip !== ip) { saveSession(newSession); }
     };
 
     const fetchAndApplyMinerInfo = async (ip) => {
@@ -6237,10 +5144,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
             const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${ip}`);
             if (infoRes.ok) {
                 const info = await infoRes.json();
-                if (info.sn) {
-                    setMacInput(info.sn);
-                    loadMachine(info.sn);
-                }
+                if (info.sn) { setMacInput(info.sn); loadMachine(info.sn); }
                 applyMinerDetailsToSession(info, ip);
                 return info;
             }
@@ -6259,10 +5163,9 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                     const latest = reports[0];
                     setListening(false);
                     setLastCapturedIP(latest.ip);
-                    
                     const info = await fetchAndApplyMinerInfo(latest.ip);
                     const slotsFound = info?.slots?.filter(Boolean)?.length || 0;
-                    alert(`✅ IP REPORT CAPTURADO!\n🌐 IP: ${latest.ip}\n${slotsFound > 0 ? `📋 ${slotsFound} HASH SNs importados automaticamente!` : ''}`);
+                    alert(`✅ IP REPORT CAPTURADO!\\n🌐 IP: ${latest.ip}\\n${slotsFound > 0 ? `📋 ${slotsFound} HASH SNs importados automaticamente!` : ''}`);
                 }
             } catch(e) {}
         }, 1000);
@@ -6271,21 +5174,13 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
 
     const capturePrintAndUpload = async (targetIP) => {
         const ip = targetIP || session?.ip || lastCapturedIP;
-        if (!ip) {
-            alert("Informe o IP da máquina na bancada para tirar o print.");
-            return null;
-        }
+        if (!ip) { alert("Informe o IP da máquina na bancada para tirar o print."); return null; }
         setIsTakingPrint(true);
         try {
-            const res = await fetch('http://localhost:3001/api/screenshot', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ip })
-            });
+            const res = await fetch('http://localhost:3001/api/screenshot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip }) });
             if (res.ok) {
                 const data = await res.json();
                 if (data.success && data.image) {
-                    // Upload screenshot to Google Drive
                     const driveUrl = await ctx.uploadPhoto(data.image, `testes/print_${session?.machineSN || ip}_${uid()}.jpg`);
                     if (driveUrl && session && saveSession) {
                         saveSession({ ...session, photoKey: driveUrl, testPhoto: driveUrl, updatedAt: stamp() });
@@ -6294,19 +5189,14 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                     return driveUrl || data.image;
                 }
             }
-        } catch(e) {
-            console.error("Erro ao tirar print da tela:", e);
-        }
+        } catch(e) { console.error("Erro ao tirar print da tela:", e); }
         setIsTakingPrint(false);
         return null;
     };
 
-    // Live Uptime Check & Auto-Submit on Target Reached (e.g., 3 Hours)
-    const [currentUptimeSec, setCurrentUptimeSec] = useState(0);
     useEffect(() => {
         const ip = session?.ip || lastCapturedIP;
         if (!ip) return;
-
         const checkUptime = async () => {
             try {
                 const r = await fetch(`http://localhost:3001/api/miner-info?ip=${ip}`);
@@ -6315,44 +5205,25 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                     if (info.uptime) {
                         setCurrentUptimeSec(info.uptime);
                         const uptimeHours = info.uptime / 3600;
-                        
-                        // If target uptime is reached and autoSubmit not yet triggered
                         const isAutoOn = session?.autoEnabled !== false;
                         if (isAutoOn && uptimeHours >= targetUptimeHours && !autoSubmitTriggered && session && doSubmit) {
                             setAutoSubmitTriggered(true);
-                            console.log(`Target Uptime of ${targetUptimeHours}h reached (${uptimeHours.toFixed(2)}h). Triggering auto-print & review submit.`);
-                            
-                            // 1. Take screenshot
                             const photoUrl = await capturePrintAndUpload(ip);
-                            
-                            // 2. Prepare automatic slots & components
-                            const autoSlots = session.slots.map(s => ({
-                                ...s,
-                                status: s.status || (s.hashSN ? "good" : "")
-                            }));
-
-                            // 3. Submit session to review
+                            const autoSlots = session.slots.map(s => ({ ...s, status: s.status || (s.hashSN ? "good" : "") }));
                             const updatedSess = {
-                                ...session,
-                                slots: autoSlots,
-                                controladora: session.controladora || "ON",
-                                fonte: session.fonte || "ON",
-                                fans: session.fans || "ON",
-                                isAutomatic: true,
-                                autoSubmitted: true,
-                                photoKey: photoUrl || session.photoKey,
+                                ...session, slots: autoSlots, controladora: session.controladora || "ON", fonte: session.fonte || "ON", fans: session.fans || "ON",
+                                isAutomatic: true, autoSubmitted: true, photoKey: photoUrl || session.photoKey,
                                 adminNotes: [...(session.adminNotes || []), `⚡ AUTOMÁTICO (${uptimeHours.toFixed(1)}h Uptime / Alvo: ${targetUptimeHours}h)`]
                             };
                             await doSubmit(updatedSess);
-                            alert(`🎉 UPTIME DE ${targetUptimeHours}h ALCANÇADO COM SUCESSO!\n\n⚡ Teste marcado como AUTOMÁTICO (3h Uptime).\n📸 Print do Dashboard + Logs salvo.\n✅ Enviada para REVISÃO!\n\n🔌 PODE DESLIGAR A MÁQUINA DA BANCADA AGORA.`);
+                            alert(`🎉 UPTIME DE ${targetUptimeHours}h ALCANÇADO!\\n\\n⚡ Teste marcado como AUTOMÁTICO.\\n📸 Print salvo.\\n✅ Enviada para REVISÃO!\\n🔌 PODE DESLIGAR.`);
                         }
                     }
                 }
             } catch(e) {}
         };
-
-        checkUptime();
-        const interval = setInterval(checkUptime, 15000); // Check every 15s
+        checkUptime(); // Check immediately on mount/render
+        const interval = setInterval(checkUptime, 15000);
         return () => clearInterval(interval);
     }, [session?.ip, lastCapturedIP, targetUptimeHours, autoSubmitTriggered, session, doSubmit]);
 
@@ -6360,156 +5231,69 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         const ip = session?.ip || lastCapturedIP || prompt("Digite o IP da máquina na bancada para piscar:");
         if (!ip) return;
         try {
-            await fetch('http://localhost:3001/api/blink', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({ip, firmware: "vnish", on: !blinkOn})
-            });
+            await fetch('http://localhost:3001/api/blink', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ip, firmware: "vnish", on: !blinkOn}) });
             setBlinkOn(!blinkOn);
-        } catch(e) {
-            alert("Erro ao acionar pisca: " + e.message);
-        }
-        if(session && !session.ip) {
-            saveSession({...session, ip});
-        }
+        } catch(e) { alert("Erro ao acionar pisca: " + e.message); }
+        if(session && !session.ip) saveSession({...session, ip});
     };
-
-    const [udpErrors, setUdpErrors] = useState([]);
-    useEffect(() => {
-        const checkUdpDiagnostics = async () => {
-            try {
-                const res = await fetch('http://localhost:3001/api/ipreport-status');
-                if (res.ok) {
-                    const status = await res.json();
-                    const errors = [];
-                    for (const port in status) {
-                        if (status[port].startsWith('erro')) {
-                            errors.push(`Porta ${port} (${port === '4000' ? 'Bitmain' : 'Whatsminer'}): ${status[port]}`);
-                        }
-                    }
-                    setUdpErrors(errors);
-                }
-            } catch(e) {}
-        };
-        checkUdpDiagnostics();
-        const interval = setInterval(checkUdpDiagnostics, 6000);
-        return () => clearInterval(interval);
-    }, []);
 
     const uptimeHoursCalc = (currentUptimeSec / 3600).toFixed(1);
     const targetUptimeReached = currentUptimeSec / 3600 >= targetUptimeHours;
+    const ipToUse = session?.ip || lastCapturedIP;
 
-    return <div style={{background:C.card,borderRadius:14,padding:14,marginBottom:12,border:`2px solid ${targetUptimeReached ? C.green : listening ? C.blue : C.border}`}}>
-        {udpErrors.length > 0 && (
-            <div style={{background: C.red + "22", border: "1px solid " + C.red, color: C.red, borderRadius: 8, padding: 8, fontSize: 11, marginBottom: 10, fontWeight: 700}}>
-                ⚠️ Conflito no IP Report local:
-                <ul style={{margin:'4px 0 0 16px', padding:0}}>
-                    {udpErrors.map(err => <li key={err}>{err}. Feche outros aplicativos de IP Reporter/BTC Tools!</li>)}
-                </ul>
-            </div>
-        )}
-
+    return <div style={{background:C.card,borderRadius:8,padding:10,marginBottom:12,border:`1px solid ${targetUptimeReached ? C.green : listening ? C.blue : C.border}`}}>
         {targetUptimeReached && (
-            <div style={{background: C.green + "22", border: "2px solid " + C.green, color: C.green, borderRadius: 10, padding: 12, marginBottom: 12, textAlign: 'center', fontWeight: 900, fontSize: 14}}>
-                🎉 MÁQUINA ATINGIU {targetUptimeHours}H DE UPTIME! (Atual: {uptimeHoursCalc}h)<br/>
-                📸 Print capturado automaticamente & Enviado para Revisão.<br/>
-                <span style={{fontSize: 16, color: '#fff', background: C.green, padding: '4px 12px', borderRadius: 6, display: 'inline-block', marginTop: 6}}>
-                    🔌 PODE DESLIGAR A MÁQUINA DA BANCADA
-                </span>
+            <div style={{background: C.green + "22", border: "1px solid " + C.green, color: C.green, borderRadius: 6, padding: 8, marginBottom: 8, textAlign: 'center', fontWeight: 900, fontSize: 13}}>
+                🎉 MÁQUINA APROVADA: {targetUptimeHours}H DE UPTIME! ({uptimeHoursCalc}h reais extraídos da placa)<br/>
+                📸 Logs puxados. 🔌 PODE DESLIGAR.
             </div>
         )}
 
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
-           <div>
-              <div style={{fontWeight:800, color: listening ? C.blue : C.subtle, fontSize:13}}>
-                 {listening ? "📡 AGUARDANDO BOTÃO IP REPORT... (Aperte o botão na máquina)" : "🔌 Automação de Bancada & IP Report"}
-              </div>
-              {session?.ip && (
-                 <div style={{fontSize:11, color:C.green, marginTop:4, fontWeight:700, display: 'flex', alignItems: 'center', gap: 10}}>
-                    <span>🌐 IP: {session.ip}</span>
-                    <span>⏱️ Uptime: {formatUptime(currentUptimeSec)} / {targetUptimeHours}h</span>
-                 </div>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:6}}>
+           <div style={{display:'flex', alignItems:'center', gap:10}}>
+              {ipToUse ? (
+                 <>
+                    <span style={{fontSize:14, color:C.green, fontWeight:900, background:C.card2, padding:'4px 8px', borderRadius:6}}>🌐 {ipToUse}</span>
+                    <span style={{fontSize:13, color:C.text, fontWeight:800}}>⏱️ {formatUptime(currentUptimeSec)} / {targetUptimeHours}h</span>
+                 </>
+              ) : (
+                 <span style={{fontWeight:800, color: listening ? C.blue : C.subtle, fontSize:13}}>
+                    {listening ? "📡 Aguardando IP Report..." : "🔌 Automação de Teste"}
+                 </span>
               )}
            </div>
            
-           <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-              <div style={{display:'flex', alignItems:'center', gap:4, background:C.card2, padding:'4px 8px', borderRadius:8, border:"1px solid " + C.border}}>
-                 <span style={{fontSize:10, color:C.subtle, fontWeight:700}}>⏱️ Alvo (Horas):</span>
-                 <input 
-                   type="number" 
-                   value={targetUptimeHours} 
-                   onChange={e => {
-                       const v = Number(e.target.value);
-                       setTargetUptimeHours(v);
-                       if (session && saveSession) saveSession({ ...session, targetUptimeHours: v });
-                   }} 
-                   style={{width:45, background:'transparent', color:C.accent, border:'none', fontWeight:900, fontSize:12, textAlign:'center'}} 
-                 />
+           <div style={{display:'flex', gap:6, alignItems:'center', flexWrap:'wrap'}}>
+              <div style={{display:'flex', alignItems:'center', gap:4, background:C.card2, padding:'4px 8px', borderRadius:6, border:"1px solid " + C.border}}>
+                 <span style={{fontSize:10, color:C.subtle, fontWeight:700}}>Alvo(H):</span>
+                 <input type="number" value={targetUptimeHours} onChange={e => { const v = Number(e.target.value); setTargetUptimeHours(v); if (session && saveSession) saveSession({ ...session, targetUptimeHours: v }); }} style={{width:35, background:'transparent', color:C.accent, border:'none', fontWeight:900, fontSize:12, textAlign:'center'}} />
               </div>
 
-              {session?.ip && (
-                 <Btn v="s" onClick={() => fetchAndApplyMinerInfo(session.ip)} title="Extrair HASH SNs do log do minerador">
-                    📋 Extrair HASH SNs
-                 </Btn>
+              {ipToUse && (
+                 <>
+                    <Btn v="s" onClick={() => window.open(`http://${ipToUse}`, '_blank')} title="Abrir painel da mineradora">
+                       🌍 Abrir Dashboard
+                    </Btn>
+                    <Btn v="s" onClick={() => fetchAndApplyMinerInfo(ipToUse)} title="Extrair SNs">📋 HASH SNs</Btn>
+                 </>
               )}
 
-              <Btn v="s" onClick={() => capturePrintAndUpload(session?.ip)} disabled={isTakingPrint}>
-                 📸 {isTakingPrint ? "Tirando Print..." : "Print Dashboard + Logs"}
-              </Btn>
-
-               <Btn v="p" onClick={() => ctx.setModal(
-                 <Modal title="🌐 Máquinas Online na Rede Local (Escaneamento)" onClose={() => ctx.setModal(null)}>
-                   <OnlineMinersModal 
-                     ctx={ctx} 
-                     session={session} 
-                     setMacInput={setMacInput} 
-                     loadMachine={loadMachine} 
-                     saveSession={saveSession} 
-                     fetchAndApplyMinerInfo={fetchAndApplyMinerInfo}
-                     triggerToast={triggerToast} 
-                     onClose={() => ctx.setModal(null)} 
-                   />
-                 </Modal>
-               )}>
-                  🌐 Ver Máquinas Online na Rede
-               </Btn>
-
-               {!listening ? (
-                  <Btn v="b" onClick={startManualCapture}>📡 Capturar IP Report</Btn>
-               ) : (
-                  <Btn v="s" onClick={()=>setListening(false)}>❌ Cancelar Escuta</Btn>
-               )}
-              <button
-                  onClick={() => {
-                     const currentVal = session?.autoEnabled !== false;
-                     const nextVal = !currentVal;
-                     if (session && saveSession) saveSession({ ...session, autoEnabled: nextVal });
-                  }}
-                  style={{
-                     background: (session?.autoEnabled !== false) ? C.green + "22" : C.card2,
-                     border: "1px solid " + ((session?.autoEnabled !== false) ? C.green : C.border),
-                     color: (session?.autoEnabled !== false) ? C.green : C.subtle,
-                     borderRadius: 8,
-                     padding: "5px 10px",
-                     fontSize: 11,
-                     fontWeight: 800,
-                     cursor: "pointer",
-                     display: "inline-flex",
-                     alignItems: "center",
-                     gap: 6
-                  }}
-                  title="Configuração por máquina: Ligar ou desligar envio automático de teste desta máquina ao atingir o tempo alvo"
-               >
-                  {(session?.autoEnabled !== false) ? "⚡ Automação: LIGADA" : "⏸️ Automação: DESLIGADA"}
-               </button>
-
-               <Btn v="s" onClick={toggleBlink}>
-                 🔦 {blinkOn ? "Parar de Piscar" : "Piscar LED"}
-              </Btn>
+              <Btn v="s" onClick={() => capturePrintAndUpload(ipToUse)} disabled={isTakingPrint}>📸 {isTakingPrint ? "..." : "Print"}</Btn>
+              
+              {!listening ? (
+                  <Btn v="b" onClick={startManualCapture}>📡 IP Report</Btn>
+              ) : (
+                  <Btn v="s" onClick={()=>setListening(false)}>❌ Parar</Btn>
+              )}
+              
+              <button onClick={() => { const n = !(session?.autoEnabled !== false); if (session && saveSession) saveSession({ ...session, autoEnabled: n }); }} style={{ background: (session?.autoEnabled !== false) ? C.green + "22" : C.card2, border: "1px solid " + ((session?.autoEnabled !== false) ? C.green : C.border), color: (session?.autoEnabled !== false) ? C.green : C.subtle, borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }} title="Automação">
+                  {(session?.autoEnabled !== false) ? "⚡ Auto: ON" : "⏸️ Auto: OFF"}
+              </button>
            </div>
         </div>
     </div>;
 }
+
 
 function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH,gChips,setModal}=ctx;const models=allModels();
