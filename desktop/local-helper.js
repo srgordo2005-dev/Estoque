@@ -199,6 +199,9 @@ const extractVnishFullDetails = async (ip) => {
         const status = await queryVnishAPI(ip, '/api/v1/status');
 
         if (!info && !summary && !status) return null;
+        // Rigorous check to prevent DVRs/Smart Switches from being detected as Vnish
+        const isVnish = (info?.miner || info?.model || info?.system || summary?.miner || status?.miner || summary?.miner_type);
+        if (!isVnish) return null;
 
         const s = summary?.miner || summary || {};
         const sys = info?.system || {};

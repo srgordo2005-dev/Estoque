@@ -1146,6 +1146,7 @@ class SafeTab extends React.Component{
 }
 
 export default function App(){
+  const[mobileMenuHidden, setMobileMenuHidden] = useState(false);
   const[user,setUser]=usePersistedField("session-user",null);
   const[data,setData]=useState({employees:[],machines:[],hashes:[],repairs:[],tests:[],feedbacks:[],approvals:[],customModels:[],pallets:[],clients:[],shipments:[],loadPhotos:[],orders:[],farmMachines:[]});
   const[loading,setLoading]=useState(true),[syncing,setSyncing]=useState(false),[tab,setTab]=useState("home"),[modal,setModal]=useState(null),[camOpen,setCamOpen]=useState(false);
@@ -1589,7 +1590,7 @@ export default function App(){
     ...((p.repairs||p.testing||isAdmin)?[{id:"guia",icon:"📚",label:"Ajuda"}]:[]),
     ...(p.orders||isAdmin?[{id:"pedidos",icon:"📝",label:"Pedidos"}]:[]),
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
-    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(user?.code==="019"?[{id:"datacenter",icon:"🌐",label:"Fazenda"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
+    ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(user?.code==="019"?[{id:"scanner",icon:"📡",label:"Scanner"}]:[]),...(user?.code==="019"?[{id:"datacenter",icon:"🌐",label:"Fazenda"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:1240,margin:"0 auto",position:"relative"}}>
@@ -1695,6 +1696,7 @@ export default function App(){
         {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
         {tab==="pal"&&(p.machines||p.hashes||isAdmin)&&<SafeTab><PalletsPage ctx={ctx}/></SafeTab>}{tab==="cli"&&canSeeClients&&<SafeTab><ClientesPage ctx={ctx}/></SafeTab>}{tab==="approvals"&&canApprove&&<ApprovalsPage ctx={ctx}/>}
         {tab==="team"&&canSeeTeam&&<TeamPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
+        {tab==="scanner"&&user?.code==="019"&&<ScannerPage ctx={ctx}/>}
         {tab==="datacenter"&&user?.code==="019"&&<DataCenterPage ctx={ctx}/>}
         {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
       </div>
@@ -1764,31 +1766,44 @@ export default function App(){
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
-      <nav className="mobile-bottom-nav">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => changeTab(t.id)}
-            style={{
-              flex: 1,
-              background: "none",
-              border: "none",
-              padding: "8px 2px 10px",
-              cursor: "pointer",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 2,
-              color: tab === t.id ? C.accent : C.subtle,
-              fontSize: 10,
-              fontWeight: tab === t.id ? 800 : 400
-            }}
+      {!mobileMenuHidden ? (
+          <nav className="mobile-bottom-nav" style={{overflowX: 'auto', whiteSpace: 'nowrap', justifyContent: 'flex-start'}}>
+            <button onClick={() => setMobileMenuHidden(true)} style={{padding: '0 20px', background: 'none', border: 'none', color: C.red, borderRight: `1px solid ${C.border}`, fontSize: 24}}>
+              ⬇️
+            </button>
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => changeTab(t.id)}
+                style={{
+                  flex: '0 0 65px',
+                  background: "none",
+                  border: "none",
+                  padding: "8px 2px 10px",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 2,
+                  color: tab === t.id ? C.accent : C.subtle,
+                  fontSize: 10,
+                  fontWeight: tab === t.id ? 800 : 400
+                }}
+              >
+                <span style={{fontSize: 18}}>{t.icon}</span>
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </nav>
+      ) : (
+          <button 
+            className="mobile-bottom-nav" 
+            onClick={() => setMobileMenuHidden(false)} 
+            style={{width: 50, height: 50, borderRadius: 25, bottom: 20, left: '50%', transform: 'translateX(-50%)', justifyContent:'center', border:`1px solid ${C.border}`, background: C.card}}
           >
-            <span style={{fontSize: 18}}>{t.icon}</span>
-            <span>{t.label}</span>
+            🍔
           </button>
-        ))}
-      </nav>
+      )}
     </div>
     <button onClick={()=>setCamOpen(true)} style={{position:"fixed",right:16,bottom:72,width:52,height:52,borderRadius:"50%",background:C.accent,border:"none",cursor:"pointer",fontSize:22,zIndex:99,boxShadow:"0 4px 16px rgba(249,115,22,.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>📷</button>
     {camOpen&&<CamModal ctx={ctx} onClose={()=>setCamOpen(false)}/>}
@@ -3113,48 +3128,193 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
 }
 
 function DataCenterPage({ctx}) {
-    const {data, mutate, setModal, user} = ctx;
+    const {data, setModal, user, farmMachines, setFarmMachines, farmsConfig, setFarmsConfig} = ctx;
     
-    const [viewType, setViewType] = useState("general_btc_tools"); // Default to the scanner
+    // We will assume the default size is 10 rows (vãos) x 10 cols (máquinas)
+    // Later this could be dynamic per farm.
+    
+    const [selectedFarm, setSelectedFarm] = useState("Fazenda Principal");
+    const [viewMode, setViewMode] = useState("th"); // 'th', 'temp', 'uptime', 'status'
+    
+    // Derived from data
+    const farmData = farmMachines.filter(m => (m.location || "Fazenda Principal") === selectedFarm);
+    
+    const getMachine = (vao, slot) => {
+        return farmData.find(m => m.shelf === String(vao) && m.notes === String(slot));
+    };
+
+    const handleBoxClick = (vao, slot) => {
+        const m = getMachine(vao, slot);
+        if (m) {
+            setModal({
+                title: `Detalhes da Máquina - Vão ${vao} / Posição ${slot}`,
+                content: (
+                    <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                        <div style={{fontWeight:800, fontSize:18, color:C.blue}}>{m.ip}</div>
+                        <div style={{background:C.card2, padding:10, borderRadius:8}}>
+                            <div><strong>Modelo:</strong> {m.model || '-'}</div>
+                            <div><strong>SN:</strong> {m.sn || '-'}</div>
+                            <div><strong>Status:</strong> {m.status || '-'}</div>
+                            <div><strong>Hash Rate:</strong> {m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</div>
+                            <div><strong>Temperatura:</strong> {m.temp ? m.temp + '°C' : '-'}</div>
+                            <div><strong>Uptime:</strong> {m.uptime ? formatUptime(m.uptime) : '-'}</div>
+                            <div style={{marginTop:10, fontSize:12, color:C.subtle}}>
+                                Clique duplo na caixa para abrir o painel web.
+                            </div>
+                        </div>
+                        <Btn onClick={() => {
+                            const newMachines = farmMachines.filter(x => x.id !== m.id);
+                            setFarmMachines(newMachines);
+                            setModal(null);
+                        }} style={{background:C.red, color:"#fff"}}>Remover da Fazenda</Btn>
+                    </div>
+                )
+            });
+        } else {
+            // Add new machine to this slot
+            let newIP = prompt(`Qual o IP da máquina para o Vão ${vao}, Posição ${slot}?`);
+            if (newIP) {
+                const newMachine = {
+                    id: Date.now().toString(),
+                    location: selectedFarm,
+                    shelf: String(vao),
+                    notes: String(slot),
+                    ip: newIP,
+                    status: 'unknown',
+                    temp: 0,
+                    hashrate: 0,
+                    uptime: 0,
+                    model: '',
+                    sn: ''
+                };
+                setFarmMachines([...farmMachines, newMachine]);
+            }
+        }
+    };
+
+    const handleDoubleClick = (vao, slot) => {
+        const m = getMachine(vao, slot);
+        if (m && m.ip) {
+            window.open(`http://${m.ip}`, '_blank');
+        }
+    };
+
+    // Calculate dynamic rows/cols based on max found, or default 10x10
+    let maxVao = 10;
+    let maxSlot = 10;
+    farmData.forEach(m => {
+        const v = parseInt(m.shelf) || 0;
+        const s = parseInt(m.notes) || 0;
+        if(v > maxVao) maxVao = v;
+        if(s > maxSlot) maxSlot = s;
+    });
+
+    const rows = Array.from({length: maxVao}, (_, i) => i + 1);
+    const cols = Array.from({length: maxSlot}, (_, i) => i + 1);
+
+    const renderBoxContent = (m) => {
+        if (!m) return <div style={{opacity:0.3, fontSize:10}}>Vazio</div>;
+        if (m.status === 'error' || m.status === 'abnormal') return <span style={{fontSize:18}}>⚠️</span>;
+        
+        switch (viewMode) {
+            case 'th': return <div style={{fontWeight:800}}>{m.hashrate ? m.hashrate.toFixed(0) + 'T' : '0T'}</div>;
+            case 'temp': return <div style={{fontWeight:800, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : 'inherit')}}>{m.temp ? m.temp + '°' : '-'}</div>;
+            case 'uptime': return <div style={{fontWeight:800, fontSize:11}}>{m.uptime ? Math.floor(m.uptime / 60) + 'm' : '-'}</div>;
+            default: return <div style={{fontWeight:800, fontSize:11}}>{m.ip.split('.').pop()}</div>;
+        }
+    };
+
+    const getBoxColor = (m) => {
+        if (!m) return C.card2;
+        if (m.status === 'offline') return '#555';
+        if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return C.red;
+        if (m.temp > 75) return '#ff9800';
+        if (m.hashrate > 0) return C.green;
+        return C.blue; // default active
+    };
+
+    return (
+        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: C.bg, padding: 20}}>
+            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
+                <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
+                   <span style={{fontSize:28}}>🏢</span> Fazenda
+                   {user?.code === "019" && (
+                       <button onClick={() => ctx.setModal({content: <FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} />, title: "Configuração", hideHeader: true})} style={{background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: '4px 8px', borderRadius: 6, fontSize: 14, cursor: 'pointer', marginLeft: 10}}>
+                           ⚙️ Config
+                       </button>
+                   )}
+                </div>
+                
+                <div style={{display:'flex', gap:10, alignItems:'center'}}>
+                    <select value={selectedFarm} onChange={e=>setSelectedFarm(e.target.value)} style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:'10px 14px', fontWeight:800}}>
+                        <option value="Fazenda Principal">Fazenda Principal</option>
+                        {farmsConfig?.filter(f => user?.code === "019" || f.allowedUsers?.includes(user?.code)).map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+                    </select>
+
+                    <div style={{background:C.card, borderRadius:8, display:'flex', overflow:'hidden', border:`1px solid ${C.border}`}}>
+                        <button onClick={()=>setViewMode('th')} style={{background:viewMode==='th'?C.blue:'transparent', color:viewMode==='th'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>TH/s</button>
+                        <button onClick={()=>setViewMode('temp')} style={{background:viewMode==='temp'?C.blue:'transparent', color:viewMode==='temp'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Temp</button>
+                        <button onClick={()=>setViewMode('uptime')} style={{background:viewMode==='uptime'?C.blue:'transparent', color:viewMode==='uptime'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Uptime</button>
+                        <button onClick={()=>setViewMode('ip')} style={{background:viewMode==='ip'?C.blue:'transparent', color:viewMode==='ip'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Fim IP</button>
+                    </div>
+                </div>
+            </div>
+
+            <div style={{flex:1, overflow:"auto", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:'0 4px 20px rgba(0,0,0,0.2)', padding: 20, display:'flex', flexDirection:'column', alignItems:'center'}}>
+                {rows.map(vao => (
+                    <div key={vao} style={{display:'flex', gap:10, marginBottom:10}}>
+                        <div style={{width: 40, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:800, color:C.subtle}}>
+                            V{vao}
+                        </div>
+                        {cols.map(slot => {
+                            const m = getMachine(vao, slot);
+                            return (
+                                <div 
+                                    key={slot} 
+                                    onClick={() => handleBoxClick(vao, slot)}
+                                    onDoubleClick={() => handleDoubleClick(vao, slot)}
+                                    style={{
+                                        width: 50, height: 50, 
+                                        background: getBoxColor(m),
+                                        borderRadius: 8, 
+                                        display:'flex', alignItems:'center', justifyContent:'center',
+                                        cursor:'pointer',
+                                        color: '#fff',
+                                        boxShadow: m ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+                                        border: m ? 'none' : `1px dashed ${C.border}`,
+                                        userSelect: 'none'
+                                    }}
+                                    title={m ? `Vão ${vao} - Slot ${slot} (${m.ip})` : `Vão ${vao} - Slot ${slot} (Vazio)`}
+                                >
+                                    {renderBoxContent(m)}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+
+function ScannerPage({ctx}) {
+    const {data, setActiveTab, setSession, setMode, user} = ctx;
+    
     const savedIps = user?.btcToolsIps ? user.btcToolsIps : ["192.168.1.1-255"];
     const [btcScanIpRange, setBtcScanIpRange] = useState(savedIps[0] || "");
     const [btcScanResults, setBtcScanResults] = useState([]);
     const [scanning, setScanning] = useState(false);
     
-    // Pool configs
-    const [pool1, setPool1] = useState("");
-    const [pool2, setPool2] = useState("");
-    const [pool3, setPool3] = useState("");
-    const [workerSuffix, setWorkerSuffix] = useState("IP"); // IP, No Change, Empty
-
-    // Selection
-    const [selectedIPs, setSelectedIPs] = useState(new Set());
-
-    const toggleIP = (ip) => {
-        const s = new Set(selectedIPs);
-        if(s.has(ip)) s.delete(ip);
-        else s.add(ip);
-        setSelectedIPs(s);
-    };
-
-    const toggleAll = () => {
-        if(selectedIPs.size === btcScanResults.length && btcScanResults.length > 0) {
-            setSelectedIPs(new Set());
-        } else {
-            setSelectedIPs(new Set(btcScanResults.map(m => m.ip)));
-        }
-    };
-
     const doScan = async () => {
         if (!btcScanIpRange) return alert("Preencha a faixa de IP. Ex: 192.168.1.1-255");
         setScanning(true);
         setBtcScanResults([]);
         try {
-            // Usa o helper local
             const res = await fetch(`http://localhost:3001/api/scan-range`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start: btcScanIpRange.split('-')[0], end: btcScanIpRange.split('-')[0].split('.').slice(0,3).join('.') + '.' + btcScanIpRange.split('-')[1] }) // Simplified parser
+                body: JSON.stringify({ start: btcScanIpRange.split('-')[0], end: btcScanIpRange.split('-')[0].split('.').slice(0,3).join('.') + '.' + btcScanIpRange.split('-')[1] })
             });
             if (res.ok) {
                 const data = await res.json();
@@ -3163,120 +3323,98 @@ function DataCenterPage({ctx}) {
                 alert("Erro ao executar scanner no servidor local.");
             }
         } catch(e) {
-            alert("Servidor local (localhost:3001) não respondeu: " + e.message + "\\n\\nCertifique-se que o App Desktop está rodando!");
+            alert("Servidor local não respondeu: " + e.message + "\n\nCertifique-se que o App Desktop está rodando!");
         }
         setScanning(false);
     };
 
+    const handleTestar = (m) => {
+        // Prepare session data for Test page
+        const newSession = {
+            ip: m.ip,
+            machineSN: m.sn || "",
+            model: m.model || "",
+            slotsFound: m.slots ? m.slots.filter(s => s).length : 0,
+            adminNotes: []
+        };
+        setSession(newSession);
+        
+        // Also we should ideally inject the hashboard SNs into the test tab context. 
+        // We'll set the active tab to Teste.
+        // Wait, TestePage relies on \`session\`. We can pass hashboard SNs through session too, 
+        // e.g. session.slots = m.slots
+        newSession.slots = m.slots || [null, null, null];
+        
+        setActiveTab('teste');
+    };
+
     return (
-        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 120px)"}}>
-            {/* TOP BAR / LOGO */}
-            <div style={{padding:"10px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${C.border}`}}>
-                <div style={{fontWeight:900, fontSize:18, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
-                   <span style={{fontSize:24}}>⚡</span> SCANER ASIC 
+        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: C.bg, padding: 20}}>
+            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
+                <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
+                   <span style={{fontSize:28}}>📡</span> Scanner Geral 
                 </div>
-                <div style={{fontSize:12, color:C.subtle}}>
-                   Insira as faixas de IP e use os botões para controlar suas máquinas em lote.
+                <div style={{display:'flex', gap:10, alignItems:'center'}}>
+                    <input type="text" value={btcScanIpRange} onChange={e=>setBtcScanIpRange(e.target.value)} style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:'10px 14px', width: 250}} placeholder="Faixa de IP (Ex: 192.168.1.1-255)"/>
+                    <Btn onClick={doScan} disabled={scanning} style={{background:C.blue, color:"#fff", padding:"10px 24px", fontWeight:800}}>
+                        {scanning ? "Escaneando..." : "Scan"}
+                    </Btn>
                 </div>
             </div>
 
-            <div style={{display:"flex", flex:1, overflow:"hidden"}}>
-                {/* LEFT SIDEBAR (IP RANGES) */}
-                <div style={{width: 250, borderRight:`1px solid ${C.border}`, background:C.bg, display:"flex", flexDirection:"column"}}>
-                    <div style={{padding: 10, borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-                        <div style={{fontWeight:800, fontSize:12, color:C.accent}}>FAIXAS DE IP (Ranges)</div>
-                        <div style={{display:'flex', gap:4}}>
-                            <button style={{background:C.card2, border:'none', color:C.text, borderRadius:4, width:24, height:24, cursor:'pointer'}}>+</button>
-                            <button style={{background:C.card2, border:'none', color:C.text, borderRadius:4, width:24, height:24, cursor:'pointer'}}>-</button>
-                        </div>
-                    </div>
-                    <div style={{padding: 10, flex:1, overflowY:"auto"}}>
-                        <div style={{display:'flex', alignItems:'center', gap:8, fontSize:12}}>
-                            <input type="checkbox" checked readOnly />
-                            <input type="text" value={btcScanIpRange} onChange={e=>setBtcScanIpRange(e.target.value)} style={{background:'none', border:`1px solid ${C.border}`, color:C.text, flex:1, fontSize:12, padding:'2px 4px'}} placeholder="192.168.1.1-255"/>
-                        </div>
-                    </div>
-                </div>
-
-                {/* MAIN CONTENT AREA */}
-                <div style={{flex:1, display:"flex", flexDirection:"column", overflow:"hidden"}}>
-                    {/* BUTTONS BAR */}
-                    <div style={{padding: 10, display:"flex", gap:10, borderBottom:`1px solid ${C.border}`, background:C.card, flexWrap:"wrap"}}>
-                        <Btn onClick={doScan} style={{background:C.blue, color:"#fff", padding:"6px 20px", fontWeight:800}}>
-                            {scanning ? "Escaneando..." : "Scan"}
-                        </Btn>
-                        <Btn onClick={doScan} style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Monitor</Btn>
-                        <Btn style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Config All</Btn>
-                        <Btn style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Config Selected</Btn>
-                        <Btn style={{background:C.red, color:"#fff", padding:"6px 20px"}}>Reboot All</Btn>
-                        <Btn style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Reboot Selected</Btn>
-                        <Btn style={{background:C.card2, color:C.text, padding:"6px 20px"}}>Export</Btn>
-                    </div>
-
-                    {/* POOL CONFIG BAR */}
-                    <div style={{padding: 10, borderBottom:`1px solid ${C.border}`, background:C.bg, fontSize:12, display:"flex", flexDirection:"column", gap:8}}>
-                        {[1,2,3].map(n => (
-                            <div key={n} style={{display:"flex", alignItems:"center", gap:10}}>
-                                <input type="checkbox" />
-                                <span style={{width: 50}}>Pool {n}:</span>
-                                <input type="text" placeholder="stratum+tcp://pool..." style={{flex:1, background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:"4px 8px"}} />
-                                <span style={{width: 60, textAlign:'right'}}>Worker:</span>
-                                <input type="text" placeholder="Nome" style={{flex:0.5, background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:"4px 8px"}} />
-                                <span style={{width: 40, textAlign:'right'}}>PWD:</span>
-                                <input type="text" placeholder="123" style={{width:80, background:C.card2, border:`1px solid ${C.border}`, color:C.text, padding:"4px 8px"}} />
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* TABLE AREA */}
-                    <div style={{flex:1, overflow:"auto", background:C.card2}}>
-                        <table style={{width:'100%', borderCollapse:'collapse', fontSize:12, textAlign:'left'}}>
-                            <thead style={{position:'sticky', top:0, background:C.bg, zIndex:10}}>
-                                <tr style={{borderBottom:`1px solid ${C.border}`, color:C.accent}}>
-                                    <th style={{padding:10, width:40}}><input type="checkbox" checked={selectedIPs.size === btcScanResults.length && btcScanResults.length > 0} onChange={toggleAll}/></th>
-                                    <th style={{padding:10}}>IP</th>
-                                    <th style={{padding:10}}>Status</th>
-                                    <th style={{padding:10}}>Type</th>
-                                    <th style={{padding:10}}>Hash Rate RT</th>
-                                    <th style={{padding:10}}>Hash Rate avg</th>
-                                    <th style={{padding:10}}>Temperature</th>
-                                    <th style={{padding:10}}>Fan Speed</th>
-                                    <th style={{padding:10}}>Elapsed</th>
-                                    <th style={{padding:10}}>Pool 1</th>
+            <div style={{flex:1, overflow:"auto", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:'0 4px 20px rgba(0,0,0,0.2)'}}>
+                <table style={{width:'100%', borderCollapse:'collapse', fontSize:13, textAlign:'left'}}>
+                    <thead style={{position:'sticky', top:0, background:C.card2, zIndex:10}}>
+                        <tr style={{borderBottom:`1px solid ${C.border}`, color:C.accent}}>
+                            <th style={{padding:16, fontWeight:800}}>IP</th>
+                            <th style={{padding:16, fontWeight:800}}>Status</th>
+                            <th style={{padding:16, fontWeight:800}}>Modelo</th>
+                            <th style={{padding:16, fontWeight:800}}>Hash Rate</th>
+                            <th style={{padding:16, fontWeight:800}}>Temp.</th>
+                            <th style={{padding:16, fontWeight:800}}>Uptime</th>
+                            <th style={{padding:16, fontWeight:800}}>SN Controladora</th>
+                            <th style={{padding:16, fontWeight:800}}>Hashboards</th>
+                            <th style={{padding:16, fontWeight:800}}>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {btcScanResults.length === 0 ? (
+                            <tr>
+                                <td colSpan="9" style={{textAlign:'center', padding:60, color:C.muted}}>
+                                    {scanning ? "Procurando dispositivos (ignorando DVRs)..." : "Insira uma faixa de IP e clique em Scan."}
+                                </td>
+                            </tr>
+                        ) : (
+                            btcScanResults.map((m, idx) => (
+                                <tr key={idx} style={{borderBottom:`1px solid ${C.border}`, transition:'background 0.2s'}} onMouseOver={e=>e.currentTarget.style.background=C.card2} onMouseOut={e=>e.currentTarget.style.background='transparent'}>
+                                    <td style={{padding:16}}>
+                                        <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{color:C.blue, textDecoration:'none', fontWeight:800}}>{m.ip}</a>
+                                    </td>
+                                    <td style={{padding:16}}><span style={{background: m.status === 'mining' ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)', color: m.status === 'mining' ? C.green : C.red, padding:'4px 8px', borderRadius:4, fontWeight:800, fontSize:11}}>● {m.status === 'mining' ? 'Normal' : 'Erro'}</span></td>
+                                    <td style={{padding:16, color:C.text, fontWeight:600}}>{m.model || '-'}</td>
+                                    <td style={{padding:16, fontWeight:800, color:C.green}}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
+                                    <td style={{padding:16, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : C.text), fontWeight: m.temp > 75 ? 800 : 400}}>
+                                        {m.temp ? m.temp + '°C' : '-'}
+                                    </td>
+                                    <td style={{padding:16, color:C.subtle}}>{formatUptime(m.uptime)}</td>
+                                    <td style={{padding:16, color:C.subtle, fontFamily:'monospace', fontSize:11}}>{m.sn || '-'}</td>
+                                    <td style={{padding:16, color:C.subtle}}>
+                                        {m.slots ? m.slots.filter(s=>s).length + ' lidas' : '-'}
+                                    </td>
+                                    <td style={{padding:16}}>
+                                        <Btn onClick={() => handleTestar(m)} style={{background:C.blue, color:"#fff", padding:"6px 12px", fontSize:11, fontWeight:800}}>
+                                            🧪 Testar
+                                        </Btn>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {btcScanResults.length === 0 ? (
-                                    <tr>
-                                        <td colSpan="10" style={{textAlign:'center', padding:40, color:C.muted}}>
-                                            {scanning ? "Procurando dispositivos (pulando DVRs)..." : "Clique em Scan para iniciar a varredura na rede."}
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    btcScanResults.map((m, idx) => (
-                                        <tr key={idx} style={{borderBottom:`1px solid ${C.border}`, background: selectedIPs.has(m.ip) ? 'rgba(255,215,0,0.1)' : 'transparent'}}>
-                                            <td style={{padding:10}}><input type="checkbox" checked={selectedIPs.has(m.ip)} onChange={()=>toggleIP(m.ip)}/></td>
-                                            <td style={{padding:10, fontWeight:800, color:C.text}}>{m.ip}</td>
-                                            <td style={{padding:10}}><span style={{color: m.status === 'mining' ? C.green : C.red, fontWeight:800}}>● {m.status === 'mining' ? 'Normal' : 'Abnormal'}</span></td>
-                                            <td style={{padding:10, color:C.text}}>{m.model || '-'}</td>
-                                            <td style={{padding:10, fontWeight:800, color:C.green}}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
-                                            <td style={{padding:10, fontWeight:800, color:C.green}}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
-                                            <td style={{padding:10, color: m.temp > 80 ? C.red : C.text}}>{m.temp ? m.temp + '°C' : '-'}</td>
-                                            <td style={{padding:10, color:C.subtle}}>{m.fan ? m.fan + '%' : '-'}</td>
-                                            <td style={{padding:10, color:C.subtle}}>{m.uptime ? Math.floor(m.uptime / 60) + 'm' : '-'}</td>
-                                            <td style={{padding:10, fontSize:11, color:C.subtle}}>{m.worker || m.pool || '-'}</td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                            ))
+                        )}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
 }
-
 
 function AddMachineModalWrapper({ctx, initialMode="single", onClose}) {
   const[mode,setMode]=useState(initialMode);
@@ -9043,4 +9181,142 @@ function EmpEdit({ctx,emp,onClose}){
     <div style={{marginTop:12}}><Btn v="y" onClick={resetPwd} style={{width:"100%",marginBottom:8}}>🔑 Redefinir Senha</Btn></div>
     <div style={{display:"flex",gap:8}}><Btn v="d" onClick={del} style={{flex:1}}>🗑 Remover</Btn><Btn v="g" onClick={save} style={{flex:2}}>💾 Salvar</Btn></div>
   </div>;
-}
+}
+
+function FarmConfigModal({ctx, onClose}) {
+    const {farmsConfig = [], setFarmsConfig, data, user} = ctx;
+    
+    // Only Admin 019 can access
+    if (user?.code !== "019") {
+        return (
+            <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.8)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center'}}>
+                <div style={{background:C.card, padding:20, borderRadius:12}}>Acesso Negado</div>
+            </div>
+        );
+    }
+
+    const [farms, setFarms] = useState(farmsConfig.length > 0 ? farmsConfig : [
+        { id: "f1", name: "Fazenda Principal", ipRange: "192.168.1.1-255", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [] }
+    ]);
+
+    const handleSave = () => {
+        setFarmsConfig(farms);
+        
+        // Also send to local-helper if connected
+        fetch('http://localhost:3001/api/farms-config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({farms})
+        }).catch(err => console.error("Helper não conectado", err));
+
+        alert("Configurações salvas!");
+        onClose();
+    };
+
+    const addFarm = () => {
+        setFarms([...farms, { id: Date.now().toString(), name: "Nova Fazenda", ipRange: "", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [] }]);
+    };
+
+    const updateFarm = (id, field, value) => {
+        setFarms(farms.map(f => f.id === id ? {...f, [field]: value} : f));
+    };
+
+    const removeFarm = (id) => {
+        if(confirm("Remover esta fazenda?")) {
+            setFarms(farms.filter(f => f.id !== id));
+        }
+    };
+
+    // User Selection Helper
+    const toggleUser = (farmId, userId) => {
+        setFarms(farms.map(f => {
+            if (f.id === farmId) {
+                const isSelected = f.allowedUsers.includes(userId);
+                return {...f, allowedUsers: isSelected ? f.allowedUsers.filter(u => u !== userId) : [...f.allowedUsers, userId]};
+            }
+            return f;
+        }));
+    };
+
+    return (
+        <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.8)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20}}>
+            <div style={{background:C.bg, width:'100%', maxWidth: 800, maxHeight:'90vh', borderRadius:16, border:`1px solid ${C.border}`, display:'flex', flexDirection:'column', boxShadow:'0 10px 40px rgba(0,0,0,0.5)'}}>
+                <div style={{padding:20, borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                    <div style={{fontWeight:900, fontSize:20, color:C.blue}}>⚙️ Configuração de Fazendas (Admin 019)</div>
+                    <button onClick={onClose} style={{background:'none', border:'none', color:C.red, fontSize:20, cursor:'pointer'}}>✖</button>
+                </div>
+
+                <div style={{flex:1, overflowY:'auto', padding:20, display:'flex', flexDirection:'column', gap:20}}>
+                    {farms.map(f => (
+                        <div key={f.id} style={{background:C.card, padding:20, borderRadius:12, border:`1px solid ${C.border}`}}>
+                            <div style={{display:'flex', justifyContent:'space-between', marginBottom:15}}>
+                                <input 
+                                    value={f.name} 
+                                    onChange={e => updateFarm(f.id, 'name', e.target.value)}
+                                    style={{background:'none', border:'none', color:C.accent, fontSize:18, fontWeight:900, borderBottom:`1px dashed ${C.subtle}`, width:'50%'}} 
+                                />
+                                <button onClick={() => removeFarm(f.id)} style={{background:C.red, color:'#fff', border:'none', padding:'6px 12px', borderRadius:6, cursor:'pointer'}}>Remover</button>
+                            </div>
+                            
+                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:15, marginBottom:15}}>
+                                <div>
+                                    <label style={{fontSize:12, color:C.subtle, fontWeight:800}}>IP Range (Ex: 10.0.0.1-255)</label>
+                                    <input value={f.ipRange} onChange={e => updateFarm(f.id, 'ipRange', e.target.value)} style={{width:'100%', background:C.bg, border:`1px solid ${C.border}`, padding:10, borderRadius:6, color:C.text, marginTop:5}} />
+                                </div>
+                                <div>
+                                    <label style={{fontSize:12, color:C.subtle, fontWeight:800}}>Intervalo Telegram (Horas)</label>
+                                    <select value={f.interval} onChange={e => updateFarm(f.id, 'interval', parseInt(e.target.value))} style={{width:'100%', background:C.bg, border:`1px solid ${C.border}`, padding:10, borderRadius:6, color:C.text, marginTop:5}}>
+                                        <option value={1}>1 Hora</option>
+                                        <option value={2}>2 Horas</option>
+                                        <option value={6}>6 Horas</option>
+                                        <option value={12}>12 Horas</option>
+                                        <option value={24}>24 Horas</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{fontSize:12, color:C.subtle, fontWeight:800}}>Telegram Bot Token</label>
+                                    <input value={f.tgToken} onChange={e => updateFarm(f.id, 'tgToken', e.target.value)} style={{width:'100%', background:C.bg, border:`1px solid ${C.border}`, padding:10, borderRadius:6, color:C.text, marginTop:5}} placeholder="00000:AAAAA..." />
+                                </div>
+                                <div>
+                                    <label style={{fontSize:12, color:C.subtle, fontWeight:800}}>Telegram Chat ID</label>
+                                    <input value={f.tgChatId} onChange={e => updateFarm(f.id, 'tgChatId', e.target.value)} style={{width:'100%', background:C.bg, border:`1px solid ${C.border}`, padding:10, borderRadius:6, color:C.text, marginTop:5}} placeholder="-1000..." />
+                                </div>
+                            </div>
+
+                            {/* Permissões de Usuário */}
+                            <div style={{background:C.bg, padding:15, borderRadius:8, border:`1px solid ${C.border}`}}>
+                                <label style={{fontSize:12, color:C.accent, fontWeight:800, display:'block', marginBottom:10}}>Usuários com Acesso (Visualização)</label>
+                                <div style={{display:'flex', flexWrap:'wrap', gap:10}}>
+                                    {data.employees?.map(emp => (
+                                        <button 
+                                            key={emp.code}
+                                            onClick={() => toggleUser(f.id, emp.code)}
+                                            style={{
+                                                background: f.allowedUsers.includes(emp.code) ? C.blue : C.card2,
+                                                color: f.allowedUsers.includes(emp.code) ? '#fff' : C.text,
+                                                border: `1px solid ${f.allowedUsers.includes(emp.code) ? C.blue : C.border}`,
+                                                padding: '6px 12px',
+                                                borderRadius: 20,
+                                                cursor: 'pointer',
+                                                fontSize: 12
+                                            }}
+                                        >
+                                            {emp.name} ({emp.code})
+                                        </button>
+                                    ))}
+                                </div>
+                                <div style={{fontSize:10, color:C.subtle, marginTop:10}}>*O Admin 019 sempre tem acesso total.</div>
+                            </div>
+                        </div>
+                    ))}
+                    
+                    <button onClick={addFarm} style={{background:C.card2, color:C.text, border:`1px dashed ${C.border}`, padding:15, borderRadius:12, cursor:'pointer', fontWeight:800}}>+ Adicionar Nova Fazenda</button>
+                </div>
+
+                <div style={{padding:20, borderTop:`1px solid ${C.border}`, display:'flex', justifyContent:'flex-end'}}>
+                    <Btn onClick={handleSave} style={{background:C.blue, color:'#fff', padding:'10px 30px', fontWeight:900, fontSize:16}}>SALVAR CONFIGURAÇÕES</Btn>
+                </div>
+            </div>
+        </div>
+    );
+}
