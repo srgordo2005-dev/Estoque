@@ -1707,7 +1707,7 @@ export default function App(){
           .mobile-bottom-nav { display: none !important; }
         }
         @media (max-width: 899px) {
-          .app-sidebar { display: none !important; }
+          .app-sidebar { display: none !important; } .premium-sidebar { display: none !important; }
           .app-main-content { padding: 14px 12px 100px !important; }
           .mobile-bottom-nav { display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; background: #0c1017; border-top: 1px solid ${C.border}; z-index: 200; }
         }
