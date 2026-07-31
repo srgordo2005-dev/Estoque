@@ -1544,7 +1544,7 @@ export default function App(){
     if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
     setTab(t);
   };
-  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount};
+  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig};
 
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
@@ -3128,7 +3128,8 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
 }
 
 function DataCenterPage({ctx}) {
-    const {data, setModal, user, farmMachines, setFarmMachines, farmsConfig, setFarmsConfig} = ctx;
+    const {data, setModal, user, farmsConfig, setFarmsConfig, mutate} = ctx;
+    const farmMachines = data.farmMachines || [];
     
     // We will assume the default size is 10 rows (vãos) x 10 cols (máquinas)
     // Later this could be dynamic per farm.
@@ -3163,8 +3164,10 @@ function DataCenterPage({ctx}) {
                             </div>
                         </div>
                         <Btn onClick={() => {
-                            const newMachines = farmMachines.filter(x => x.id !== m.id);
-                            setFarmMachines(newMachines);
+                            const targetId = m._id || m.id;
+                            const newMachines = farmMachines.filter(x => (x._id || x.id) !== targetId);
+                            mutate("farmMachines", newMachines);
+                            if (m._id) { fbDelete("farmMachines", m._id); }
                             setModal(null);
                         }} style={{background:C.red, color:"#fff"}}>Remover da Fazenda</Btn>
                     </div>
@@ -3175,7 +3178,7 @@ function DataCenterPage({ctx}) {
             let newIP = prompt(`Qual o IP da máquina para o Vão ${vao}, Posição ${slot}?`);
             if (newIP) {
                 const newMachine = {
-                    id: Date.now().toString(),
+                    _id: 'farm_' + Date.now().toString(),
                     location: selectedFarm,
                     shelf: String(vao),
                     notes: String(slot),
@@ -3187,7 +3190,8 @@ function DataCenterPage({ctx}) {
                     model: '',
                     sn: ''
                 };
-                setFarmMachines([...farmMachines, newMachine]);
+                mutate("farmMachines", prev => [...prev, newMachine]);
+                fbSet("farmMachines", newMachine._id, newMachine);
             }
         }
     };
