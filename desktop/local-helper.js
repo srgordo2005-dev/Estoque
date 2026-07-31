@@ -925,6 +925,14 @@ app.post('/api/miner-action', async (req, res) => {
     }
 });
 
+
+// Import and initialize Farm Reporter
+try {
+    require('./farm-reporter.js')(app);
+} catch (e) {
+    console.error('[Farm Reporter] Failed to initialize:', e.message);
+}
+
 app.listen(PORT, () => {
     console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT}`);
 });
