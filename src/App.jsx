@@ -5270,7 +5270,12 @@ function ConsertaPage({ctx}){
     // O conserto antigo do funcionário anterior é desvinculado (superseded: true)
     // para não contar nas estatísticas dele nem contar como retrabalho (rework) para o novo técnico.
     // Se foi consertada antes por SI MESMO, entra como retrabalho (rework).
-    const oldRepairsOfOthers = type === "repair" ? data.repairs.filter(r => r.hashSN === sn && (r.type === "repair" || r.type === "rework") && r.employeeId !== user._id && !r.superseded) : [];
+    const oldRepairsToSupersede = type === "repair" ? data.repairs.filter(r => 
+      r.hashSN === sn && !r.superseded && (
+        ((r.type === "repair" || r.type === "rework") && r.employeeId !== user._id) ||
+        (r.type === "already_good")
+      )
+    ) : [];
     const wasRepairedBySelfBefore = type === "repair" && data.repairs.some(r => r.hashSN === sn && (r.type === "repair" || r.type === "rework") && r.employeeId === user._id && !r.superseded);
     const recType = wasRepairedBySelfBefore ? "rework" : type;
     const rec = { hashSN: sn, model: f.model, material: f.material, type: recType, photoKey: photoKey || "", employeeId: user._id, ...audit(user), date: TODAY(), status: "TESTAR" };
@@ -5280,8 +5285,8 @@ function ConsertaPage({ctx}){
       alert(`⚠️ ERRO: o conserto de ${sn} NÃO foi salvo no banco de dados!\n\nErro: ${saveRes.error}\n\nA planilha pode ter sido atualizada mesmo assim, mas o app não vai lembrar desse conserto. Avisa o Admin pra corrigir isso.`);
     }else{
       mutate("repairs",r=>[...r,{...rec,_id:id}]);
-      // Marcar os consertos dos técnicos anteriores como obsoletos (superseded: true)
-      for(const oldRep of oldRepairsOfOthers){
+      // Marcar os consertos dos técnicos anteriores e já boas antigas como obsoletos (superseded: true)
+      for(const oldRep of oldRepairsToSupersede){
         const updatedOldRep = { ...oldRep, superseded: true, ...audit(user) };
         await fbSet("repairs", oldRep._id, updatedOldRep);
         mutate("repairs", arr => arr.map(x => x._id === oldRep._id ? updatedOldRep : x));
