@@ -11,7 +11,7 @@ function FarmConfigModal({ctx, onClose}) {
     }
 
     const [farms, setFarms] = useState(farmsConfig.length > 0 ? farmsConfig : [
-        { id: "f1", name: "Fazenda Principal", ipRange: "192.168.1.1-255", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [] }
+        { id: "f1", name: "Fazenda Principal", ipRange: "192.168.1.1-255", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [], wgConfig: "" }
     ]);
 
     const handleSave = () => {
@@ -29,7 +29,7 @@ function FarmConfigModal({ctx, onClose}) {
     };
 
     const addFarm = () => {
-        setFarms([...farms, { id: Date.now().toString(), name: "Nova Fazenda", ipRange: "", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [] }]);
+        setFarms([...farms, { id: Date.now().toString(), name: "Nova Fazenda", ipRange: "", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [], wgConfig: "" }]);
     };
 
     const updateFarm = (id, field, value) => {
@@ -42,7 +42,6 @@ function FarmConfigModal({ctx, onClose}) {
         }
     };
 
-    // User Selection Helper
     const toggleUser = (farmId, userId) => {
         setFarms(farms.map(f => {
             if (f.id === farmId) {
@@ -51,6 +50,32 @@ function FarmConfigModal({ctx, onClose}) {
             }
             return f;
         }));
+    };
+
+    const handleVpnConnect = (farm) => {
+        fetch('http://localhost:3001/api/vpn-connect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ farmId: farm.id, wgConfig: farm.wgConfig })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) alert(`VPN ${farm.name} conectada!`);
+            else alert("Erro: " + data.error);
+        }).catch(err => alert("Erro ao conectar: " + err));
+    };
+
+    const handleVpnDisconnect = (farm) => {
+        fetch('http://localhost:3001/api/vpn-disconnect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ farmId: farm.id })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) alert(`VPN ${farm.name} desconectada!`);
+            else alert("Erro: " + data.error);
+        }).catch(err => alert("Erro ao desconectar: " + err));
     };
 
     return (
@@ -95,6 +120,15 @@ function FarmConfigModal({ctx, onClose}) {
                                 <div>
                                     <label style={{fontSize:12, color:C.subtle, fontWeight:800}}>Telegram Chat ID</label>
                                     <input value={f.tgChatId} onChange={e => updateFarm(f.id, 'tgChatId', e.target.value)} style={{width:'100%', background:C.bg, border:`1px solid ${C.border}`, padding:10, borderRadius:6, color:C.text, marginTop:5}} placeholder="-1000..." />
+                                </div>
+                            </div>
+                            
+                            <div style={{marginBottom:15}}>
+                                <label style={{fontSize:12, color:C.subtle, fontWeight:800}}>Configuração WireGuard (wg0.conf)</label>
+                                <textarea value={f.wgConfig || ""} onChange={e => updateFarm(f.id, 'wgConfig', e.target.value)} style={{width:'100%', height:80, background:C.bg, border:`1px solid ${C.border}`, padding:10, borderRadius:6, color:C.text, marginTop:5, fontFamily:'monospace', fontSize:11}} placeholder="[Interface]\nPrivateKey = ...\n\n[Peer]\nPublicKey = ..."></textarea>
+                                <div style={{display:'flex', gap:10, marginTop:10}}>
+                                    <button onClick={() => handleVpnConnect(f)} style={{background:C.blue, color:'#fff', border:'none', padding:'6px 12px', borderRadius:6, cursor:'pointer', fontSize:12, fontWeight:700}}>🔗 Conectar VPN</button>
+                                    <button onClick={() => handleVpnDisconnect(f)} style={{background:C.card2, color:C.text, border:`1px solid ${C.border}`, padding:'6px 12px', borderRadius:6, cursor:'pointer', fontSize:12, fontWeight:700}}>🔌 Desconectar</button>
                                 </div>
                             </div>
 

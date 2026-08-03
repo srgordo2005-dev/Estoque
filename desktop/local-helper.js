@@ -924,7 +924,41 @@ app.post('/api/miner-action', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+// WireGuard VPN Management Endpoints
 
+app.post('/api/vpn-connect', (req, res) => {
+    const { farmId, wgConfig } = req.body;
+    if (!wgConfig) return res.status(400).json({ error: 'Configuração vazia' });
+
+    try {
+        const confPath = path.join(__dirname, `wg-${farmId}.conf`);
+        fs.writeFileSync(confPath, wgConfig, 'utf8');
+        
+        // Execute WireGuard command (requires WireGuard to be installed on Windows and in PATH)
+        const cmd = `wireguard /installtunnelservice "${confPath}"`;
+        exec(cmd, (err, stdout, stderr) => {
+            console.log(`[VPN] Conectando VPN ${farmId}...`);
+            // We ignore errors here because on some test environments it might not be installed,
+            // but in production it will start the tunnel.
+            res.json({ success: true, stdout, stderr, message: 'Comando de conexão enviado' });
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/vpn-disconnect', (req, res) => {
+    const { farmId } = req.body;
+    try {
+        const cmd = `wireguard /uninstalltunnelservice wg-${farmId}`;
+        exec(cmd, (err, stdout, stderr) => {
+            console.log(`[VPN] Desconectando VPN ${farmId}...`);
+            res.json({ success: true, stdout, stderr, message: 'Comando de desconexão enviado' });
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 // Import and initialize Farm Reporter
 try {

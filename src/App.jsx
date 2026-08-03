@@ -2263,8 +2263,68 @@ function AdminSummary({data, setTab}){
     }
     return d.slice(0, 10);
   };
-  const totalRepairsAllTime = (data.repairs || []).filter(r => r.type !== "already_good" && !r.type?.startsWith("remove")).length;
-  const repairsTodayCount = (data.repairs || []).filter(r => (normD(r.date) === today || normD(r._at) === today) && r.type !== "already_good" && !r.type?.startsWith("remove")).length;
+
+  const getMachineRepairDate = (m, hashes, repairs) => {
+    let dates = [];
+    if (m.changeLog) {
+      m.changeLog.forEach(log => {
+        if ((log.field === "situacao" || log.field === "status") && ["BOA", "LIGADA"].includes(log.to) && !["BOA", "LIGADA"].includes(log.from)) {
+          if (log.at) dates.push(new Date(log.at));
+        }
+      });
+    }
+    const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
+    machineHashes.forEach(h => {
+      const reps = repairs.filter(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded);
+      reps.forEach(r => {
+        const d = r._at ? new Date(r._at) : (r.date ? new Date(r.date + "T12:00:00") : null);
+        if (d && !isNaN(d.getTime())) dates.push(d);
+      });
+      if (h.repairedBy && h.updatedAt) {
+        const d = new Date(h.updatedAt);
+        if (!isNaN(d.getTime())) dates.push(d);
+      }
+    });
+    if (dates.length === 0) return null;
+    return new Date(Math.max(...dates.map(d => d.getTime())));
+  };
+
+  const getRepairedMachines = (machines, hashes, repairs) => {
+    return machines.filter(m => {
+      const hasStatusChangeToGood = m.changeLog && m.changeLog.some(log => 
+        (log.field === "situacao" || log.field === "status") && 
+        ["BOA", "LIGADA"].includes(log.to) && 
+        !["BOA", "LIGADA"].includes(log.from)
+      );
+      const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
+      const hasRepairedHash = machineHashes.some(h => h.repairedBy || repairs.some(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded));
+      return hasStatusChangeToGood || hasRepairedHash;
+    });
+  };
+
+  const getMonday = (d) => {
+    const date = new Date(d);
+    const day = date.getDay();
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(date.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  };
+
+  const repairedMachines = getRepairedMachines(data.machines, data.hashes, data.repairs);
+  const repairedCount = repairedMachines.length;
+
+  const monday = getMonday(new Date());
+  const repairedThisWeek = repairedMachines.filter(m => {
+    const d = getMachineRepairDate(m, data.hashes, data.repairs);
+    return d && d >= monday;
+  });
+  const repairedThisWeekCount = repairedThisWeek.length;
+
+  const badCount = data.machines.filter(m => ["RUIM", "ENTRADA OFICINA"].includes(m.situacao)).length;
+  const totalRelevant = badCount + repairedCount;
+  const percentage = totalRelevant > 0 ? Math.round((repairedCount / totalRelevant) * 100) : 0;
+
   const testsTodayCount = (data.tests || []).filter(t => normD(t.date) === today || normD(t._at) === today).length;
   const totalBoas = Object.values(ms).reduce((sum, s) => sum + s.boa, 0);
 
@@ -2281,35 +2341,30 @@ function AdminSummary({data, setTab}){
     if (setTab) setTab("mac");
   };
 
+  const navToAdvancedTeam = () => {
+    localStorage.setItem("hs_team_subtab", "advanced");
+    if (setTab) setTab("team");
+  };
+
   return (
     <>
-      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24}}>
+      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20}}>
         <div className="card-3d" onClick={() => filterAndNav("", "", "")} style={{cursor: 'pointer'}}>
           <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{data.machines.length}</div>
-          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🖥️ Máquinas Cadastradas</div>
-          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} Prontas · Ver todas ➔</div>
+          <div style={{fontWeight: 800, fontSize: 14, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🖥️ Máquinas Cadastradas</div>
+          <div style={{fontSize: 11, color: '#aaa', marginTop: 8}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} Prontas · Ver todas ➔</div>
         </div>
 
-        <div className="card-3d" onClick={() => {
-            localStorage.setItem("hs_team_subtab", "daily");
-            localStorage.setItem("hs_team_start_date", "");
-            localStorage.setItem("hs_team_end_date", "");
-            if (setTab) setTab("team");
-          }} style={{cursor: 'pointer'}}>
-          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{totalRepairsAllTime}</div>
-          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>📜 Total Consertadas (Geral)</div>
-          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Acessar Histórico ➔</div>
+        <div className="card-3d" onClick={navToAdvancedTeam} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{repairedCount}</div>
+          <div style={{fontWeight: 800, fontSize: 14, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🔧 Consertadas até Hoje</div>
+          <div style={{fontSize: 11, color: '#aaa', marginTop: 8}}>Avançado de Equipe ➔</div>
         </div>
 
-        <div className="card-3d" onClick={() => {
-            localStorage.setItem("hs_team_subtab", "daily");
-            localStorage.setItem("hs_team_start_date", today);
-            localStorage.setItem("hs_team_end_date", today);
-            if (setTab) setTab("team");
-          }} style={{cursor: 'pointer'}}>
-          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{repairsTodayCount}</div>
-          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🔧 Consertos Hoje</div>
-          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
+        <div className="card-3d" onClick={navToAdvancedTeam} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{repairedThisWeekCount}</div>
+          <div style={{fontWeight: 800, fontSize: 14, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>📅 Consertadas esta Semana</div>
+          <div style={{fontSize: 11, color: '#aaa', marginTop: 8}}>Avançado de Equipe ➔</div>
         </div>
 
         <div className="card-3d" onClick={() => {
@@ -2319,8 +2374,23 @@ function AdminSummary({data, setTab}){
             if (setTab) setTab("team");
           }} style={{cursor: 'pointer'}}>
           <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{testsTodayCount}</div>
-          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🧪 Testes Hoje</div>
-          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
+          <div style={{fontWeight: 800, fontSize: 14, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🧪 Testes Hoje</div>
+          <div style={{fontSize: 11, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
+        </div>
+
+        {/* Gráfico de Porcentagem Visual Premium */}
+        <div className="card-3d" style={{gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 10, background: "linear-gradient(135deg, #181d28 0%, #10131c 100%)"}}>
+          <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+            <span style={{fontWeight: 800, fontSize: 12, color: C.accent, textTransform: 'uppercase', letterSpacing: 1}}>📈 Proporção de Consertos vs. Máquinas Ruins</span>
+            <span style={{fontWeight: 900, fontSize: 18, color: C.green}}>{percentage}%</span>
+          </div>
+          <div style={{height: 10, background: C.card2, borderRadius: 5, overflow: "hidden", border: `1px solid ${C.border}`}}>
+            <div style={{height: "100%", width: `${percentage}%`, background: `linear-gradient(90deg, ${C.green} 0%, #10b981 100%)`, borderRadius: 5, transition: "width 0.5s ease-in-out"}} />
+          </div>
+          <div style={{fontSize: 11, color: C.muted, display: "flex", justifyContent: "space-between"}}>
+            <span>🔧 {repairedCount} Máquinas Consertadas</span>
+            <span>⚠️ {badCount} Máquinas Ruins no Estoque</span>
+          </div>
         </div>
       </div>
 {/* TABELA DE MODELOS COM FILTROS INTERATIVOS COMBINADOS */}
@@ -4836,17 +4906,26 @@ function ConsertaPage({ctx}){
     // (quantos chips a placa tem no total, fica salvo na própria HASH).
     const boardChipsFinal=f.boardChips||gChips(f.model,f.material)||"";
     // Se essa HASH já tinha sido consertada antes (voltou RUIM depois de um
-    // conserto anterior), esse conserto novo entra como RETRABALHO no
-    // histórico — mesmo fluxo de status, só muda o rótulo pra rastrear isso.
-    const wasRepairedBefore=type==="repair"&&data.repairs.some(r=>r.hashSN===sn&&r.type==="repair");
-    const recType=wasRepairedBefore?"rework":type;
-    const rec={hashSN:sn,model:f.model,material:f.material,type:recType,photoKey:photoKey||"",employeeId:user._id,...audit(user),date:TODAY(),status:"TESTAR"};
+    // Se essa HASH já tinha sido consertada antes por OUTRO funcionário:
+    // O conserto antigo do funcionário anterior é desvinculado (superseded: true)
+    // para não contar nas estatísticas dele nem contar como retrabalho (rework) para o novo técnico.
+    // Se foi consertada antes por SI MESMO, entra como retrabalho (rework).
+    const oldRepairsOfOthers = type === "repair" ? data.repairs.filter(r => r.hashSN === sn && (r.type === "repair" || r.type === "rework") && r.employeeId !== user._id && !r.superseded) : [];
+    const wasRepairedBySelfBefore = type === "repair" && data.repairs.some(r => r.hashSN === sn && (r.type === "repair" || r.type === "rework") && r.employeeId === user._id && !r.superseded);
+    const recType = wasRepairedBySelfBefore ? "rework" : type;
+    const rec = { hashSN: sn, model: f.model, material: f.material, type: recType, photoKey: photoKey || "", employeeId: user._id, ...audit(user), date: TODAY(), status: "TESTAR" };
     if(type==="repair"){Object.assign(rec,{chips:f.chips||"",boardChips:boardChipsFinal,sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
     const saveRes=await fbSet("repairs",id,rec);
     if(!saveRes.ok){
       alert(`⚠️ ERRO: o conserto de ${sn} NÃO foi salvo no banco de dados!\n\nErro: ${saveRes.error}\n\nA planilha pode ter sido atualizada mesmo assim, mas o app não vai lembrar desse conserto. Avisa o Admin pra corrigir isso.`);
     }else{
       mutate("repairs",r=>[...r,{...rec,_id:id}]);
+      // Marcar os consertos dos técnicos anteriores como obsoletos (superseded: true)
+      for(const oldRep of oldRepairsOfOthers){
+        const updatedOldRep = { ...oldRep, superseded: true, ...audit(user) };
+        await fbSet("repairs", oldRep._id, updatedOldRep);
+        mutate("repairs", arr => arr.map(x => x._id === oldRep._id ? updatedOldRep : x));
+      }
     }
     // Hash → TESTAR. Confere se salvou de verdade no banco — sem isso, se o
     // banco falhar (rede, coluna faltando etc), a tela mostra local que deu
@@ -6877,15 +6956,16 @@ function TeamPage({ctx,canSeeEmp}){
   const openProfile=e=>setModal(<Modal title={`${e.name} #${e.code}`} onClose={()=>setModal(null)}><EmpProfile ctx={ctx} emp={e}/></Modal>);
   return<div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>
-      {[["list","👷 Equipe"],["daily","📅 Relatório do Dia"]].map(([id,l])=><button key={id} onClick={()=>setSubTab(id)} style={{flex:1,background:subTab===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}
+      {[["list","👷 Equipe"],["daily","📅 Relatório do Dia"],["advanced","🚀 Avançado"]].map(([id,l])=><button key={id} onClick={()=>setSubTab(id)} style={{flex:1,background:subTab===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}
     </div>
-    {subTab==="daily"?<DailyTeamReport ctx={ctx} initEmp={dailyEmp} employees={data.employees}/>:<>
+    {subTab==="daily"?<DailyTeamReport ctx={ctx} initEmp={dailyEmp} employees={data.employees}/>:
+     subTab==="advanced"?<TeamAdvanced ctx={ctx}/>:<>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div><div style={{fontWeight:900,fontSize:18}}>Equipe</div><div style={{color:C.muted,fontSize:12}}>{data.employees.filter(e=>isSuper||e.code!=="019").length} funcionários</div></div><div style={{display:"flex",gap:8}}><Btn v="b" onClick={()=>setSubTab("daily")}>📊 Relatório / PDF</Btn><Btn onClick={openAdd}>+ Funcionário</Btn></div></div>
     {data.employees.map(e=>{
       if(e.code==="019"&&!isSuper)return null; // ninguém além do próprio 019 vê essa conta
       if(!canSeeEmp(e._id)&&!data.employees.find(x=>x._id===ctx.user._id)?.permissions?.admin)return null;
-      const rT=data.repairs.filter(r=>(r.employeeId===e._id||r._by===e._id)&&r.date===today&&r.type!=="already_good").length;
-      const gT=data.repairs.filter(r=>(r.employeeId===e._id||r._by===e._id)&&r.date===today&&r.type==="already_good").length;
+      const rT=data.repairs.filter(r=>(r.employeeId===e._id||r._by===e._id)&&r.date===today&&r.type!=="already_good"&&!r.superseded).length;
+      const gT=data.repairs.filter(r=>(r.employeeId===e._id||r._by===e._id)&&r.date===today&&r.type==="already_good"&&!r.superseded).length;
       const tT=data.tests.filter(t=>(t.employeeId===e._id||t._by===e._id)&&t.date===today).length;
       const fdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===e._id).length;
       return<Card key={e._id}>
@@ -6908,6 +6988,129 @@ function TeamPage({ctx,canSeeEmp}){
     })}
     </>}
   </div>;
+}
+
+function TeamAdvanced({ctx}) {
+  const { data, user } = ctx;
+  const [expandedEmp, setExpandedEmp] = useState(null);
+  const [expandedCategory, setExpandedCategory] = useState(null); // '1', '2', '3'
+
+  const isSuper = user.code === "019" || user.role === "admin";
+  const empsToShow = data.employees.filter(e => isSuper || e._id === user._id);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>🚀 Avançado de Equipe</div>
+          <div style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>Produtividade detalhada e máquinas beneficiadas por técnico.</div>
+        </div>
+      </div>
+
+      {empsToShow.map(emp => {
+        const employeeRepairs = data.repairs.filter(r => (r.employeeId === emp._id || r._by === emp._id) && r.type === "repair" && !r.superseded);
+        const repairedHashesInstalled = data.hashes.filter(h => h.repairedBy === emp._id && h.machineSN && h.status === "NA MAQUINA");
+        
+        const machinesWithRepairedHashes = {};
+        repairedHashesInstalled.forEach(h => {
+          if (!machinesWithRepairedHashes[h.machineSN]) {
+            machinesWithRepairedHashes[h.machineSN] = [];
+          }
+          machinesWithRepairedHashes[h.machineSN].push(h);
+        });
+
+        const cat1 = [], cat2 = [], cat3 = [];
+        Object.entries(machinesWithRepairedHashes).forEach(([sn, list]) => {
+          const count = list.length;
+          if (count === 1) cat1.push({ sn, list });
+          else if (count === 2) cat2.push({ sn, list });
+          else if (count >= 3) cat3.push({ sn, list });
+        });
+
+        const isExpanded = expandedEmp === emp._id;
+
+        return (
+          <Card key={emp._id} style={{ border: `1px solid ${isExpanded ? C.accent : C.border}`, transition: "all 0.2s ease" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }} onClick={() => { setExpandedEmp(isExpanded ? null : emp._id); setExpandedCategory(null); }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: "50%", background: C.card2, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: C.accent, fontSize: 16 }}>{emp.name[0]}</div>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 14 }}>{emp.name} <Tag color={C.accent} small>#{emp.code}</Tag></div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{employeeRepairs.length} HASHs consertadas ativas · {repairedHashesInstalled.length} instaladas</div>
+                </div>
+              </div>
+              <span style={{ fontSize: 14, color: C.muted }}>{isExpanded ? "▲" : "▼"}</span>
+            </div>
+
+            {isExpanded && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 12 }}>
+                
+                <div style={{ fontSize: 11, fontWeight: 800, color: C.accent, letterSpacing: 0.5 }}>🖥️ MÁQUINAS COM PLACAS CONSERTADAS POR ELE:</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <div 
+                    onClick={() => setExpandedCategory(expandedCategory === '1' ? null : '1')}
+                    style={{ background: expandedCategory === '1' ? C.accent + '22' : C.card2, border: `1px solid ${expandedCategory === '1' ? C.accent : C.border}`, borderRadius: 8, padding: 8, textAlign: 'center', cursor: 'pointer' }}
+                  >
+                    <div style={{ fontSize: 18, fontWeight: 900, color: cat1.length > 0 ? C.green : C.text }}>{cat1.length}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>1 Placa Rep.</div>
+                  </div>
+                  <div 
+                    onClick={() => setExpandedCategory(expandedCategory === '2' ? null : '2')}
+                    style={{ background: expandedCategory === '2' ? C.accent + '22' : C.card2, border: `1px solid ${expandedCategory === '2' ? C.accent : C.border}`, borderRadius: 8, padding: 8, textAlign: 'center', cursor: 'pointer' }}
+                  >
+                    <div style={{ fontSize: 18, fontWeight: 900, color: cat2.length > 0 ? C.green : C.text }}>{cat2.length}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>2 Placas Rep.</div>
+                  </div>
+                  <div 
+                    onClick={() => setExpandedCategory(expandedCategory === '3' ? null : '3')}
+                    style={{ background: expandedCategory === '3' ? C.accent + '22' : C.card2, border: `1px solid ${expandedCategory === '3' ? C.accent : C.border}`, borderRadius: 8, padding: 8, textAlign: 'center', cursor: 'pointer' }}
+                  >
+                    <div style={{ fontSize: 18, fontWeight: 900, color: cat3.length > 0 ? C.green : C.text }}>{cat3.length}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>3 Placas Rep.</div>
+                  </div>
+                </div>
+
+                {expandedCategory && (
+                  <div style={{ background: C.card2, borderRadius: 8, padding: 10, border: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 10, fontWeight: 900, color: C.accent, marginBottom: 8, textTransform: 'uppercase' }}>
+                      Lista de Máquinas ({expandedCategory === '1' ? cat1.length : expandedCategory === '2' ? cat2.length : cat3.length}):
+                    </div>
+                    <div style={{ maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {(expandedCategory === '1' ? cat1 : expandedCategory === '2' ? cat2 : cat3).map(m => (
+                        <div key={m.sn} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", background: C.card, borderRadius: 6, fontSize: 11 }}>
+                          <span style={{ fontWeight: 800 }}>🖥️ {m.sn}</span>
+                          <span style={{ color: C.muted, fontSize: 10 }}>Placas: {m.list.map(h => h.sn).join(", ")}</span>
+                        </div>
+                      ))}
+                      {(expandedCategory === '1' ? cat1 : expandedCategory === '2' ? cat2 : cat3).length === 0 && (
+                        <div style={{ color: C.muted, fontSize: 11, textAlign: 'center', padding: 8 }}>Nenhuma máquina nesta categoria.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.accent, marginBottom: 6 }}>🔧 ULTIMOS CONSERTOS REALIZADOS (ATIVOS):</div>
+                  <div style={{ maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                    {employeeRepairs.slice(0, 15).map(r => (
+                      <div key={r._id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 8px", background: C.card2, borderRadius: 6, fontSize: 11 }}>
+                        <span style={{ fontWeight: 800, color: C.amber }}>⚡ {r.hashSN}</span>
+                        <span style={{ fontSize: 10, color: C.muted }}>{r.model} · {r.date}</span>
+                      </div>
+                    ))}
+                    {employeeRepairs.length === 0 && (
+                      <div style={{ color: C.muted, fontSize: 11, textAlign: 'center', padding: 8 }}>Nenhum conserto recente registrado.</div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
 }
 
 // Item 8: relatório com filtro por data mostrando TUDO que foi feito por
