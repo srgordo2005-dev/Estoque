@@ -2391,26 +2391,69 @@ function AdminSummary({data, setTab}){
         </div>
 
         {/* Gráfico de Porcentagem Visual Premium reunindo as métricas pedidas */}
-        <div className="card-3d" onClick={navToAdvancedTeam} style={{gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 12, background: "linear-gradient(135deg, #181d28 0%, #10131c 100%)", cursor: "pointer"}}>
-          <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
-            <span style={{fontWeight: 800, fontSize: 13, color: C.accent, textTransform: 'uppercase', letterSpacing: 1}}>📈 Proporção de Consertos vs. Máquinas Ruins (Equipe Avançado ➔)</span>
-            <span style={{fontWeight: 900, fontSize: 20, color: C.green}}>{percentage}%</span>
-          </div>
-          <div style={{height: 12, background: C.card2, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`}}>
-            <div style={{height: "100%", width: `${percentage}%`, background: `linear-gradient(90deg, ${C.green} 0%, #10b981 100%)`, borderRadius: 6, transition: "width 0.5s ease-in-out"}} />
-          </div>
-          <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 4, textAlign: "center"}}>
-            <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
-              <div style={{fontWeight: 900, fontSize: 16, color: C.green}}>{repairedCount}</div>
-              <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Consertadas até Hoje</div>
+        <div className="card-3d" onClick={navToAdvancedTeam} style={{gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, background: "linear-gradient(135deg, #181d28 0%, #10131c 100%)", cursor: "pointer", padding: 20}}>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <span style={{fontWeight: 800, fontSize: 13, color: C.accent, textTransform: 'uppercase', letterSpacing: 1}}>📈 Proporção de Consertos vs. Máquinas Ruins</span>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Acompanhamento de recondicionamento e estoque. Clique para detalhar na equipe ➔</div>
             </div>
-            <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
-              <div style={{fontWeight: 900, fontSize: 16, color: C.accent}}>{repairedThisWeekCount}</div>
-              <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Consertadas esta Semana</div>
+            
+            <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, textAlign: "center"}}>
+              <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
+                <div style={{fontWeight: 900, fontSize: 16, color: C.green}}>{repairedCount}</div>
+                <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Consertadas até Hoje</div>
+              </div>
+              <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
+                <div style={{fontWeight: 900, fontSize: 16, color: C.accent}}>{repairedThisWeekCount}</div>
+                <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Consertadas esta Semana</div>
+              </div>
+              <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
+                <div style={{fontWeight: 900, fontSize: 16, color: C.red}}>{badCount}</div>
+                <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Máquinas Ruins</div>
+              </div>
             </div>
-            <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
-              <div style={{fontWeight: 900, fontSize: 16, color: C.red}}>{badCount}</div>
-              <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Máquinas Ruins</div>
+          </div>
+
+          {/* SVG Circular Radial Progress Chart */}
+          <div style={{ display: "flex", justifyContent: "center", alignItems: "center", position: "relative", width: 100, height: 100 }}>
+            <style>{`
+              @keyframes stroke-anim-${percentage} {
+                from { stroke-dashoffset: 163.36; }
+                to { stroke-dashoffset: ${163.36 - (163.36 * percentage) / 100}; }
+              }
+            `}</style>
+            <svg height="100" width="100" style={{ transform: "rotate(-90deg)" }}>
+              <defs>
+                <linearGradient id="progress-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor={C.green} />
+                  <stop offset="100%" stopColor="#10b981" />
+                </linearGradient>
+              </defs>
+              <circle
+                stroke="#181d28"
+                fill="transparent"
+                strokeWidth="6"
+                r="26"
+                cx="50"
+                cy="50"
+              />
+              <circle
+                stroke="url(#progress-grad)"
+                fill="transparent"
+                strokeWidth="6"
+                strokeDasharray="163.36 163.36"
+                style={{ 
+                  animation: `stroke-anim-${percentage} 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards`
+                }}
+                r="26"
+                cx="50"
+                cy="50"
+                strokeLinecap="round"
+              />
+            </svg>
+            <div style={{ position: "absolute", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}>
+              <span style={{ fontWeight: 900, fontSize: 16, color: "#fff" }}>{percentage}%</span>
+              <span style={{ fontSize: 7, color: C.muted, textTransform: "uppercase", fontWeight: 800 }}>Taxa</span>
             </div>
           </div>
         </div>
@@ -7271,10 +7314,16 @@ function TeamPage({ctx,canSeeEmp}){
   const openProfile=e=>setModal(<Modal title={`${e.name} #${e.code}`} onClose={()=>setModal(null)}><EmpProfile ctx={ctx} emp={e}/></Modal>);
   return<div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>
-      {[["list","👷 Equipe"],["daily","📅 Relatório do Dia"],["advanced","🚀 Avançado"]].map(([id,l])=><button key={id} onClick={()=>setSubTab(id)} style={{flex:1,background:subTab===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}
+      {[["list","👷 Equipe"],["daily","📅 Relatório & Avançado"]].map(([id,l])=><button key={id} onClick={()=>setSubTab(id)} style={{flex:1,background:subTab===id?C.accent:C.card2,color:"#fff",border:"none",borderRadius:10,padding:"9px 0",fontWeight:700,fontSize:12,cursor:"pointer"}}>{l}</button>)}
     </div>
-    {subTab==="daily"?<DailyTeamReport ctx={ctx} initEmp={dailyEmp} employees={data.employees}/>:
-     subTab==="advanced"?<TeamAdvanced ctx={ctx}/>:<>
+    {subTab==="daily"? (
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        <DailyTeamReport ctx={ctx} initEmp={dailyEmp} employees={data.employees}/>
+        <div style={{ borderTop: `2px dashed ${C.border}`, paddingTop: 20 }}>
+          <TeamAdvanced ctx={ctx}/>
+        </div>
+      </div>
+    ) : <>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div><div style={{fontWeight:900,fontSize:18}}>Equipe</div><div style={{color:C.muted,fontSize:12}}>{data.employees.filter(e=>isSuper||e.code!=="019").length} funcionários</div></div><div style={{display:"flex",gap:8}}><Btn v="b" onClick={()=>setSubTab("daily")}>📊 Relatório / PDF</Btn><Btn onClick={openAdd}>+ Funcionário</Btn></div></div>
     {data.employees.map(e=>{
       if(e.code==="019"&&!isSuper)return null; // ninguém além do próprio 019 vê essa conta
@@ -7309,9 +7358,60 @@ function TeamAdvanced({ctx}) {
   const { data, user } = ctx;
   const [expandedEmp, setExpandedEmp] = useState(null);
   const [expandedCategory, setExpandedCategory] = useState(null); // '1', '2', '3'
+  const [repairedSearch, setRepairedSearch] = useState("");
+  const [repairedStatusFilter, setRepairedStatusFilter] = useState("ALL");
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (localStorage.getItem("hs_team_show_advanced_machines") === "true") {
+      localStorage.removeItem("hs_team_show_advanced_machines");
+      setTimeout(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 600);
+    }
+  }, []);
 
   const isSuper = user.code === "019" || user.role === "admin";
   const empsToShow = data.employees.filter(e => isSuper || e._id === user._id);
+
+  const getRepairedMachines = (machines, hashes, repairs) => {
+    return machines.filter(m => {
+      const hasStatusChangeToGood = m.changeLog && m.changeLog.some(log => 
+        (log.field === "situacao" || log.field === "status") && 
+        ["BOA", "LIGADA"].includes(log.to) && 
+        log.from !== log.to
+      );
+      const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
+      const hasRepairedHash = machineHashes.some(h => h.repairedBy || repairs.some(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded));
+      return hasStatusChangeToGood || hasRepairedHash;
+    });
+  };
+
+  const repairedMachines = getRepairedMachines(data.machines, data.hashes, data.repairs);
+  const filteredRep = repairedMachines.filter(m => {
+    const snMatches = (m.sn || "").toLowerCase().includes(repairedSearch.toLowerCase()) || 
+                      (m.model || "").toLowerCase().includes(repairedSearch.toLowerCase());
+    
+    const machineHashes = data.hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
+    const techIds = machineHashes.map(h => h.repairedBy).filter(Boolean);
+    const techNames = data.employees.filter(e => techIds.includes(e._id)).map(e => e.name.toLowerCase());
+    const techMatches = techNames.some(name => name.includes(repairedSearch.toLowerCase()));
+    
+    const matchesSearch = snMatches || techMatches;
+
+    if (repairedStatusFilter === "BOA") {
+      return matchesSearch && ["BOA", "LIGADA"].includes(m.situacao);
+    }
+    if (repairedStatusFilter === "SAIDA") {
+      return matchesSearch && m.situacao === "SAIDA";
+    }
+    if (repairedStatusFilter === "OTHER") {
+      return matchesSearch && !["BOA", "LIGADA", "SAIDA"].includes(m.situacao);
+    }
+    return matchesSearch;
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -7424,9 +7524,85 @@ function TeamAdvanced({ctx}) {
           </Card>
         );
       })}
+
+      {/* Rastreamento de Máquinas Consertadas (Levantadas) */}
+      <div id="repaired-machines-tracker" ref={containerRef} style={{ background: C.card, borderRadius: 14, padding: 16, marginTop: 14, border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 15, color: C.accent }}>🖥️ RASTREAMENTO DE MÁQUINAS CONSERTADAS (LEVANTADAS)</div>
+            <div style={{ fontSize: 10, color: C.muted }}>Controle de destino e status das máquinas recondicionadas no estoque.</div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input 
+              type="text" 
+              value={repairedSearch} 
+              onChange={e => setRepairedSearch(e.target.value)} 
+              placeholder="Buscar por SN, Modelo ou Técnico..." 
+              style={{ background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: "6px 12px", borderRadius: 8, fontSize: 11, width: 220 }}
+            />
+            <select 
+              value={repairedStatusFilter} 
+              onChange={e => setRepairedStatusFilter(e.target.value)} 
+              style={{ background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: "6px 10px", borderRadius: 8, fontSize: 11, fontWeight: 700 }}
+            >
+              <option value="ALL">Todos os Status</option>
+              <option value="BOA">Apenas BOA / LIGADA</option>
+              <option value="SAIDA">Apenas SAÍDA</option>
+              <option value="OTHER">Outros / Voltou Ruim</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, textAlign: "left" }}>
+            <thead>
+              <tr style={{ borderBottom: `2px solid ${C.border}`, color: C.subtle }}>
+                <th style={{ padding: 10, fontWeight: 800 }}>MÁQUINA / SN</th>
+                <th style={{ padding: 10, fontWeight: 800 }}>MODELO</th>
+                <th style={{ padding: 10, fontWeight: 800 }}>TÉCNICO(S) RESPONSÁVEL(IS)</th>
+                <th style={{ padding: 10, fontWeight: 800, textAlign: "center" }}>STATUS ATUAL</th>
+                <th style={{ padding: 10, fontWeight: 800 }}>ÚLTIMA ATIVIDADE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRep.length === 0 ? (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: "center", padding: 30, color: C.muted }}>Nenhuma máquina recondicionada encontrada.</td>
+                </tr>
+              ) : (
+                filteredRep.map(m => {
+                  const mHashes = data.hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
+                  const techIds = mHashes.map(h => h.repairedBy).filter(Boolean);
+                  const techs = data.employees.filter(e => techIds.includes(e._id)).map(e => e.name).join(", ") || "—";
+                  
+                  const isGood = ["BOA", "LIGADA"].includes(m.situacao);
+                  const isShipped = m.situacao === "SAIDA";
+                  const badgeColor = isGood ? C.green : (isShipped ? C.blue : C.red);
+
+                  return (
+                    <tr key={m._id || m.sn} style={{ borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ padding: 10, fontWeight: 800 }}>🖥️ {m.sn}</td>
+                      <td style={{ padding: 10 }}>{m.model}</td>
+                      <td style={{ padding: 10, color: C.accent, fontWeight: 700 }}>{techs}</td>
+                      <td style={{ padding: 10, textAlign: "center" }}>
+                        <span style={{ background: badgeColor + "22", color: badgeColor, border: `1px solid ${badgeColor}55`, padding: "3px 8px", borderRadius: 4, fontWeight: 800, fontSize: 10 }}>
+                          {m.situacao}
+                        </span>
+                      </td>
+                      <td style={{ padding: 10, color: C.subtle }}>{fmtTS(m.updatedAt || m.addedAt || m._at)}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
+
+
 
 // Item 8: relatório com filtro por data mostrando TUDO que foi feito por
 // TODO MUNDO junto naquele dia, com data/hora de cada movimentação.
