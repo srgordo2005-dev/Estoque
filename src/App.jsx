@@ -2325,6 +2325,8 @@ function AdminSummary({data, setTab}){
   const totalRelevant = badCount + repairedCount;
   const percentage = totalRelevant > 0 ? Math.round((repairedCount / totalRelevant) * 100) : 0;
 
+  const totalRepairsAllTime = (data.repairs || []).filter(r => r.type !== "already_good" && !r.type?.startsWith("remove") && !r.superseded).length;
+  const repairsTodayCount = (data.repairs || []).filter(r => (normD(r.date) === today || normD(r._at) === today) && r.type !== "already_good" && !r.type?.startsWith("remove") && !r.superseded).length;
   const testsTodayCount = (data.tests || []).filter(t => normD(t.date) === today || normD(t._at) === today).length;
   const totalBoas = Object.values(ms).reduce((sum, s) => sum + s.boa, 0);
 
@@ -2351,20 +2353,30 @@ function AdminSummary({data, setTab}){
       <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20}}>
         <div className="card-3d" onClick={() => filterAndNav("", "", "")} style={{cursor: 'pointer'}}>
           <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{data.machines.length}</div>
-          <div style={{fontWeight: 800, fontSize: 14, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🖥️ Máquinas Cadastradas</div>
-          <div style={{fontSize: 11, color: '#aaa', marginTop: 8}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} Prontas · Ver todas ➔</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🖥️ Máquinas Cadastradas</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} Prontas · Ver todas ➔</div>
         </div>
 
-        <div className="card-3d" onClick={navToAdvancedTeam} style={{cursor: 'pointer'}}>
-          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{repairedCount}</div>
-          <div style={{fontWeight: 800, fontSize: 14, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🔧 Consertadas até Hoje</div>
-          <div style={{fontSize: 11, color: '#aaa', marginTop: 8}}>Avançado de Equipe ➔</div>
+        <div className="card-3d" onClick={() => {
+            localStorage.setItem("hs_team_subtab", "daily");
+            localStorage.setItem("hs_team_start_date", "");
+            localStorage.setItem("hs_team_end_date", "");
+            if (setTab) setTab("team");
+          }} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{totalRepairsAllTime}</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>📜 Total Consertadas (Geral)</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Acessar Histórico ➔</div>
         </div>
 
-        <div className="card-3d" onClick={navToAdvancedTeam} style={{cursor: 'pointer'}}>
-          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{repairedThisWeekCount}</div>
-          <div style={{fontWeight: 800, fontSize: 14, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>📅 Consertadas esta Semana</div>
-          <div style={{fontSize: 11, color: '#aaa', marginTop: 8}}>Avançado de Equipe ➔</div>
+        <div className="card-3d" onClick={() => {
+            localStorage.setItem("hs_team_subtab", "daily");
+            localStorage.setItem("hs_team_start_date", today);
+            localStorage.setItem("hs_team_end_date", today);
+            if (setTab) setTab("team");
+          }} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{repairsTodayCount}</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🔧 Consertos Hoje</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
         </div>
 
         <div className="card-3d" onClick={() => {
@@ -2374,22 +2386,32 @@ function AdminSummary({data, setTab}){
             if (setTab) setTab("team");
           }} style={{cursor: 'pointer'}}>
           <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{testsTodayCount}</div>
-          <div style={{fontWeight: 800, fontSize: 14, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🧪 Testes Hoje</div>
-          <div style={{fontSize: 11, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🧪 Testes Hoje</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
         </div>
 
-        {/* Gráfico de Porcentagem Visual Premium */}
-        <div className="card-3d" style={{gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 10, background: "linear-gradient(135deg, #181d28 0%, #10131c 100%)"}}>
+        {/* Gráfico de Porcentagem Visual Premium reunindo as métricas pedidas */}
+        <div className="card-3d" onClick={navToAdvancedTeam} style={{gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 12, background: "linear-gradient(135deg, #181d28 0%, #10131c 100%)", cursor: "pointer"}}>
           <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
-            <span style={{fontWeight: 800, fontSize: 12, color: C.accent, textTransform: 'uppercase', letterSpacing: 1}}>📈 Proporção de Consertos vs. Máquinas Ruins</span>
-            <span style={{fontWeight: 900, fontSize: 18, color: C.green}}>{percentage}%</span>
+            <span style={{fontWeight: 800, fontSize: 13, color: C.accent, textTransform: 'uppercase', letterSpacing: 1}}>📈 Proporção de Consertos vs. Máquinas Ruins (Equipe Avançado ➔)</span>
+            <span style={{fontWeight: 900, fontSize: 20, color: C.green}}>{percentage}%</span>
           </div>
-          <div style={{height: 10, background: C.card2, borderRadius: 5, overflow: "hidden", border: `1px solid ${C.border}`}}>
-            <div style={{height: "100%", width: `${percentage}%`, background: `linear-gradient(90deg, ${C.green} 0%, #10b981 100%)`, borderRadius: 5, transition: "width 0.5s ease-in-out"}} />
+          <div style={{height: 12, background: C.card2, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}`}}>
+            <div style={{height: "100%", width: `${percentage}%`, background: `linear-gradient(90deg, ${C.green} 0%, #10b981 100%)`, borderRadius: 6, transition: "width 0.5s ease-in-out"}} />
           </div>
-          <div style={{fontSize: 11, color: C.muted, display: "flex", justifyContent: "space-between"}}>
-            <span>🔧 {repairedCount} Máquinas Consertadas</span>
-            <span>⚠️ {badCount} Máquinas Ruins no Estoque</span>
+          <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 4, textAlign: "center"}}>
+            <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
+              <div style={{fontWeight: 900, fontSize: 16, color: C.green}}>{repairedCount}</div>
+              <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Consertadas até Hoje</div>
+            </div>
+            <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
+              <div style={{fontWeight: 900, fontSize: 16, color: C.accent}}>{repairedThisWeekCount}</div>
+              <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Consertadas esta Semana</div>
+            </div>
+            <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
+              <div style={{fontWeight: 900, fontSize: 16, color: C.red}}>{badCount}</div>
+              <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Máquinas Ruins</div>
+            </div>
           </div>
         </div>
       </div>
@@ -9404,7 +9426,7 @@ function FarmConfigModal({ctx, onClose}) {
     }
 
     const [farms, setFarms] = useState(farmsConfig.length > 0 ? farmsConfig : [
-        { id: "f1", name: "Fazenda Principal", ipRange: "192.168.1.1-255", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [] }
+        { id: "f1", name: "Fazenda Principal", ipRange: "192.168.1.1-255", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [], wgConfig: "" }
     ]);
 
     const handleSave = () => {
@@ -9422,7 +9444,33 @@ function FarmConfigModal({ctx, onClose}) {
     };
 
     const addFarm = () => {
-        setFarms([...farms, { id: Date.now().toString(), name: "Nova Fazenda", ipRange: "", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [] }]);
+        setFarms([...farms, { id: Date.now().toString(), name: "Nova Fazenda", ipRange: "", tgToken: "", tgChatId: "", interval: 1, allowedUsers: [], wgConfig: "" }]);
+    };
+
+    const handleVpnConnect = (farm) => {
+        fetch('http://localhost:3001/api/vpn-connect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ farmId: farm.id, wgConfig: farm.wgConfig })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) alert(`VPN ${farm.name} conectada!`);
+            else alert("Erro: " + data.error);
+        }).catch(err => alert("Erro ao conectar: " + err));
+    };
+
+    const handleVpnDisconnect = (farm) => {
+        fetch('http://localhost:3001/api/vpn-disconnect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ farmId: farm.id })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) alert(`VPN ${farm.name} desconectada!`);
+            else alert("Erro: " + data.error);
+        }).catch(err => alert("Erro ao desconectar: " + err));
     };
 
     const updateFarm = (id, field, value) => {
@@ -9488,6 +9536,15 @@ function FarmConfigModal({ctx, onClose}) {
                                 <div>
                                     <label style={{fontSize:12, color:C.subtle, fontWeight:800}}>Telegram Chat ID</label>
                                     <input value={f.tgChatId} onChange={e => updateFarm(f.id, 'tgChatId', e.target.value)} style={{width:'100%', background:C.bg, border:`1px solid ${C.border}`, padding:10, borderRadius:6, color:C.text, marginTop:5}} placeholder="-1000..." />
+                                </div>
+                            </div>
+                            
+                            <div style={{marginBottom:15}}>
+                                <label style={{fontSize:12, color:C.subtle, fontWeight:800, display: 'block', marginBottom: 5}}>Configuração WireGuard (wg0.conf)</label>
+                                <textarea value={f.wgConfig || ""} onChange={e => updateFarm(f.id, 'wgConfig', e.target.value)} style={{width:'100%', height:80, background:C.bg, border:`1px solid ${C.border}`, padding:10, borderRadius:6, color:C.text, marginTop:5, fontFamily:'monospace', fontSize:11}} placeholder={"[Interface]\nPrivateKey = ...\n\n[Peer]\nPublicKey = ..."}></textarea>
+                                <div style={{display:'flex', gap:10, marginTop:10}}>
+                                    <button onClick={() => handleVpnConnect(f)} style={{background:C.blue, color:'#fff', border:'none', padding:'8px 14px', borderRadius:6, cursor:'pointer', fontSize:12, fontWeight:700}}>🔗 Conectar VPN</button>
+                                    <button onClick={() => handleVpnDisconnect(f)} style={{background:C.card2, color:C.text, border:`1px solid ${C.border}`, padding:'8px 14px', borderRadius:6, cursor:'pointer', fontSize:12, fontWeight:700}}>🔌 Desconectar</button>
                                 </div>
                             </div>
 
