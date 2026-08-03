@@ -3220,18 +3220,408 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
   );
 }
 
+function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
+    const { data, user, setSession, setActiveTab } = ctx;
+    const [ipRange, setIpRange] = useState(defaultIpRange);
+    const [miners, setMiners] = useState([]);
+    const [scanning, setScanning] = useState(false);
+    const [selectedIps, setSelectedIps] = useState([]);
+    const [poolModal, setPoolModal] = useState(null);
+    const [netModal, setNetModal] = useState(null);
+
+    // BTC Tools Pools settings state
+    const [pools, setPools] = useState([
+        { url: "stratum+tcp://btc.viabtc.top:3333", user: "worker", pass: "123" },
+        { url: "stratum+tcp://btc.f2pool.com:3333", user: "worker", pass: "123" },
+        { url: "stratum+tcp://btc.poolin.me:3333", user: "worker", pass: "123" }
+    ]);
+    
+    // BTC Tools Network settings state
+    const [netType, setNetType] = useState("dhcp");
+    const [staticGateway, setStaticGateway] = useState("192.168.1.1");
+    const [staticNetmask, setStaticNetmask] = useState("255.255.255.0");
+    const [staticDns, setStaticDns] = useState("8.8.8.8");
+    const [staticStartIp, setStaticStartIp] = useState("192.168.1.100");
+
+    useEffect(() => {
+        if (defaultIpRange) {
+            setIpRange(defaultIpRange);
+        }
+    }, [defaultIpRange]);
+
+    const handleSelectAll = (e) => {
+        if (e.target.checked) {
+            setSelectedIps(miners.map(m => m.ip));
+        } else {
+            setSelectedIps([]);
+        }
+    };
+
+    const handleSelectRow = (ip) => {
+        setSelectedIps(prev => 
+            prev.includes(ip) ? prev.filter(x => x !== ip) : [...prev, ip]
+        );
+    };
+
+    const parseRange = (r) => {
+        if (!r || !r.includes('-')) return null;
+        const parts = r.split('-');
+        const start = parts[0].trim();
+        const endPart = parts[1].trim();
+        if (endPart.includes('.')) {
+            return { start, end: endPart };
+        } else {
+            const ipParts = start.split('.');
+            if (ipParts.length !== 4) return null;
+            const end = ipParts.slice(0, 3).join('.') + '.' + endPart;
+            return { start, end };
+        }
+    };
+
+    const doScan = async () => {
+        const parsed = parseRange(ipRange);
+        if (!parsed) return alert("Formato de faixa de IP inválido. Ex: 192.168.1.1-255");
+        setScanning(true);
+        setMiners([]);
+        setSelectedIps([]);
+        try {
+            const res = await fetch(`http://localhost:3001/api/scan-range`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ start: parsed.start, end: parsed.end })
+            });
+            if (res.ok) {
+                const scanData = await res.json();
+                setMiners(scanData.miners || []);
+            } else {
+                alert("Erro ao executar scanner no servidor local.");
+            }
+        } catch(e) {
+            alert("Servidor local não respondeu. Certifique-se que o helper local esteja em execução.");
+        }
+        setScanning(false);
+    };
+
+    const runAction = async (ips, action, payload = {}) => {
+        let successCount = 0;
+        let failCount = 0;
+        for (const ip of ips) {
+            try {
+                const res = await fetch(`http://localhost:3001/api/miner-action`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ip, action, payload })
+                });
+                if (res.ok) {
+                    const r = await res.json();
+                    if (r.ok) successCount++;
+                    else failCount++;
+                } else {
+                    failCount++;
+                }
+            } catch(e) {
+                failCount++;
+            }
+        }
+        alert(`Ação "${action}" concluída!\nSucessos: ${successCount}\nFalhas: ${failCount}`);
+    };
+
+    const handleReboot = (ip) => runAction([ip], "reboot");
+    const handleBlink = (ip, enable) => runAction([ip], "blink", { enable });
+    
+    const applyPools = async () => {
+        if (!poolModal) return;
+        setPoolModal(null);
+        await runAction(poolModal.ips, "pools", { pools });
+    };
+
+    const applyNetwork = async () => {
+        if (!netModal) return;
+        const ipsToConfig = netModal.ips;
+        setNetModal(null);
+
+        if (netType === "dhcp") {
+            await runAction(ipsToConfig, "network", { dhcp: true });
+        } else {
+            const ipParts = staticStartIp.split('.');
+            if (ipParts.length !== 4) return alert("IP Inicial inválido.");
+            const base = ipParts.slice(0, 3).join('.');
+            let lastOctet = parseInt(ipParts[3]);
+
+            let successCount = 0;
+            let failCount = 0;
+            for (const ip of ipsToConfig) {
+                const targetIp = `${base}.${lastOctet}`;
+                lastOctet++;
+                try {
+                    const res = await fetch(`http://localhost:3001/api/miner-action`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            ip, 
+                            action: "network", 
+                            payload: {
+                                dhcp: false,
+                                ip: targetIp,
+                                netmask: staticNetmask,
+                                gateway: staticGateway,
+                                dns: staticDns
+                            } 
+                        })
+                    });
+                    if (res.ok) {
+                        const r = await res.json();
+                        if (r.ok) successCount++;
+                        else failCount++;
+                    } else failCount++;
+                } catch(e) {
+                    failCount++;
+                }
+            }
+            alert(`Configuração de IP Estático concluída!\nSucessos: ${successCount}\nFalhas: ${failCount}`);
+        }
+    };
+
+    const handleTestar = (m) => {
+        const newSession = {
+            ip: m.ip,
+            machineSN: m.sn || "",
+            model: m.model || "",
+            slotsFound: m.slots ? m.slots.filter(s => s).length : 0,
+            adminNotes: []
+        };
+        newSession.slots = m.slots || [null, null, null];
+        setSession(newSession);
+        setActiveTab('teste');
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, height: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, background: C.card2, padding: 12, borderRadius: 10, border: `1px solid ${C.border}` }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input 
+                        type="text" 
+                        value={ipRange} 
+                        onChange={e => setIpRange(e.target.value)} 
+                        style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: '8px 12px', width: 220, fontSize: 13 }} 
+                        placeholder="Faixa de IP (Ex: 192.168.1.1-255)"
+                    />
+                    <Btn onClick={doScan} disabled={scanning} style={{ background: C.blue, color: '#fff', padding: '8px 20px', fontWeight: 800 }}>
+                        {scanning ? "Escaneando..." : "🔍 Scan"}
+                    </Btn>
+                </div>
+
+                {selectedIps.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: C.accent }}>{selectedIps.length} SELECIONADOS:</span>
+                        <Btn v="s" onClick={() => runAction(selectedIps, "reboot")} style={{ fontSize: 11, padding: '6px 10px' }}>🔄 Reboot</Btn>
+                        <Btn v="s" onClick={() => runAction(selectedIps, "blink", { enable: true })} style={{ fontSize: 11, padding: '6px 10px' }}>💡 Piscar LED</Btn>
+                        <Btn v="s" onClick={() => runAction(selectedIps, "blink", { enable: false })} style={{ fontSize: 11, padding: '6px 10px' }}>🔕 Apagar LED</Btn>
+                        <Btn v="b" onClick={() => setPoolModal({ ips: selectedIps })} style={{ fontSize: 11, padding: '6px 10px' }}>🧱 Config Pools</Btn>
+                        <Btn v="y" onClick={() => setNetModal({ ips: selectedIps })} style={{ fontSize: 11, padding: '6px 10px' }}>🌐 Config Rede</Btn>
+                    </div>
+                )}
+            </div>
+
+            <div style={{ flex: 1, overflow: 'auto', background: C.card2, borderRadius: 10, border: `1px solid ${C.border}` }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, textAlign: 'left' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: C.card, zIndex: 5, borderBottom: `2px solid ${C.border}` }}>
+                        <tr style={{ color: C.accent }}>
+                            <th style={{ padding: 12, width: 40, textAlign: 'center' }}>
+                                <input type="checkbox" onChange={handleSelectAll} checked={selectedIps.length === miners.length && miners.length > 0} />
+                            </th>
+                            <th style={{ padding: 12, fontWeight: 800 }}>IP</th>
+                            <th style={{ padding: 12, fontWeight: 800 }}>Status</th>
+                            <th style={{ padding: 12, fontWeight: 800 }}>Modelo</th>
+                            <th style={{ padding: 12, fontWeight: 800 }}>Hash Rate</th>
+                            <th style={{ padding: 12, fontWeight: 800 }}>Temp.</th>
+                            <th style={{ padding: 12, fontWeight: 800 }}>Uptime</th>
+                            <th style={{ padding: 12, fontWeight: 800 }}>SN Controladora</th>
+                            <th style={{ padding: 12, fontWeight: 800, textAlign: 'center' }}>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {miners.length === 0 ? (
+                            <tr>
+                                <td colSpan="9" style={{ textAlign: 'center', padding: 40, color: C.muted }}>
+                                    {scanning ? "Buscando dispositivos (filtrando DVRs)..." : "Defina a faixa de IP e clique em Scan."}
+                                </td>
+                            </tr>
+                        ) : (
+                            miners.map((m, idx) => {
+                                const isSelected = selectedIps.includes(m.ip);
+                                return (
+                                    <tr key={idx} style={{ borderBottom: `1px solid ${C.border}`, background: isSelected ? C.blue + '11' : 'transparent', transition: 'background 0.2s' }}>
+                                        <td style={{ padding: 12, textAlign: 'center' }}>
+                                            <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(m.ip)} />
+                                        </td>
+                                        <td style={{ padding: 12 }}>
+                                            <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: 'none', fontWeight: 800 }}>{m.ip}</a>
+                                        </td>
+                                        <td style={{ padding: 12 }}>
+                                            <span style={{ 
+                                                background: m.status === 'mining' ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)', 
+                                                color: m.status === 'mining' ? C.green : C.red, 
+                                                padding: '3px 8px', borderRadius: 4, fontWeight: 800, fontSize: 10 
+                                            }}>
+                                                ● {m.status === 'mining' ? 'Mining' : (m.status === 'offline' ? 'Offline' : 'Error')}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: 12, fontWeight: 600 }}>{m.model || '-'}</td>
+                                        <td style={{ padding: 12, fontWeight: 800, color: C.green }}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
+                                        <td style={{ padding: 12, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : C.text), fontWeight: m.temp > 75 ? 800 : 400 }}>
+                                            {m.temp ? m.temp + '°C' : '-'}
+                                        </td>
+                                        <td style={{ padding: 12, color: C.subtle }}>{formatUptime(m.uptime)}</td>
+                                        <td style={{ padding: 12, fontFamily: 'monospace', fontSize: 11, color: C.subtle }}>{m.sn || '-'}</td>
+                                        <td style={{ padding: 12, display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                            <button onClick={() => handleReboot(m.ip)} title="Reboot" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>🔄</button>
+                                            <button onClick={() => handleBlink(m.ip, true)} title="Blink LED" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>💡</button>
+                                            <button onClick={() => handleBlink(m.ip, false)} title="Turn off LED" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>🔕</button>
+                                            <Btn onClick={() => handleTestar(m)} style={{ background: C.blue, color: '#fff', padding: '3px 8px', fontSize: 10, margin: 0 }}>🧪 Testar</Btn>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {poolModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ background: C.card, width: '100%', maxWidth: 500, borderRadius: 12, border: `1px solid ${C.border}`, padding: 20 }}>
+                        <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 15, color: C.accent }}>🧱 Configurar Pools ({poolModal.ips.length} selecionados)</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {pools.map((p, i) => (
+                                <div key={i} style={{ background: C.card2, padding: 10, borderRadius: 8, border: `1px solid ${C.border}` }}>
+                                    <div style={{ fontWeight: 800, fontSize: 11, marginBottom: 4, color: C.subtle }}>POOL {i + 1}</div>
+                                    <Inp label="URL Stratum" value={p.url} onChange={e => setPools(pools.map((x, idx) => idx === i ? { ...x, url: e.target.value } : x))} placeholder="stratum+tcp://..." />
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 6 }}>
+                                        <Inp label="Usuário/Worker" value={p.user} onChange={e => setPools(pools.map((x, idx) => idx === i ? { ...x, user: e.target.value } : x))} />
+                                        <Inp label="Senha" value={p.pass} onChange={e => setPools(pools.map((x, idx) => idx === i ? { ...x, pass: e.target.value } : x))} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, marginTop: 15, justifyContent: 'flex-end' }}>
+                            <Btn v="s" onClick={() => setPoolModal(null)}>Cancelar</Btn>
+                            <Btn onClick={applyPools}>⚡ Aplicar em Lote</Btn>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {netModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ background: C.card, width: '100%', maxWidth: 450, borderRadius: 12, border: `1px solid ${C.border}`, padding: 20 }}>
+                        <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 15, color: C.accent }}>🌐 Configurar Rede ({netModal.ips.length} selecionados)</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                                <Btn v={netType === 'dhcp' ? '' : 's'} onClick={() => setNetType("dhcp")} style={{ flex: 1, justifyContent: 'center' }}>DHCP (Automático)</Btn>
+                                <Btn v={netType === 'static' ? '' : 's'} onClick={() => setNetType("static")} style={{ flex: 1, justifyContent: 'center' }}>Estático (Fixo)</Btn>
+                            </div>
+
+                            {netType === "static" && (
+                                <>
+                                    <Inp label="IP Inicial (auto-incrementado)" value={staticStartIp} onChange={e => setStaticStartIp(e.target.value)} placeholder="Ex: 192.168.1.100" />
+                                    <Inp label="Máscara de Rede" value={staticNetmask} onChange={e => setStaticNetmask(e.target.value)} />
+                                    <Inp label="Gateway Padrão" value={staticGateway} onChange={e => setStaticGateway(e.target.value)} />
+                                    <Inp label="DNS Preferencial" value={staticDns} onChange={e => setStaticDns(e.target.value)} />
+                                    <div style={{ fontSize: 10, color: C.subtle, background: C.card2, padding: 8, borderRadius: 6, border: `1px solid ${C.border}` }}>
+                                        * O IP de cada máquina selecionada será configurado sequencialmente a partir do IP inicial.
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 10, marginTop: 15, justifyContent: 'flex-end' }}>
+                            <Btn v="s" onClick={() => setNetModal(null)}>Cancelar</Btn>
+                            <Btn onClick={applyNetwork}>⚡ Aplicar em Lote</Btn>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function DataCenterPage({ctx}) {
-    const {data, setModal, user, farmsConfig, setFarmsConfig, mutate} = ctx;
+    const {data, setModal, user, farmsConfig = [], setFarmsConfig, mutate} = ctx;
     const farmMachines = data.farmMachines || [];
     
-    // We will assume the default size is 10 rows (vãos) x 10 cols (máquinas)
-    // Later this could be dynamic per farm.
-    
-    const [selectedFarm, setSelectedFarm] = useState("Fazenda Principal");
+    const [selectedFarmName, setSelectedFarmName] = useState(null);
+    const [farmSubTab, setFarmSubTab] = useState("shelf"); // "shelf", "scan"
     const [viewMode, setViewMode] = useState("th"); // 'th', 'temp', 'uptime', 'status'
     
-    // Derived from data
-    const farmData = farmMachines.filter(m => (m.location || "Fazenda Principal") === selectedFarm);
+    const getFarmsList = () => {
+        const list = [{ id: "f1", name: "Fazenda Principal", ipRange: "192.168.1.1-255" }];
+        farmsConfig.forEach(f => {
+            if (user?.code === "019" || f.allowedUsers?.includes(user?.code)) {
+                list.push(f);
+            }
+        });
+        return list;
+    };
+
+    const listFarms = getFarmsList();
+
+    if (!selectedFarmName) {
+        // Fazenda Geral landing page
+        return (
+            <div style={{display:"flex", flexDirection:"column", height:"calc(100vh - 80px)", background: C.bg, padding: 20, overflowY: 'auto'}}>
+                <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
+                    <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
+                       <span style={{fontSize:28}}>🏢</span> Fazenda Geral
+                       {user?.code === "019" && (
+                           <button onClick={() => ctx.setModal({content: <FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} />, title: "Configuração", hideHeader: true})} style={{background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: '4px 8px', borderRadius: 6, fontSize: 14, cursor: 'pointer', marginLeft: 10}}>
+                               ⚙️ Config
+                           </button>
+                       )}
+                    </div>
+                </div>
+
+                <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20}}>
+                    {listFarms.map(f => {
+                        const miners = farmMachines.filter(m => (m.location || "Fazenda Principal") === f.name);
+                        const onlineCount = miners.filter(m => m.hashrate > 0).length;
+                        const offlineCount = miners.filter(m => m.status === 'offline').length;
+                        const totalTH = miners.reduce((sum, m) => sum + (m.hashrate || 0), 0);
+
+                        return (
+                            <Card 
+                                key={f.name} 
+                                onClick={() => { setSelectedFarmName(f.name); setFarmSubTab("shelf"); }}
+                                style={{cursor: 'pointer', border: `1px solid ${C.border}`, hover: {borderColor: C.blue}, transition: 'all 0.2s', padding: 20}}
+                            >
+                                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12}}>
+                                    <div style={{fontWeight: 900, fontSize: 18, color: C.accent}}>🏢 {f.name}</div>
+                                    <span style={{fontSize: 16, color: C.subtle}}>➔</span>
+                                </div>
+                                <div style={{fontSize: 12, color: C.subtle, marginBottom: 10}}>Faixa: <b>{f.ipRange || '-'}</b></div>
+                                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, textAlign: 'center', marginTop: 10}}>
+                                    <div style={{background: C.card2, padding: 8, borderRadius: 8}}>
+                                        <div style={{fontWeight: 900, color: C.text}}>{miners.length}</div>
+                                        <div style={{fontSize: 9, color: C.muted}}>MÁQUINAS</div>
+                                    </div>
+                                    <div style={{background: C.card2, padding: 8, borderRadius: 8}}>
+                                        <div style={{fontWeight: 900, color: C.green}}>{onlineCount}</div>
+                                        <div style={{fontSize: 9, color: C.muted}}>ONLINE</div>
+                                    </div>
+                                    <div style={{background: C.card2, padding: 8, borderRadius: 8}}>
+                                        <div style={{fontWeight: 900, color: totalTH > 0 ? C.green : C.text}}>{totalTH.toFixed(0)}T</div>
+                                        <div style={{fontSize: 9, color: C.muted}}>TH/S TOTAL</div>
+                                    </div>
+                                </div>
+                            </Card>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    const farm = listFarms.find(f => f.name === selectedFarmName) || listFarms[0];
+    const farmData = farmMachines.filter(m => (m.location || "Fazenda Principal") === selectedFarmName);
     
     const getMachine = (vao, slot) => {
         return farmData.find(m => m.shelf === String(vao) && m.notes === String(slot));
@@ -3267,12 +3657,11 @@ function DataCenterPage({ctx}) {
                 )
             });
         } else {
-            // Add new machine to this slot
             let newIP = prompt(`Qual o IP da máquina para o Vão ${vao}, Posição ${slot}?`);
             if (newIP) {
                 const newMachine = {
                     _id: 'farm_' + Date.now().toString(),
-                    location: selectedFarm,
+                    location: selectedFarmName,
                     shelf: String(vao),
                     notes: String(slot),
                     ip: newIP,
@@ -3296,7 +3685,6 @@ function DataCenterPage({ctx}) {
         }
     };
 
-    // Calculate dynamic rows/cols based on max found, or default 10x10
     let maxVao = 10;
     let maxSlot = 10;
     farmData.forEach(m => {
@@ -3327,187 +3715,92 @@ function DataCenterPage({ctx}) {
         if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return C.red;
         if (m.temp > 75) return '#ff9800';
         if (m.hashrate > 0) return C.green;
-        return C.blue; // default active
+        return C.blue;
     };
 
     return (
         <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: C.bg, padding: 20}}>
             <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
                 <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
-                   <span style={{fontSize:28}}>🏢</span> Fazenda
-                   {user?.code === "019" && (
-                       <button onClick={() => ctx.setModal({content: <FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} />, title: "Configuração", hideHeader: true})} style={{background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: '4px 8px', borderRadius: 6, fontSize: 14, cursor: 'pointer', marginLeft: 10}}>
-                           ⚙️ Config
-                       </button>
-                   )}
+                   <button onClick={() => setSelectedFarmName(null)} style={{background: 'none', border: 'none', color: C.blue, cursor: 'pointer', fontSize: 22, fontWeight: 900, padding: 0}}>←</button>
+                   <span>🏢 {selectedFarmName}</span>
                 </div>
                 
                 <div style={{display:'flex', gap:10, alignItems:'center'}}>
-                    <select value={selectedFarm} onChange={e=>setSelectedFarm(e.target.value)} style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:'10px 14px', fontWeight:800}}>
-                        <option value="Fazenda Principal">Fazenda Principal</option>
-                        {farmsConfig?.filter(f => user?.code === "019" || f.allowedUsers?.includes(user?.code)).map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
-                    </select>
-
                     <div style={{background:C.card, borderRadius:8, display:'flex', overflow:'hidden', border:`1px solid ${C.border}`}}>
-                        <button onClick={()=>setViewMode('th')} style={{background:viewMode==='th'?C.blue:'transparent', color:viewMode==='th'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>TH/s</button>
-                        <button onClick={()=>setViewMode('temp')} style={{background:viewMode==='temp'?C.blue:'transparent', color:viewMode==='temp'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Temp</button>
-                        <button onClick={()=>setViewMode('uptime')} style={{background:viewMode==='uptime'?C.blue:'transparent', color:viewMode==='uptime'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Uptime</button>
-                        <button onClick={()=>setViewMode('ip')} style={{background:viewMode==='ip'?C.blue:'transparent', color:viewMode==='ip'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Fim IP</button>
+                        <button onClick={()=>setFarmSubTab('shelf')} style={{background:farmSubTab==='shelf'?C.blue:'transparent', color:farmSubTab==='shelf'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>📊 Prateleira Virtual</button>
+                        <button onClick={()=>setFarmSubTab('scan')} style={{background:farmSubTab==='scan'?C.blue:'transparent', color:farmSubTab==='scan'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>📡 Scanner da Fazenda</button>
                     </div>
                 </div>
             </div>
 
-            <div style={{flex:1, overflow:"auto", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:'0 4px 20px rgba(0,0,0,0.2)', padding: 20, display:'flex', flexDirection:'column', alignItems:'center'}}>
-                {rows.map(vao => (
-                    <div key={vao} style={{display:'flex', gap:10, marginBottom:10}}>
-                        <div style={{width: 40, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:800, color:C.subtle}}>
-                            V{vao}
+            {farmSubTab === "shelf" ? (
+                <div style={{display: 'flex', flexDirection: 'column', gap: 14, flex: 1}}>
+                    <div style={{display: 'flex', justifyContent: 'flex-end'}}>
+                        <div style={{background:C.card, borderRadius:8, display:'flex', overflow:'hidden', border:`1px solid ${C.border}`}}>
+                            <button onClick={()=>setViewMode('th')} style={{background:viewMode==='th'?C.blue:'transparent', color:viewMode==='th'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>TH/s</button>
+                            <button onClick={()=>setViewMode('temp')} style={{background:viewMode==='temp'?C.blue:'transparent', color:viewMode==='temp'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Temp</button>
+                            <button onClick={()=>setViewMode('uptime')} style={{background:viewMode==='uptime'?C.blue:'transparent', color:viewMode==='uptime'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Uptime</button>
+                            <button onClick={()=>setViewMode('ip')} style={{background:viewMode==='ip'?C.blue:'transparent', color:viewMode==='ip'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Fim IP</button>
                         </div>
-                        {cols.map(slot => {
-                            const m = getMachine(vao, slot);
-                            return (
-                                <div 
-                                    key={slot} 
-                                    onClick={() => handleBoxClick(vao, slot)}
-                                    onDoubleClick={() => handleDoubleClick(vao, slot)}
-                                    style={{
-                                        width: 50, height: 50, 
-                                        background: getBoxColor(m),
-                                        borderRadius: 8, 
-                                        display:'flex', alignItems:'center', justifyContent:'center',
-                                        cursor:'pointer',
-                                        color: '#fff',
-                                        boxShadow: m ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
-                                        border: m ? 'none' : `1px dashed ${C.border}`,
-                                        userSelect: 'none'
-                                    }}
-                                    title={m ? `Vão ${vao} - Slot ${slot} (${m.ip})` : `Vão ${vao} - Slot ${slot} (Vazio)`}
-                                >
-                                    {renderBoxContent(m)}
-                                </div>
-                            );
-                        })}
                     </div>
-                ))}
-            </div>
+                    <div style={{flex:1, overflow:"auto", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:'0 4px 20px rgba(0,0,0,0.2)', padding: 20, display:'flex', flexDirection:'column', alignItems:'center'}}>
+                        {rows.map(vao => (
+                            <div key={vao} style={{display:'flex', gap:10, marginBottom:10}}>
+                                <div style={{width: 40, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:800, color:C.subtle}}>
+                                    V{vao}
+                                </div>
+                                {cols.map(slot => {
+                                    const m = getMachine(vao, slot);
+                                    return (
+                                        <div 
+                                            key={slot} 
+                                            onClick={() => handleBoxClick(vao, slot)}
+                                            onDoubleClick={() => handleDoubleClick(vao, slot)}
+                                            style={{
+                                                width: 50, height: 50, 
+                                                background: getBoxColor(m),
+                                                borderRadius: 8, 
+                                                display:'flex', alignItems:'center', justifyContent:'center',
+                                                cursor:'pointer',
+                                                color: '#fff',
+                                                boxShadow: m ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
+                                                border: m ? 'none' : `1px dashed ${C.border}`,
+                                                userSelect: 'none'
+                                            }}
+                                            title={m ? `Vão ${vao} - Slot ${slot} (${m.ip})` : `Vão ${vao} - Slot ${slot} (Vazio)`}
+                                        >
+                                            {renderBoxContent(m)}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ) : (
+                <div style={{flex: 1}}>
+                    <BtcToolsScanner ctx={ctx} defaultIpRange={farm.ipRange} farmName={farm.name} />
+                </div>
+            )}
         </div>
     );
 }
 
-
 function ScannerPage({ctx}) {
-    const {data, setActiveTab, setSession, setMode, user} = ctx;
-    
+    const { user } = ctx;
     const savedIps = user?.btcToolsIps ? user.btcToolsIps : ["192.168.1.1-255"];
-    const [btcScanIpRange, setBtcScanIpRange] = useState(savedIps[0] || "");
-    const [btcScanResults, setBtcScanResults] = useState([]);
-    const [scanning, setScanning] = useState(false);
     
-    const doScan = async () => {
-        if (!btcScanIpRange) return alert("Preencha a faixa de IP. Ex: 192.168.1.1-255");
-        setScanning(true);
-        setBtcScanResults([]);
-        try {
-            const res = await fetch(`http://localhost:3001/api/scan-range`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ start: btcScanIpRange.split('-')[0], end: btcScanIpRange.split('-')[0].split('.').slice(0,3).join('.') + '.' + btcScanIpRange.split('-')[1] })
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setBtcScanResults(data.miners || []);
-            } else {
-                alert("Erro ao executar scanner no servidor local.");
-            }
-        } catch(e) {
-            alert("Servidor local não respondeu: " + e.message + "\n\nCertifique-se que o App Desktop está rodando!");
-        }
-        setScanning(false);
-    };
-
-    const handleTestar = (m) => {
-        // Prepare session data for Test page
-        const newSession = {
-            ip: m.ip,
-            machineSN: m.sn || "",
-            model: m.model || "",
-            slotsFound: m.slots ? m.slots.filter(s => s).length : 0,
-            adminNotes: []
-        };
-        setSession(newSession);
-        
-        // Also we should ideally inject the hashboard SNs into the test tab context. 
-        // We'll set the active tab to Teste.
-        // Wait, TestePage relies on \`session\`. We can pass hashboard SNs through session too, 
-        // e.g. session.slots = m.slots
-        newSession.slots = m.slots || [null, null, null];
-        
-        setActiveTab('teste');
-    };
-
     return (
         <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: C.bg, padding: 20}}>
             <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
                 <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
-                   <span style={{fontSize:28}}>📡</span> Scanner Geral 
-                </div>
-                <div style={{display:'flex', gap:10, alignItems:'center'}}>
-                    <input type="text" value={btcScanIpRange} onChange={e=>setBtcScanIpRange(e.target.value)} style={{background:C.card, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:'10px 14px', width: 250}} placeholder="Faixa de IP (Ex: 192.168.1.1-255)"/>
-                    <Btn onClick={doScan} disabled={scanning} style={{background:C.blue, color:"#fff", padding:"10px 24px", fontWeight:800}}>
-                        {scanning ? "Escaneando..." : "Scan"}
-                    </Btn>
+                   <span style={{fontSize:28}}>📡</span> Scanner Geral (BTC Tools)
                 </div>
             </div>
 
-            <div style={{flex:1, overflow:"auto", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:'0 4px 20px rgba(0,0,0,0.2)'}}>
-                <table style={{width:'100%', borderCollapse:'collapse', fontSize:13, textAlign:'left'}}>
-                    <thead style={{position:'sticky', top:0, background:C.card2, zIndex:10}}>
-                        <tr style={{borderBottom:`1px solid ${C.border}`, color:C.accent}}>
-                            <th style={{padding:16, fontWeight:800}}>IP</th>
-                            <th style={{padding:16, fontWeight:800}}>Status</th>
-                            <th style={{padding:16, fontWeight:800}}>Modelo</th>
-                            <th style={{padding:16, fontWeight:800}}>Hash Rate</th>
-                            <th style={{padding:16, fontWeight:800}}>Temp.</th>
-                            <th style={{padding:16, fontWeight:800}}>Uptime</th>
-                            <th style={{padding:16, fontWeight:800}}>SN Controladora</th>
-                            <th style={{padding:16, fontWeight:800}}>Hashboards</th>
-                            <th style={{padding:16, fontWeight:800}}>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {btcScanResults.length === 0 ? (
-                            <tr>
-                                <td colSpan="9" style={{textAlign:'center', padding:60, color:C.muted}}>
-                                    {scanning ? "Procurando dispositivos (ignorando DVRs)..." : "Insira uma faixa de IP e clique em Scan."}
-                                </td>
-                            </tr>
-                        ) : (
-                            btcScanResults.map((m, idx) => (
-                                <tr key={idx} style={{borderBottom:`1px solid ${C.border}`, transition:'background 0.2s'}} onMouseOver={e=>e.currentTarget.style.background=C.card2} onMouseOut={e=>e.currentTarget.style.background='transparent'}>
-                                    <td style={{padding:16}}>
-                                        <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{color:C.blue, textDecoration:'none', fontWeight:800}}>{m.ip}</a>
-                                    </td>
-                                    <td style={{padding:16}}><span style={{background: m.status === 'mining' ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)', color: m.status === 'mining' ? C.green : C.red, padding:'4px 8px', borderRadius:4, fontWeight:800, fontSize:11}}>● {m.status === 'mining' ? 'Normal' : 'Erro'}</span></td>
-                                    <td style={{padding:16, color:C.text, fontWeight:600}}>{m.model || '-'}</td>
-                                    <td style={{padding:16, fontWeight:800, color:C.green}}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
-                                    <td style={{padding:16, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : C.text), fontWeight: m.temp > 75 ? 800 : 400}}>
-                                        {m.temp ? m.temp + '°C' : '-'}
-                                    </td>
-                                    <td style={{padding:16, color:C.subtle}}>{formatUptime(m.uptime)}</td>
-                                    <td style={{padding:16, color:C.subtle, fontFamily:'monospace', fontSize:11}}>{m.sn || '-'}</td>
-                                    <td style={{padding:16, color:C.subtle}}>
-                                        {m.slots ? m.slots.filter(s=>s).length + ' lidas' : '-'}
-                                    </td>
-                                    <td style={{padding:16}}>
-                                        <Btn onClick={() => handleTestar(m)} style={{background:C.blue, color:"#fff", padding:"6px 12px", fontSize:11, fontWeight:800}}>
-                                            🧪 Testar
-                                        </Btn>
-                                    </td>
-                                </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
+            <div style={{flex:1, overflow:'hidden'}}>
+                <BtcToolsScanner ctx={ctx} defaultIpRange={savedIps[0]} />
             </div>
         </div>
     );
