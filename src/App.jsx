@@ -3150,7 +3150,8 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
       try {
         const res = await fetch('http://localhost:3001/api/ipreport');
         if (res.ok) {
-          const report = await res.json();
+          const reportData = await res.json();
+          const report = Array.isArray(reportData) ? reportData[0] : reportData;
           if (report && report.ip && report.ip !== ipInput) {
             setIpInput(report.ip);
             setStatusMsg("⚡ IP " + report.ip + " capturado via IP Report!");
@@ -5746,13 +5747,13 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                 const res = await fetch('http://localhost:3001/api/ipreport');
                 if (!res.ok) return;
                 const reports = await res.json();
-                if (reports && reports.length > 0) {
-                    const latest = reports[0];
+                const latest = Array.isArray(reports) ? reports[0] : (reports && reports.ip ? reports : null);
+                if (latest && latest.ip) {
                     setListening(false);
                     setLastCapturedIP(latest.ip);
                     const info = await fetchAndApplyMinerInfo(latest.ip);
                     const slotsFound = info?.slots?.filter(Boolean)?.length || 0;
-                    alert(`✅ IP REPORT CAPTURADO!\\n🌐 IP: ${latest.ip}\\n${slotsFound > 0 ? `📋 ${slotsFound} HASH SNs importados automaticamente!` : ''}`);
+                    alert(`✅ IP REPORT CAPTURADO!\n🌐 IP: ${latest.ip}\n${slotsFound > 0 ? `📋 ${slotsFound} HASH SNs importados automaticamente!` : ''}`);
                 }
             } catch(e) {}
         }, 1000);
@@ -7827,6 +7828,69 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
   // Modal para ver todas as máquinas/placas com SN, Modelo e Data que o usuário consertou
   const openTechDetailsModal = (st) => {
+    const handleTransferRepair = async (rep, currentTechId) => {
+      const activeEmployees = data.employees.filter(e => e._id !== currentTechId && e.code !== "019");
+      if (activeEmployees.length === 0) {
+        alert("Nenhum outro funcionário cadastrado para transferência.");
+        return;
+      }
+      const selection = prompt(
+        `🔄 TRANSFERIR CONSERTO\n\nPlaca: ${rep.hashSN}\nTipo: ${rep.type === "already_good" ? "Já Boa" : "Conserto"}\n\nSelecione o novo responsável digitando o código dele a seguir:\n\n${activeEmployees.map(e => `[${e.code}] - ${e.name}`).join("\n")}`
+      );
+      if (!selection) return;
+      const targetEmp = activeEmployees.find(e => e.code.trim() === selection.trim());
+      if (!targetEmp) {
+        alert("Código inválido! Transferência cancelada.");
+        return;
+      }
+
+      if (!confirm(`Deseja realmente transferir este conserto de ${st.emp.name} para ${targetEmp.name}?`)) {
+        return;
+      }
+
+      const updatedRep = {
+        ...rep,
+        employeeId: targetEmp._id,
+        employeeCode: targetEmp.code,
+        employeeName: targetEmp.name,
+        _by: targetEmp._id,
+        ...audit(user)
+      };
+
+      const hashDoc = data.hashes.find(h => h.sn === rep.hashSN);
+      let updatedHash = null;
+      if (hashDoc && hashDoc.repairedBy === currentTechId) {
+        updatedHash = {
+          ...hashDoc,
+          repairedBy: targetEmp._id,
+          repairedByName: targetEmp.name,
+          ...audit(user)
+        };
+      }
+
+      const resRep = await fbSet("repairs", rep._id, updatedRep);
+      if (!resRep.ok) {
+        alert("Erro ao transferir conserto no banco de dados.");
+        return;
+      }
+
+      if (updatedHash) {
+        const resHash = await fbSet("hashes", hashDoc._id, updatedHash);
+        if (!resHash.ok) {
+          alert("Erro ao atualizar técnico na placa HASH.");
+        } else {
+          mutate("hashes", arr => arr.map(x => x._id === hashDoc._id ? updatedHash : x));
+        }
+      }
+
+      mutate("repairs", arr => arr.map(x => x._id === rep._id ? updatedRep : x));
+      
+      alert(`🎉 Conserto da placa ${rep.hashSN} transferido com sucesso para ${targetEmp.name}!`);
+      setModal(null);
+    };
+
+    const isAdmin = user.code === "019" || user.permissions?.admin || user.role === "admin";
+
     setModal(
       <Modal title={`👷 Produção Detalhada — ${st.emp.name} (#${st.emp.code})`} onClose={() => setModal(null)}>
         <div style={{padding: 4}}>
@@ -7857,6 +7921,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
             ) : (
               [
                 ...st.repList.map(r => ({
+                  originalRepair: r,
                   at: r._at || r.date,
                   sn: r.hashSN,
                   model: r.model,
@@ -7885,8 +7950,25 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
                   <div style={{fontSize: 12, color: C.accent, fontWeight: 700, marginTop: 4}}>
                     {item.modelText}
                   </div>
-                  <div style={{fontSize: 11, color: C.subtle, marginTop: 4}}>
-                    📅 Data/Hora: {fmtTS(item.at)}
+                  <div style={{fontSize: 11, color: C.subtle, marginTop: 4, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+                    <span>📅 Data/Hora: {fmtTS(item.at)}</span>
+                    {isAdmin && item.originalRepair && (
+                      <button 
+                        onClick={() => handleTransferRepair(item.originalRepair, st.emp._id)}
+                        style={{
+                          background: C.accent,
+                          color: "#000",
+                          border: "none",
+                          borderRadius: 6,
+                          padding: "3px 8px",
+                          fontSize: 9,
+                          fontWeight: 900,
+                          cursor: "pointer"
+                        }}
+                      >
+                        🔄 Transferir
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
