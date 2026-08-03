@@ -2268,7 +2268,7 @@ function AdminSummary({data, setTab}){
     let dates = [];
     if (m.changeLog) {
       m.changeLog.forEach(log => {
-        if ((log.field === "situacao" || log.field === "status") && ["BOA", "LIGADA"].includes(log.to) && !["BOA", "LIGADA"].includes(log.from)) {
+        if ((log.field === "situacao" || log.field === "status") && ["BOA", "LIGADA"].includes(log.to) && log.from && !["BOA", "LIGADA", ""].includes(log.from)) {
           if (log.at) dates.push(new Date(log.at));
         }
       });
@@ -2294,7 +2294,7 @@ function AdminSummary({data, setTab}){
       const hasStatusChangeToGood = m.changeLog && m.changeLog.some(log => 
         (log.field === "situacao" || log.field === "status") && 
         ["BOA", "LIGADA"].includes(log.to) && 
-        !["BOA", "LIGADA"].includes(log.from)
+        log.from && !["BOA", "LIGADA", ""].includes(log.from)
       );
       const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
       const hasRepairedHash = machineHashes.some(h => h.repairedBy || repairs.some(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded));
@@ -2344,7 +2344,9 @@ function AdminSummary({data, setTab}){
   };
 
   const navToAdvancedTeam = () => {
-    localStorage.setItem("hs_team_subtab", "advanced");
+    localStorage.setItem("hs_team_subtab", "daily");
+    localStorage.setItem("hs_team_show_advanced_machines", "true");
+    localStorage.setItem("hs_team_repaired_status_filter", "BOA");
     if (setTab) setTab("team");
   };
 
@@ -7359,7 +7361,8 @@ function TeamAdvanced({ctx}) {
   const [expandedEmp, setExpandedEmp] = useState(null);
   const [expandedCategory, setExpandedCategory] = useState(null); // '1', '2', '3'
   const [repairedSearch, setRepairedSearch] = useState("");
-  const [repairedStatusFilter, setRepairedStatusFilter] = useState("ALL");
+  const savedFilter = localStorage.getItem("hs_team_repaired_status_filter");
+  const [repairedStatusFilter, setRepairedStatusFilter] = useState(savedFilter || "ALL");
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -7371,17 +7374,45 @@ function TeamAdvanced({ctx}) {
         }
       }, 600);
     }
+    if (savedFilter) {
+      localStorage.removeItem("hs_team_repaired_status_filter");
+    }
   }, []);
 
   const isSuper = user.code === "019" || user.role === "admin";
   const empsToShow = data.employees.filter(e => isSuper || e._id === user._id);
+
+  const getMachineRepairDate = (m, hashes, repairs) => {
+    let dates = [];
+    if (m.changeLog) {
+      m.changeLog.forEach(log => {
+        if ((log.field === "situacao" || log.field === "status") && ["BOA", "LIGADA"].includes(log.to) && log.from && !["BOA", "LIGADA", ""].includes(log.from)) {
+          if (log.at) dates.push(new Date(log.at));
+        }
+      });
+    }
+    const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
+    machineHashes.forEach(h => {
+      const reps = repairs.filter(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded);
+      reps.forEach(r => {
+        const d = r._at ? new Date(r._at) : (r.date ? new Date(r.date + "T12:00:00") : null);
+        if (d && !isNaN(d.getTime())) dates.push(d);
+      });
+      if (h.repairedBy && h.updatedAt) {
+        const d = new Date(h.updatedAt);
+        if (!isNaN(d.getTime())) dates.push(d);
+      }
+    });
+    if (dates.length === 0) return null;
+    return new Date(Math.max(...dates.map(d => d.getTime())));
+  };
 
   const getRepairedMachines = (machines, hashes, repairs) => {
     return machines.filter(m => {
       const hasStatusChangeToGood = m.changeLog && m.changeLog.some(log => 
         (log.field === "situacao" || log.field === "status") && 
         ["BOA", "LIGADA"].includes(log.to) && 
-        log.from !== log.to
+        log.from && !["BOA", "LIGADA", ""].includes(log.from)
       );
       const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
       const hasRepairedHash = machineHashes.some(h => h.repairedBy || repairs.some(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded));
@@ -7412,6 +7443,42 @@ function TeamAdvanced({ctx}) {
     }
     return matchesSearch;
   });
+
+  const countRepairsForWeekRange = (machines, hashes, repairs, offset) => {
+    const today = new Date();
+    const day = today.getDay();
+    const diffToMonday = today.getDate() - day + (day === 0 ? -6 : 1) - (offset * 7);
+    
+    const start = new Date(today.getFullYear(), today.getMonth(), diffToMonday);
+    start.setHours(0, 0, 0, 0);
+    
+    const end = new Date(start);
+    end.setDate(start.getDate() + 7);
+    
+    return machines.filter(m => {
+      const rDate = getMachineRepairDate(m, hashes, repairs);
+      return rDate && rDate >= start && rDate < end;
+    }).length;
+  };
+
+  const getWeekRangeLabel = (offset) => {
+    const today = new Date();
+    const day = today.getDay();
+    const diffToMonday = today.getDate() - day + (day === 0 ? -6 : 1) - (offset * 7);
+    const monday = new Date(today.setDate(diffToMonday));
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    
+    const fmt = (d) => `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth()+1).toString().padStart(2, '0')}`;
+    return `${fmt(monday)} a ${fmt(sunday)}`;
+  };
+
+  const weeksData = [
+    { label: "Esta Semana", period: getWeekRangeLabel(0), count: countRepairsForWeekRange(repairedMachines, data.hashes, data.repairs, 0) },
+    { label: "Semana Passada", period: getWeekRangeLabel(1), count: countRepairsForWeekRange(repairedMachines, data.hashes, data.repairs, 1) },
+    { label: "Há 2 Semanas", period: getWeekRangeLabel(2), count: countRepairsForWeekRange(repairedMachines, data.hashes, data.repairs, 2) },
+    { label: "Há 3 Semanas", period: getWeekRangeLabel(3), count: countRepairsForWeekRange(repairedMachines, data.hashes, data.repairs, 3) }
+  ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -7527,6 +7594,32 @@ function TeamAdvanced({ctx}) {
 
       {/* Rastreamento de Máquinas Consertadas (Levantadas) */}
       <div id="repaired-machines-tracker" ref={containerRef} style={{ background: C.card, borderRadius: 14, padding: 16, marginTop: 14, border: `1px solid ${C.border}` }}>
+        
+        {/* Rendimento por Semana */}
+        <div style={{ background: C.card2, borderRadius: 12, padding: 14, marginBottom: 16, border: `1px solid ${C.border}` }}>
+          <div style={{ fontWeight: 800, fontSize: 13, color: C.accent, marginBottom: 10, letterSpacing: 0.5 }}>📊 RENDIMENTO DE CONSERTOS POR SEMANA</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+            {weeksData.map((wk, idx) => (
+              <div key={idx} style={{ background: C.card, borderRadius: 8, padding: 10, border: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 2 }}>
+                  <span style={{ fontWeight: 700, color: "#fff" }}>{wk.label}</span>
+                  <span style={{ fontWeight: 800, color: C.green }}>{wk.count} máq.</span>
+                </div>
+                <div style={{ fontSize: 9, color: C.muted, marginBottom: 8 }}>{wk.period}</div>
+                <div style={{ height: 6, background: C.card2, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ 
+                    height: "100%", 
+                    width: `${Math.min(100, (wk.count / Math.max(1, ...weeksData.map(w => w.count))) * 100)}%`, 
+                    background: C.green, 
+                    borderRadius: 3,
+                    transition: "width 0.8s ease-in-out" 
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
           <div>
             <div style={{ fontWeight: 900, fontSize: 15, color: C.accent }}>🖥️ RASTREAMENTO DE MÁQUINAS CONSERTADAS (LEVANTADAS)</div>
