@@ -1545,7 +1545,7 @@ export default function App(){
     if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
     setTab(t);
   };
-  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig};
+  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, updateInfo};
 
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
@@ -3512,7 +3512,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, height: '100%', background: C.bg }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', background: C.bg }}>
             
             {/* Banner de download do helper se offline */}
             {!localConnected && (
@@ -3521,7 +3521,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                     border: '1px solid rgba(239, 68, 68, 0.3)',
                     color: '#ff6b6b',
                     borderRadius: 10,
-                    padding: 12,
+                    padding: '8px 12px',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -3536,10 +3536,10 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                             color: '#fff',
                             border: 'none',
                             borderRadius: 6,
-                            padding: '6px 12px',
+                            padding: '4px 10px',
                             fontWeight: 900,
                             cursor: 'pointer',
-                            fontSize: 11
+                            fontSize: 10
                         }}
                     >
                         📥 Baixar Servidor Local (HashStock-Setup.exe)
@@ -3547,262 +3547,221 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                 </div>
             )}
 
-            {/* Split Grid */}
-            <div style={{ display: 'flex', gap: 14, flex: 1, minHeight: 0 }}>
+            {/* Linha de Botões de Ação (Actions Bar) */}
+            <div style={{ background: C.card2, padding: 8, borderRadius: 10, border: `1px solid ${C.border}`, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Btn onClick={doScan} disabled={scanning} style={{ background: C.blue, color: '#fff', fontWeight: 900, padding: '6px 14px', fontSize: 12 }}>
+                    {scanning ? "Escaneando..." : "🔍 Scan"}
+                </Btn>
+                <button 
+                    onClick={() => setMonitoring(!monitoring)} 
+                    style={{ 
+                        background: monitoring ? C.green + "22" : C.card, 
+                        border: `1px solid ${monitoring ? C.green : C.border}`, 
+                        color: monitoring ? C.green : C.text, 
+                        padding: "6px 10px", 
+                        borderRadius: 6, 
+                        fontSize: 11, 
+                        fontWeight: 800, 
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4
+                    }}
+                >
+                    {monitoring ? "🟢 Monitor: ON" : "⏸️ Monitor: OFF"}
+                </button>
                 
-                {/* Lado Esquerdo: IP Ranges */}
-                <div style={{ width: 230, background: C.card2, borderRadius: 12, border: `1px solid ${C.border}`, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ width: 1, height: 16, background: C.border, margin: '0 2px' }} />
+
+                <Btn v="s" onClick={() => applyConfig(selectedIps)} disabled={selectedIps.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>⚙️ Config Selected</Btn>
+                <Btn v="s" onClick={() => applyConfig(miners.map(m => m.ip))} disabled={miners.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>⚙️ Config All</Btn>
+                
+                <Btn v="r" onClick={() => runAction(selectedIps, "reboot")} disabled={selectedIps.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>🔄 Reboot Selected</Btn>
+                <Btn v="r" onClick={() => runAction(miners.map(m => m.ip), "reboot")} disabled={miners.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>🔄 Reboot All</Btn>
+                
+                <Btn v="y" onClick={() => setFirmwareModal(true)} style={{ fontSize: 10, padding: '5px 10px' }}>💾 Firmware Upgrade</Btn>
+                
+                <div style={{ flex: 1 }} />
+                
+                <button onClick={handleExportCSV} style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.accent, padding: '5px 10px', borderRadius: 6, fontWeight: 800, fontSize: 10, cursor: 'pointer' }}>
+                    📥 Exportar CSV
+                </button>
+            </div>
+
+            {/* Config Grid (Horizontal: Faixas IP + Pools + Overclock) */}
+            <div style={{ display: 'grid', gridTemplateColumns: '230px 1fr 1fr', gap: 10, height: 135, minHeight: 135 }}>
+                
+                {/* 1. Faixas IP */}
+                <div style={{ background: C.card2, borderRadius: 10, border: `1px solid ${C.border}`, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, height: '100%', minHeight: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 13, fontWeight: 900, color: C.accent }}>📁 FAIXAS IP (Ranges)</span>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                            <button onClick={handleAddIpRange} title="Adicionar Faixa" style={{ background: C.blue, border: 'none', color: '#fff', width: 22, height: 22, borderRadius: 4, cursor: 'pointer', fontWeight: 900, fontSize: 12 }}>+</button>
-                            <button onClick={handleRemoveSelectedRanges} title="Remover Faixas Marcadas" style={{ background: C.red, border: 'none', color: '#fff', width: 22, height: 22, borderRadius: 4, cursor: 'pointer', fontWeight: 900, fontSize: 12 }}>-</button>
+                        <span style={{ fontSize: 11, fontWeight: 900, color: C.accent }}>📁 FAIXAS IP (Ranges)</span>
+                        <div style={{ display: 'flex', gap: 3 }}>
+                            <button onClick={handleAddIpRange} title="Adicionar Faixa" style={{ background: C.blue, border: 'none', color: '#fff', width: 18, height: 18, borderRadius: 3, cursor: 'pointer', fontWeight: 900, fontSize: 10 }}>+</button>
+                            <button onClick={handleRemoveSelectedRanges} title="Remover Faixas Marcadas" style={{ background: C.red, border: 'none', color: '#fff', width: 18, height: 18, borderRadius: 3, cursor: 'pointer', fontWeight: 900, fontSize: 10 }}>-</button>
                         </div>
                     </div>
-                    
-                    <div style={{ flex: 1, overflowY: 'auto', background: C.bg, borderRadius: 8, border: `1px solid ${C.border}`, padding: 6 }}>
+                    <div style={{ flex: 1, overflowY: 'auto', background: C.bg, borderRadius: 6, border: `1px solid ${C.border}`, padding: 4 }}>
                         {ipRanges.length === 0 ? (
-                            <div style={{ fontSize: 11, color: C.muted, textAlign: 'center', marginTop: 20 }}>Nenhuma faixa adicionada.</div>
+                            <div style={{ fontSize: 10, color: C.muted, textAlign: 'center', marginTop: 10 }}>Nenhuma faixa.</div>
                         ) : (
                             ipRanges.map(r => (
-                                <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', transition: 'background 0.2s', hover: { background: C.card } }}>
+                                <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', transition: 'background 0.2s' }}>
                                     <input type="checkbox" checked={r.checked} onChange={() => toggleRangeCheck(r.id)} style={{ cursor: 'pointer' }} />
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{r.range}</span>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: C.text }}>{r.range}</span>
                                 </label>
                             ))
                         )}
                     </div>
                 </div>
 
-                {/* Lado Direito: Actions, Configs & Table */}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
-                    
-                    {/* Linha de Botões de Ação */}
-                    <div style={{ background: C.card2, padding: 10, borderRadius: 12, border: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <Btn onClick={doScan} disabled={scanning} style={{ background: C.blue, color: '#fff', fontWeight: 900 }}>
-                            {scanning ? "Escaneando..." : "🔍 Scan"}
-                        </Btn>
-                        <button 
-                            onClick={() => setMonitoring(!monitoring)} 
-                            style={{ 
-                                background: monitoring ? C.green + "22" : C.card, 
-                                border: `1px solid ${monitoring ? C.green : C.border}`, 
-                                color: monitoring ? C.green : C.text, 
-                                padding: "6px 12px", 
-                                borderRadius: 8, 
-                                fontSize: 12, 
-                                fontWeight: 800, 
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6
-                            }}
-                        >
-                            {monitoring ? "🟢 Monitor: ON (15s)" : "⏸️ Monitor: OFF"}
-                        </button>
-                        
-                        <div style={{ width: 1, height: 20, background: C.border, margin: '0 4px' }} />
-
-                        <Btn v="s" onClick={() => applyConfig(selectedIps)} disabled={selectedIps.length === 0} style={{ fontSize: 11, padding: '6px 12px' }}>⚙️ Config Selected</Btn>
-                        <Btn v="s" onClick={() => applyConfig(miners.map(m => m.ip))} disabled={miners.length === 0} style={{ fontSize: 11, padding: '6px 12px' }}>⚙️ Config All</Btn>
-                        
-                        <Btn v="r" onClick={() => runAction(selectedIps, "reboot")} disabled={selectedIps.length === 0} style={{ fontSize: 11, padding: '6px 12px' }}>🔄 Reboot Selected</Btn>
-                        <Btn v="r" onClick={() => runAction(miners.map(m => m.ip), "reboot")} disabled={miners.length === 0} style={{ fontSize: 11, padding: '6px 12px' }}>🔄 Reboot All</Btn>
-                        
-                        <Btn v="y" onClick={() => setFirmwareModal(true)} style={{ fontSize: 11, padding: '6px 12px' }}>💾 Firmware Upgrade</Btn>
-                        
-                        <div style={{ flex: 1 }} />
-                        
-                        <button onClick={handleExportCSV} style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.accent, padding: '6px 12px', borderRadius: 8, fontWeight: 800, fontSize: 11, cursor: 'pointer' }}>
-                            📥 Exportar CSV
-                        </button>
-                    </div>
-
-                    {/* Formulários de Lote (Pools & Overclock) */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 12 }}>
-                        
-                        {/* Configuração de Pools */}
-                        <div style={{ background: C.card2, borderRadius: 12, border: `1px solid ${C.border}`, padding: 12 }}>
-                            <div style={{ fontSize: 12, fontWeight: 900, color: C.accent, marginBottom: 8, letterSpacing: 0.5 }}>🧱 CONFIGURAÇÕES DE POOL</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {pools.map((p, idx) => (
-                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.card, padding: 6, borderRadius: 8, border: `1px solid ${C.border}` }}>
-                                        <input type="checkbox" checked={p.enabled} onChange={() => setPools(pools.map((x, i) => i === idx ? { ...x, enabled: !x.enabled } : x))} style={{ cursor: 'pointer' }} />
-                                        <span style={{ fontSize: 11, fontWeight: 800, color: C.subtle, width: 45 }}>Pool ${idx + 1}:</span>
-                                        <input type="text" value={p.url} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, url: e.target.value } : x))} style={{ flex: 2, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '3px 6px', fontSize: 10 }} placeholder="URL Pool" />
-                                        <input type="text" value={p.user} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, user: e.target.value } : x))} style={{ flex: 1.2, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '3px 6px', fontSize: 10 }} placeholder="Worker / SubAccount" />
-                                        <input type="text" value={p.pass} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, pass: e.target.value } : x))} style={{ width: 40, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '3px 6px', fontSize: 10 }} placeholder="PWD" />
-                                        
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                            <span style={{ fontSize: 9, color: C.muted }}>Suffix:</span>
-                                            <select value={p.suffix} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, suffix: e.target.value } : x))} style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 9, padding: '2px 4px' }}>
-                                                <option value="IP">IP</option>
-                                                <option value="None">None</option>
-                                                <option value="Empty">Empty</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                ))}
+                {/* 2. Configurações de Pool */}
+                <div style={{ background: C.card2, borderRadius: 10, border: `1px solid ${C.border}`, padding: 8, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 900, color: C.accent, letterSpacing: 0.5 }}>🧱 CONFIGURAÇÕES DE POOL</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, overflowY: 'auto' }}>
+                        {pools.map((p, idx) => (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.card, padding: '3px 6px', borderRadius: 6, border: `1px solid ${C.border}` }}>
+                                <input type="checkbox" checked={p.enabled} onChange={() => setPools(pools.map((x, i) => i === idx ? { ...x, enabled: !x.enabled } : x))} style={{ cursor: 'pointer' }} />
+                                <span style={{ fontSize: 10, fontWeight: 800, color: C.subtle, width: 38 }}>P${idx + 1}:</span>
+                                <input type="text" value={p.url} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, url: e.target.value } : x))} style={{ flex: 2, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '2px 4px', fontSize: 9 }} placeholder="URL" />
+                                <input type="text" value={p.user} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, user: e.target.value } : x))} style={{ flex: 1.2, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '2px 4px', fontSize: 9 }} placeholder="Worker" />
+                                <input type="text" value={p.pass} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, pass: e.target.value } : x))} style={{ width: 30, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '2px 4px', fontSize: 9 }} placeholder="PWD" />
+                                <select value={p.suffix} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, suffix: e.target.value } : x))} style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 8, padding: '1px 2px' }}>
+                                    <option value="IP">IP</option>
+                                    <option value="None">None</option>
+                                    <option value="Empty">Empty</option>
+                                </select>
                             </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* 3. Overclock / Opções */}
+                <div style={{ background: C.card2, borderRadius: 10, border: `1px solid ${C.border}`, padding: 8, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <input type="checkbox" id="oc_enable" checked={overclockEnabled} onChange={e => setOverclockEnabled(e.target.checked)} style={{ cursor: 'pointer' }} />
+                        <label htmlFor="oc_enable" style={{ fontSize: 11, fontWeight: 900, color: overclockEnabled ? C.accent : C.muted, cursor: 'pointer', letterSpacing: 0.5 }}>⚡ OVERCLOCK / MODE</label>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, opacity: overclockEnabled ? 1 : 0.5, pointerEvents: overclockEnabled ? 'auto' : 'none' }}>
+                        <div>
+                            <select value={ocModel} onChange={e => setOcModel(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 4px', fontSize: 9, width: '100%', fontWeight: 700 }}>
+                                <option value="Antminer S19">S19</option>
+                                <option value="Antminer S19 Pro">S19 Pro</option>
+                                <option value="Antminer S19j Pro">S19j Pro</option>
+                                <option value="Antminer T19">T19</option>
+                                <option value="All Models">Todos</option>
+                            </select>
                         </div>
-
-                        {/* Configuração de Overclock / Underclock */}
-                        <div style={{ background: C.card2, borderRadius: 12, border: `1px solid ${C.border}`, padding: 12, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                            <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                                    <input type="checkbox" id="oc_enable" checked={overclockEnabled} onChange={e => setOverclockEnabled(e.target.checked)} style={{ cursor: 'pointer' }} />
-                                    <label htmlFor="oc_enable" style={{ fontSize: 12, fontWeight: 900, color: overclockEnabled ? C.accent : C.muted, cursor: 'pointer', letterSpacing: 0.5 }}>⚡ OVERCLOCK / WORK MODE</label>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, opacity: overclockEnabled ? 1 : 0.5, pointerEvents: overclockEnabled ? 'auto' : 'none' }}>
-                                    <div>
-                                        <span style={{ fontSize: 9, color: C.muted, display: 'block', marginBottom: 2 }}>Modelo:</span>
-                                        <select value={ocModel} onChange={e => setOcModel(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 6px', fontSize: 11, width: '100%', fontWeight: 700 }}>
-                                            <option value="Antminer S19">Antminer S19</option>
-                                            <option value="Antminer S19 Pro">Antminer S19 Pro</option>
-                                            <option value="Antminer S19j Pro">Antminer S19j Pro</option>
-                                            <option value="Antminer T19">Antminer T19</option>
-                                            <option value="All Models">Todos</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <span style={{ fontSize: 9, color: C.muted, display: 'block', marginBottom: 2 }}>Modo Trabalho:</span>
-                                        <select value={ocMode} onChange={e => setOcMode(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 6px', fontSize: 11, width: '100%', fontWeight: 700 }}>
-                                            <option value="Normal">Normal</option>
-                                            <option value="Low Power">Baixo Consumo</option>
-                                            <option value="High Performance">Alto Rendimento</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <span style={{ fontSize: 9, color: C.muted, display: 'block', marginBottom: 2 }}>Opções extras:</span>
-                                        <select value={ocOption} onChange={e => setOcOption(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 6px', fontSize: 11, width: '100%', fontWeight: 700 }}>
-                                            <option value="None">Nenhuma</option>
-                                            <option value="Eco Mode">Modo Eco</option>
-                                            <option value="Dynamic LDO">LDO Dinâmico</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Checkboxes de Parâmetros Extras */}
-                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8, fontSize: 10, color: C.text }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={onlySuccessMiners} onChange={e => setOnlySuccessMiners(e.target.checked)} />
-                                    Only Success Miners
-                                </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={reOverclocking} onChange={e => setReOverclocking(e.target.checked)} />
-                                    Re-overclocking
-                                </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={powerControl} onChange={e => setPowerControl(e.target.checked)} />
-                                    Power Control:
-                                    <select value={lpmType} onChange={e => setLpmType(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 9, padding: '2px 4px', marginLeft: 2 }} disabled={!powerControl}>
-                                        <option value="LPM">LPM</option>
-                                        <option value="Enhanced LPM">Enhanced LPM</option>
-                                    </select>
-                                </label>
-                            </div>
+                        <div>
+                            <select value={ocMode} onChange={e => setOcMode(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 4px', fontSize: 9, width: '100%', fontWeight: 700 }}>
+                                <option value="Normal">Normal</option>
+                                <option value="Low Power">LPM</option>
+                                <option value="High Performance">High</option>
+                            </select>
                         </div>
-
+                        <div>
+                            <select value={ocOption} onChange={e => setOcOption(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 4px', fontSize: 9, width: '100%', fontWeight: 700 }}>
+                                <option value="None">Nenhuma</option>
+                                <option value="Eco Mode">Eco</option>
+                                <option value="Dynamic LDO">LDO</option>
+                            </select>
+                        </div>
                     </div>
-
-                    {/* Tabela de Dispositivos */}
-                    <div style={{ flex: 1, overflow: 'auto', background: C.card2, borderRadius: 12, border: `1px solid ${C.border}`, minHeight: 180 }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, textAlign: 'left' }}>
-                            <thead style={{ position: 'sticky', top: 0, background: C.card, zIndex: 5, borderBottom: `2px solid ${C.border}` }}>
-                                <tr style={{ color: C.accent }}>
-                                    <th style={{ padding: 10, width: 35, textAlign: 'center' }}>
-                                        <input type="checkbox" onChange={handleSelectAll} checked={selectedIps.length === miners.length && miners.length > 0} />
-                                    </th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>IP</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>STATUS</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>TYPE (MODELO)</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>WORKING MODE</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>HASH RATE RT</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>HASH RATE AVG</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>TEMPERATURE</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>FAN SPEED</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>ELAPSED (UPTIME)</th>
-                                    <th style={{ padding: 10, fontWeight: 800 }}>POOL 1</th>
-                                    <th style={{ padding: 10, fontWeight: 800, textAlign: 'center' }}>AÇÕES</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {miners.length === 0 ? (
-                                    <tr>
-                                        <td colSpan="12" style={{ textAlign: 'center', padding: 40, color: C.muted }}>
-                                            {scanning ? "Buscando dispositivos (filtrando DVRs)..." : "Marque as faixas e clique em Scan para buscar."}
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    miners.map((m, idx) => {
-                                        const isSelected = selectedIps.includes(m.ip);
-                                        return (
-                                            <tr key={idx} style={{ borderBottom: `1px solid ${C.border}`, background: isSelected ? C.blue + '11' : 'transparent', transition: 'background 0.2s' }}>
-                                                <td style={{ padding: 10, textAlign: 'center' }}>
-                                                    <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(m.ip)} />
-                                                </td>
-                                                <td style={{ padding: 10 }}>
-                                                    <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: 'none', fontWeight: 800 }}>{m.ip}</a>
-                                                </td>
-                                                <td style={{ padding: 10 }}>
-                                                    <span style={{ 
-                                                        background: m.status === 'mining' ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)', 
-                                                        color: m.status === 'mining' ? C.green : C.red, 
-                                                        padding: '3px 8px', borderRadius: 4, fontWeight: 800, fontSize: 10 
-                                                    }}>
-                                                        ● {m.status === 'mining' ? 'Mining' : (m.status === 'offline' ? 'Offline' : 'Error')}
-                                                    </span>
-                                                </td>
-                                                <td style={{ padding: 10, fontWeight: 700 }}>{m.model || '-'}</td>
-                                                <td style={{ padding: 10, color: C.accent, fontWeight: 700 }}>{m.workingMode}</td>
-                                                <td style={{ padding: 10, fontWeight: 800, color: C.green }}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
-                                                <td style={{ padding: 10, fontWeight: 800, color: C.green }}>{m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
-                                                <td style={{ padding: 10, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : C.text), fontWeight: m.temp > 75 ? 800 : 400 }}>
-                                                    {m.temp ? m.temp + '°C' : '-'}
-                                                </td>
-                                                <td style={{ padding: 10, color: C.subtle }}>{m.fanSpeed}</td>
-                                                <td style={{ padding: 10, color: C.subtle }}>{formatUptime(m.uptime)}</td>
-                                                <td style={{ padding: 10, color: C.muted, fontFamily: 'monospace', fontSize: 10 }} title={m.pool1}>{m.pool1 ? (m.pool1.length > 20 ? m.pool1.substring(0,20) + "..." : m.pool1) : '-'}</td>
-                                                <td style={{ padding: 10, display: 'flex', gap: 4, justifyContent: 'center' }}>
-                                                    <button onClick={() => runAction([m.ip], "reboot")} title="Reboot" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '3px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}>🔄</button>
-                                                    <button onClick={() => runAction([m.ip], "blink", { enable: true })} title="Locate LED" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '3px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 10 }}>💡</button>
-                                                    <Btn onClick={() => handleTestar(m)} style={{ background: C.blue, color: '#fff', padding: '2px 6px', fontSize: 9, margin: 0 }}>🧪 Testar</Btn>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                )}
-                            </tbody>
-                        </table>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 8, color: C.text, marginTop: 2 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={onlySuccessMiners} onChange={e => setOnlySuccessMiners(e.target.checked)} />
+                            Only Success
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={reOverclocking} onChange={e => setReOverclocking(e.target.checked)} />
+                            Re-oc
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
+                            <input type="checkbox" checked={powerControl} onChange={e => setPowerControl(e.target.checked)} />
+                            Power:
+                            <select value={lpmType} onChange={e => setLpmType(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 3, fontSize: 8, padding: '1px 2px' }} disabled={!powerControl}>
+                                <option value="LPM">LPM</option>
+                                <option value="Enhanced LPM">ELPM</option>
+                            </select>
+                        </label>
                     </div>
-
                 </div>
 
             </div>
 
-            {/* Modal Mock de Firmware Upgrade */}
-            {firmwareModal && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ background: C.card, width: '100%', maxWidth: 450, borderRadius: 12, border: `1px solid ${C.border}`, padding: 20 }}>
-                        <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 15, color: C.accent }}>💾 FIRMWARE UPGRADE ({selectedIps.length || miners.length} mineradores)</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <span style={{ fontSize: 12, color: C.text }}>Selecione o arquivo de firmware (.tar.gz) para aplicar em massa nos mineradores:</span>
-                            <input type="file" style={{ background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: 8, borderRadius: 6, fontSize: 12 }} />
-                            <div style={{ fontSize: 10, color: C.muted }}>* Certifique-se de selecionar a versão correta do arquivo para o modelo da máquina.</div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-                            <Btn v="s" onClick={() => setFirmwareModal(false)}>Cancelar</Btn>
-                            <Btn onClick={() => { setFirmwareModal(false); alert("Mock: Upgrade de firmware disparado com sucesso!"); }}>⚡ Iniciar Upgrade</Btn>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Tabela de Dispositivos */}
+            <div style={{ flex: 1, overflow: 'auto', background: C.card2, borderRadius: 10, border: `1px solid ${C.border}` }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
+                    <thead style={{ position: 'sticky', top: 0, background: C.card, zIndex: 5, borderBottom: `2px solid ${C.border}` }}>
+                        <tr style={{ color: C.accent }}>
+                            <th style={{ padding: 8, width: 30, textAlign: 'center' }}>
+                                <input type="checkbox" onChange={handleSelectAll} checked={selectedIps.length === miners.length && miners.length > 0} />
+                            </th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>IP</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>STATUS</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>TYPE (MODELO)</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>WORKING MODE</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>HASH RATE RT</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>HASH RATE AVG</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>TEMPERATURE</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>FAN SPEED</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>ELAPSED (UPTIME)</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>POOL 1</th>
+                            <th style={{ padding: 8, fontWeight: 800, textAlign: 'center' }}>AÇÕES</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {miners.length === 0 ? (
+                            <tr>
+                                <td colSpan="12" style={{ textAlign: 'center', padding: 30, color: C.muted }}>
+                                    {scanning ? "Buscando dispositivos (filtrando DVRs)..." : "Marque as faixas e clique em Scan para buscar."}
+                                </td>
+                            </tr>
+                        ) : (
+                            miners.map((m, idx) => {
+                                const isSelected = selectedIps.includes(m.ip);
+                                return (
+                                    <tr key={idx} style={{ borderBottom: `1px solid ${C.border}`, background: isSelected ? C.blue + '11' : 'transparent', transition: 'background 0.2s' }}>
+                                        <td style={{ padding: 8, textAlign: 'center' }}>
+                                            <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(m.ip)} />
+                                        </td>
+                                        <td style={{ padding: 8 }}>
+                                            <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: 'none', fontWeight: 800 }}>{m.ip}</a>
+                                        </td>
+                                        <td style={{ padding: 8 }}>
+                                            <span style={{ 
+                                                background: m.status === 'mining' ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)', 
+                                                color: m.status === 'mining' ? C.green : C.red, 
+                                                padding: '2px 6px', borderRadius: 4, fontWeight: 800, fontSize: 9 
+                                            }}>
+                                                ● {m.status === 'mining' ? 'Mining' : (m.status === 'offline' ? 'Offline' : 'Error')}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: 8, fontWeight: 700 }}>{m.model || '-'}</td>
+                                        <td style={{ padding: 8, color: C.accent, fontWeight: 700 }}>{m.workingMode}</td>
+                                        <td style={{ padding: 8, fontWeight: 800, color: C.green }}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
+                                        <td style={{ padding: 8, fontWeight: 800, color: C.green }}>{m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
+                                        <td style={{ padding: 8, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : C.text), fontWeight: m.temp > 75 ? 800 : 400 }}>
+                                            {m.temp ? m.temp + '°C' : '-'}
+                                        </td>
+                                        <td style={{ padding: 8, color: C.subtle }}>{m.fanSpeed}</td>
+                                        <td style={{ padding: 8, color: C.subtle }}>{formatUptime(m.uptime)}</td>
+                                        <td style={{ padding: 8, color: C.muted, fontFamily: 'monospace', fontSize: 9 }} title={m.pool1}>{m.pool1 ? (m.pool1.length > 20 ? m.pool1.substring(0,20) + "..." : m.pool1) : '-'}</td>
+                                        <td style={{ padding: 8, display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                            <button onClick={() => runAction([m.ip], "reboot")} title="Reboot" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>🔄</button>
+                                            <button onClick={() => runAction([m.ip], "blink", { enable: true })} title="Locate LED" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>💡</button>
+                                            <Btn onClick={() => handleTestar(m)} style={{ background: C.blue, color: '#fff', padding: '1px 4px', fontSize: 8, margin: 0 }}>🧪 Testar</Btn>
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
+                    </tbody>
+                </table>
+            </div>
 
         </div>
     );
 }
-
 function DataCenterPage({ctx}) {
     const {data, setModal, user, farmsConfig = [], setFarmsConfig, mutate} = ctx;
     const farmMachines = data.farmMachines || [];
