@@ -1540,12 +1540,13 @@ export default function App(){
   // trocar — senão a tela some no meio do upload, o link da foto nunca
   // chega a ser salvo em lugar nenhum, e a foto fica "órfã" só no Drive.
   const[publicPalletId,setPublicPalletId]=useState(()=>new URLSearchParams(window.location.search).get("pallet"));
+  const[pendingScannerTest,setPendingScannerTest]=useState(null);
 
   const changeTab=t=>{
     if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
     setTab(t);
   };
-  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, startScannerTestSession};
+  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, pendingScannerTest, setPendingScannerTest};
 
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
@@ -3747,7 +3748,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                         <td style={{ padding: 8, display: 'flex', gap: 4, justifyContent: 'center' }}>
                                             <button onClick={() => runAction([m.ip], "reboot")} title="Reboot" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>🔄</button>
                                             <button onClick={() => runAction([m.ip], "blink", { enable: true })} title="Locate LED" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>💡</button>
-                                            <Btn onClick={() => ctx.startScannerTestSession(m)} style={{ background: C.blue, color: '#fff', padding: '1px 4px', fontSize: 8, margin: 0 }}>🧪 Testar</Btn>
+                                            <Btn onClick={() => { ctx.setPendingScannerTest(m); ctx.setTab("teste"); }} style={{ background: C.blue, color: '#fff', padding: '1px 4px', fontSize: 8, margin: 0 }}>🧪 Testar</Btn>
                                         </td>
                                     </tr>
                                 );
@@ -6078,6 +6079,38 @@ function TestePage({ctx}){
   // usado pra saber quais HASHs da fila de teste já estão sendo testadas
   // por outro usuário agora (some da fila compartilhada pra todo mundo
   // assim que alguém vincula, igual reserva de item de Pedido).
+  // Consume pendingScannerTest from Scanner tab
+  useEffect(() => {
+    if (!ctx.pendingScannerTest) return;
+    const m = ctx.pendingScannerTest;
+    ctx.setPendingScannerTest(null);
+    (async () => {
+      const sn = (m.sn || "").toUpperCase().trim();
+      if (!sn) { alert("Erro: Este dispositivo não retornou um SN válido."); return; }
+      const existing = sessions.find(s => s.machineSN === sn);
+      if (existing) { setActiveId(existing._id); return; }
+      const ex = data.machines.find(x => x.sn === sn);
+      const id = uid();
+      const s = {
+        _id: id, employeeId: user._id, machineSN: sn,
+        model: ex?.model || m.model || "Antminer S19", th: ex?.th || 0,
+        ip: m.ip || "", uptime: m.uptime || 0,
+        slots: [
+          { hashSN: ex?.hashSN0 || (m.slots && m.slots[0]) || "", status: "", photoKey: null },
+          { hashSN: ex?.hashSN1 || (m.slots && m.slots[1]) || "", status: "", photoKey: null },
+          { hashSN: ex?.hashSN2 || (m.slots && m.slots[2]) || "", status: "", photoKey: null }
+        ],
+        controladora: m.status === 'mining' ? "ON" : "",
+        fonte: m.status === 'mining' ? "ON" : "",
+        fans: m.status === 'mining' ? "ON" : "",
+        photoKey: null, adminNotes: [], prepShipment: false,
+        prevSituacao: ex?.situacao || "", orderRef: null, updatedAt: stamp()
+      };
+      await saveSession(s);
+      setActiveId(id);
+    })();
+  }, [ctx.pendingScannerTest]);
+
   const reloadSessions=useCallback(()=>{fbList("sessions").then(all=>{setAllSessions(all);setSessions(all.filter(s=>s.employeeId===user._id))})},[user._id]);
   useEffect(()=>{reloadSessions()},[reloadSessions]);
   // Tempo real: se o Admin reprovar um teste (ou qualquer outra sessão mudar),
@@ -6130,64 +6163,6 @@ function TestePage({ctx}){
     return true;
   };
 
-
-  const startScannerTestSession = async (m) => {
-    const sn = (m.sn || "").toUpperCase().trim();
-    if (!sn) {
-      alert("Erro: Este dispositivo não retornou um SN válido.");
-      return;
-    }
-    
-    const allSessions = await fbList("sessions");
-    const existingOther = allSessions.find(s=>s.machineSN===sn && s.employeeId!==user._id);
-    if(existingOther){
-      const emp = data.employees.find(e=>e._id===existingOther.employeeId);
-      if(!window.confirm(`⚠️ A máquina ${sn} já está em teste por: ${emp?.name||"Outro usuário"}.\nDeseja abrir a sessão de teste mesmo assim?`)){
-        return;
-      }
-    }
-    
-    const existing = sessions.find(s=>s.machineSN===sn);
-    if(existing){
-      setActiveId(existing._id);
-      changeTab("teste");
-      return;
-    }
-
-    const ex = data.machines.find(x => x.sn === sn);
-    if(ex && ex.situacao === "BOA" && !window.confirm(`Esta máquina já está marcada como BOA na planilha/estoque.\nQuer mesmo testar de novo?`)) {
-      return;
-    }
-
-    const id = uid();
-    const s = {
-      _id: id,
-      employeeId: user._id,
-      machineSN: sn,
-      model: ex?.model || m.model || "Antminer S19",
-      th: ex?.th || 0,
-      ip: m.ip || "",
-      uptime: m.uptime || 0,
-      slots: [
-        { hashSN: ex?.hashSN0 || (m.slots && m.slots[0]) || "", status: "", photoKey: null },
-        { hashSN: ex?.hashSN1 || (m.slots && m.slots[1]) || "", status: "", photoKey: null },
-        { hashSN: ex?.hashSN2 || (m.slots && m.slots[2]) || "", status: "", photoKey: null }
-      ],
-      controladora: m.status === 'mining' ? "ON" : "",
-      fonte: m.status === 'mining' ? "ON" : "",
-      fans: m.status === 'mining' ? "ON" : "",
-      photoKey: null,
-      adminNotes: [],
-      prepShipment: false,
-      prevSituacao: ex?.situacao || "",
-      orderRef: null,
-      updatedAt: stamp()
-    };
-
-    await saveSession(s);
-    setActiveId(id);
-    changeTab("teste");
-  };
 
   const loadMachine=async(snParam)=>{
     const sn=(snParam||macInput).toUpperCase().trim();if(!sn)return;
