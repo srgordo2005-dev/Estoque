@@ -1545,7 +1545,7 @@ export default function App(){
     if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
     setTab(t);
   };
-  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected};
+  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, startScannerTestSession};
 
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
@@ -3374,8 +3374,8 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         
         setScanning(true);
         setSelectedIps([]);
+        setMiners([]); // Clear list at start
         
-        let allMiners = [];
         for (const rangeObj of checkedRanges) {
             const parsed = parseRange(rangeObj.range);
             if (!parsed) continue;
@@ -3387,31 +3387,29 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                 });
                 if (res.ok) {
                     const scanData = await res.json();
-                    if (scanData.miners) {
-                        allMiners = [...allMiners, ...scanData.miners];
+                    if (scanData.miners && scanData.miners.length > 0) {
+                        setMiners(prev => {
+                            const merged = [...prev, ...scanData.miners];
+                            const unique = [];
+                            const seen = new Set();
+                            merged.forEach(m => {
+                                if (!seen.has(m.ip)) {
+                                    seen.add(m.ip);
+                                    unique.push({
+                                        ...m,
+                                        workingMode: m.workingMode || "Normal",
+                                        fanSpeed: m.fanSpeed || "6200 RPM",
+                                        hashrateAvg: m.hashrateAvg || (m.hashrate ? m.hashrate * 0.98 : 0),
+                                        pool1: m.pool1 || pools[0].url
+                                    });
+                                }
+                            });
+                            return unique;
+                        });
                     }
                 }
             } catch(e) {}
         }
-
-        // De-duplicate
-        const uniqueMiners = [];
-        const seen = new Set();
-        allMiners.forEach(m => {
-            if (!seen.has(m.ip)) {
-                seen.add(m.ip);
-                // Inject fields if missing to match original screenshot columns
-                uniqueMiners.push({
-                    ...m,
-                    workingMode: m.workingMode || "Normal",
-                    fanSpeed: m.fanSpeed || "6200 RPM",
-                    hashrateAvg: m.hashrateAvg || (m.hashrate ? m.hashrate * 0.98 : 0),
-                    pool1: m.pool1 || pools[0].url
-                });
-            }
-        });
-
-        setMiners(uniqueMiners);
         setScanning(false);
     };
 
@@ -3749,7 +3747,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                         <td style={{ padding: 8, display: 'flex', gap: 4, justifyContent: 'center' }}>
                                             <button onClick={() => runAction([m.ip], "reboot")} title="Reboot" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>🔄</button>
                                             <button onClick={() => runAction([m.ip], "blink", { enable: true })} title="Locate LED" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>💡</button>
-                                            <Btn onClick={() => handleTestar(m)} style={{ background: C.blue, color: '#fff', padding: '1px 4px', fontSize: 8, margin: 0 }}>🧪 Testar</Btn>
+                                            <Btn onClick={() => ctx.startScannerTestSession(m)} style={{ background: C.blue, color: '#fff', padding: '1px 4px', fontSize: 8, margin: 0 }}>🧪 Testar</Btn>
                                         </td>
                                     </tr>
                                 );
@@ -4009,13 +4007,7 @@ function ScannerPage({ctx}) {
     const savedIps = user?.btcToolsIps ? user.btcToolsIps : ["192.168.1.1-255"];
     
     return (
-        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: C.bg, padding: 20}}>
-            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
-                <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
-                   <span style={{fontSize:28}}>📡</span> Scanner Geral (BTC Tools)
-                </div>
-            </div>
-
+        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: C.bg, padding: "10px 20px 20px"}}>
             <div style={{flex:1, overflow:'hidden'}}>
                 <BtcToolsScanner ctx={ctx} defaultIpRange={savedIps[0]} />
             </div>
@@ -5850,6 +5842,9 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
     const [isTakingPrint, setIsTakingPrint] = useState(false);
     const [targetUptimeHours, setTargetUptimeHours] = useState(session?.targetUptimeHours || 3);
     const [autoSubmitTriggered, setAutoSubmitTriggered] = useState(false);
+    useEffect(() => {
+        setAutoSubmitTriggered(session?.uptimeReached || false);
+    }, [session?._id, session?.uptimeReached]);
     const [currentUptimeSec, setCurrentUptimeSec] = useState(0);
 
     const startManualCapture = async () => {
@@ -5965,17 +5960,25 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                         setCurrentUptimeSec(info.uptime);
                         const uptimeHours = info.uptime / 3600;
                         const isAutoOn = session?.autoEnabled !== false;
-                        if (isAutoOn && uptimeHours >= targetUptimeHours && !autoSubmitTriggered && session && doSubmit) {
+                        if (isAutoOn && uptimeHours >= targetUptimeHours && !autoSubmitTriggered && session) {
                             setAutoSubmitTriggered(true);
                             const photoUrl = await capturePrintAndUpload(ip);
                             const autoSlots = session.slots.map(s => ({ ...s, status: s.status || (s.hashSN ? "good" : "") }));
                             const updatedSess = {
-                                ...session, slots: autoSlots, controladora: session.controladora || "ON", fonte: session.fonte || "ON", fans: session.fans || "ON",
-                                isAutomatic: true, autoSubmitted: true, photoKey: photoUrl || session.photoKey,
-                                adminNotes: [...(session.adminNotes || []), `⚡ AUTOMÁTICO (${uptimeHours.toFixed(1)}h Uptime / Alvo: ${targetUptimeHours}h)`]
+                                ...session,
+                                slots: autoSlots,
+                                controladora: session.controladora || "ON",
+                                fonte: session.fonte || "ON",
+                                fans: session.fans || "ON",
+                                isAutomatic: true,
+                                uptimeReached: true, // triggers blinking in queue
+                                photoKey: photoUrl || session.photoKey,
+                                testPhoto: photoUrl || session.testPhoto,
+                                adminNotes: [...(session.adminNotes || []), `⚡ AUTOMÁTICO (Uptime ${uptimeHours.toFixed(1)}h / Alvo: ${targetUptimeHours}h)`],
+                                updatedAt: stamp()
                             };
-                            await doSubmit(updatedSess);
-                            alert(`🎉 UPTIME DE ${targetUptimeHours}h ALCANÇADO!\\n\\n⚡ Teste marcado como AUTOMÁTICO.\\n📸 Print salvo.\\n✅ Enviada para REVISÃO!\\n🔌 PODE DESLIGAR.`);
+                            await saveSession(updatedSess);
+                            alert(`🎉 UPTIME DE ${targetUptimeHours}h ALCANÇADO!\n\n📸 Print do Dashboard salvo no Drive.\n🔔 Máquina pronta para revisão (piscando na fila).`);
                         }
                     }
                 }
@@ -6125,6 +6128,65 @@ function TestePage({ctx}){
     const existing=sessions.find(s=>s.machineSN===sn);
     if(existing){setActiveId(existing._id);setMacInput(sn);return false}
     return true;
+  };
+
+
+  const startScannerTestSession = async (m) => {
+    const sn = (m.sn || "").toUpperCase().trim();
+    if (!sn) {
+      alert("Erro: Este dispositivo não retornou um SN válido.");
+      return;
+    }
+    
+    const allSessions = await fbList("sessions");
+    const existingOther = allSessions.find(s=>s.machineSN===sn && s.employeeId!==user._id);
+    if(existingOther){
+      const emp = data.employees.find(e=>e._id===existingOther.employeeId);
+      if(!window.confirm(`⚠️ A máquina ${sn} já está em teste por: ${emp?.name||"Outro usuário"}.\nDeseja abrir a sessão de teste mesmo assim?`)){
+        return;
+      }
+    }
+    
+    const existing = sessions.find(s=>s.machineSN===sn);
+    if(existing){
+      setActiveId(existing._id);
+      changeTab("teste");
+      return;
+    }
+
+    const ex = data.machines.find(x => x.sn === sn);
+    if(ex && ex.situacao === "BOA" && !window.confirm(`Esta máquina já está marcada como BOA na planilha/estoque.\nQuer mesmo testar de novo?`)) {
+      return;
+    }
+
+    const id = uid();
+    const s = {
+      _id: id,
+      employeeId: user._id,
+      machineSN: sn,
+      model: ex?.model || m.model || "Antminer S19",
+      th: ex?.th || 0,
+      ip: m.ip || "",
+      uptime: m.uptime || 0,
+      slots: [
+        { hashSN: ex?.hashSN0 || (m.slots && m.slots[0]) || "", status: "", photoKey: null },
+        { hashSN: ex?.hashSN1 || (m.slots && m.slots[1]) || "", status: "", photoKey: null },
+        { hashSN: ex?.hashSN2 || (m.slots && m.slots[2]) || "", status: "", photoKey: null }
+      ],
+      controladora: m.status === 'mining' ? "ON" : "",
+      fonte: m.status === 'mining' ? "ON" : "",
+      fans: m.status === 'mining' ? "ON" : "",
+      photoKey: null,
+      adminNotes: [],
+      prepShipment: false,
+      prevSituacao: ex?.situacao || "",
+      orderRef: null,
+      updatedAt: stamp()
+    };
+
+    await saveSession(s);
+    setActiveId(id);
+    changeTab("teste");
   };
 
   const loadMachine=async(snParam)=>{
@@ -6407,6 +6469,7 @@ function TestePage({ctx}){
   };
 
   const markAllGood=async()=>{
+    if(!window.confirm("Deseja realmente enviar esta máquina para revisão?")) return;
     if(!session)return;
     if(unknownSlots.length>0&&!session.newHashChars){setErr("Defina as características das HASHs novas primeiro!");return}
     // Slot marcado RUIM mas sem HASH nenhuma nele (a antiga foi removida e
@@ -6427,6 +6490,7 @@ function TestePage({ctx}){
   // não foi marcado bom fica OFF na aprovação) — e, ao aprovar, o status
   // final é RUIM em vez de BOA/PREPARANDO.
   const markMachineBad=async()=>{
+    if(!window.confirm("Deseja realmente enviar esta máquina para revisão?")) return;
     if(!session)return;
     if(unknownSlots.length>0&&!session.newHashChars){setErr("Defina as características das HASHs novas primeiro!");return}
     const reason=window.prompt("Por que essa máquina está RUIM? (obrigatório)","");
@@ -6537,7 +6601,13 @@ function TestePage({ctx}){
         </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.accent,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,animation:"pedidoGlow 1.8s ease-in-out infinite"}}>📋 {availItems.length} item(ns) de pedido em aberto</button>
     </>}
     {availableHashQueue.length>0&&<>
-      <style>{`@keyframes hashQueueGlow{0%,100%{box-shadow:0 0 6px 1px ${C.blue}77}50%{box-shadow:0 0 14px 5px ${C.blue}cc}}`}</style>
+      <style>{`
+        @keyframes hashQueueGlow{0%,100%{box-shadow:0 0 6px 1px ${C.blue}77}50%{box-shadow:0 0 14px 5px ${C.blue}cc}}
+        @keyframes sessionBlinkGlow {
+          0%, 100% { border-color: ${C.green}; box-shadow: 0 0 4px ${C.green}77; background: #0c2a1c; }
+          50% { border-color: #ff9800; box-shadow: 0 0 12px #ff9800cc; background: #3a1a0c; }
+        }
+      `}</style>
       <button onClick={()=>setModal(<Modal title="🔧 Fila de HASHs pra Testar" onClose={()=>setModal(null)}>
           <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essas HASHs já foram consertadas e estão liberadas pra qualquer um testar. Assim que alguém colocar uma delas numa sessão de teste, ela some daqui pros outros.</div>
           {availableHashQueue.map(h=>{const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<Card key={h._id} style={{marginBottom:8}}>
@@ -6574,11 +6644,24 @@ function TestePage({ctx}){
             setSessionOrder(next.map(x=>x._id));
           }}
           onClick={()=>{setActiveId(s._id);setMacInput(s.machineSN)}}
-          style={{background:s._id===activeId?C.accent:(s.rejected?"#3a0a0a":C.card),color:"#fff",border:`1px solid ${s._id===activeId?C.accent:(s.rejected?C.red:C.border)}`,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"grab",display:"flex",alignItems:"center",gap:6}}
+          style={{
+            background: s._id===activeId?C.accent:(s.rejected?"#3a0a0a":(s.uptimeReached?"#3a1a0c":C.card)),
+            color:"#fff",
+            border:`1px solid ${s._id===activeId?C.accent:(s.rejected?C.red:(s.uptimeReached?"#ff9800":C.border))}`,
+            borderRadius:8,
+            padding:"6px 10px",
+            fontSize:11,
+            fontWeight:700,
+            cursor:"grab",
+            display:"flex",
+            alignItems:"center",
+            gap:6,
+            animation: s.uptimeReached ? "sessionBlinkGlow 1.2s infinite alternate" : "none"
+          }}
         >
           {index+1}. {s.rejected?"❌":s.machineBad?"💀":s.orderRef?"📋":s.prepShipment?"📦":"🖥️"} {s.machineSN} {s.slots.filter(sl=>sl.status).length}/3
-          <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900,marginLeft:4}}>✕</span>
-        </button>)}
+          {s.uptimeReached && <span style={{ fontSize: 10 }} title="Uptime alvo alcançado!">⏰</span>}
+          <span onClick={e=>{e.stopPropagation();closeSession(s._id)}} style={{color:s._id===activeId?"#fff":C.red,fontWeight:900,marginLeft:4}}>✕</span></button>)}
         <button onClick={()=>{setActiveId(null);setMacInput("")}} style={{background:C.card2,color:C.accent,border:`1px dashed ${C.accent}`,borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}} title="Iniciar novo teste">+</button>
       </div>
     </div>}
