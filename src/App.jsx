@@ -5837,8 +5837,8 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
 
 
 function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession, doSubmit, triggerToast}) {
-    const [listening, setListening] = useState(false);
     const [lastCapturedIP, setLastCapturedIP] = useState(session?.ip || "");
+    const [listening, setListening] = useState(!session?.ip && !lastCapturedIP);
     const [blinkOn, setBlinkOn] = useState(false);
     const [isTakingPrint, setIsTakingPrint] = useState(false);
     const [targetUptimeHours, setTargetUptimeHours] = useState(session?.targetUptimeHours || 3);
@@ -5848,8 +5848,21 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
     }, [session?._id, session?.uptimeReached]);
     const [currentUptimeSec, setCurrentUptimeSec] = useState(0);
 
+    // Sync state when active session changes
+    useEffect(() => {
+        const ip = session?.ip || "";
+        setLastCapturedIP(ip);
+        setListening(!ip);
+    }, [session?._id, session?.ip]);
+
+    // Clear backend IP report queue whenever listening begins
+    useEffect(() => {
+        if (listening) {
+            fetch('http://localhost:3001/api/ipreport?clear=true').catch(() => null);
+        }
+    }, [listening]);
+
     const startManualCapture = async () => {
-        try { await fetch('http://localhost:3001/api/ipreport?clear=true'); } catch(e) {}
         setListening(true);
     };
 
@@ -5899,7 +5912,10 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
             const infoRes = await fetch(`http://localhost:3001/api/miner-info?ip=${ip}`);
             if (infoRes.ok) {
                 const info = await infoRes.json();
-                if (info.sn) { setMacInput(info.sn); loadMachine(info.sn); }
+                if (info.sn && !session) { 
+                    setMacInput(info.sn); 
+                    loadMachine(info.sn); 
+                }
                 applyMinerDetailsToSession(info, ip);
                 return info;
             }

@@ -162,9 +162,9 @@ const setupUDPServer = (port) => {
 };
 
 
-setupUDPServer(4000); // Bitmain
+setupUDPServer(14235); // Bitmain IP Reporter (official port)
+setupUDPServer(4000); // Bitmain alternate
 setupUDPServer(3456); // Whatsminer
-setupUDPServer(14285); // Whatsminer alternate
 setupUDPServer(8888); // Braiins/Vnish alternate
 
 
