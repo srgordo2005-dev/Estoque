@@ -1545,7 +1545,7 @@ export default function App(){
     if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
     setTab(t);
   };
-  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, updateInfo};
+  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected};
 
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
