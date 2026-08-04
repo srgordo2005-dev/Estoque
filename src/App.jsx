@@ -2346,7 +2346,7 @@ function AdminSummary({data, setTab}){
   const navToAdvancedTeam = () => {
     localStorage.setItem("hs_team_subtab", "daily");
     localStorage.setItem("hs_team_show_advanced_machines", "true");
-    localStorage.setItem("hs_team_repaired_status_filter", "BOA");
+    localStorage.setItem("hs_team_repaired_status_filter", "ALL");
     if (setTab) setTab("team");
   };
 
@@ -7426,6 +7426,32 @@ function TeamAdvanced({ctx}) {
     });
   };
 
+  const getRepairedSlotsInfo = (m, hashes, employees, repairs) => {
+    const slots = [];
+    const slotKeys = ["hashSN0", "hashSN1", "hashSN2"];
+    slotKeys.forEach((key, idx) => {
+      const sn = m[key];
+      if (sn) {
+        const hashDoc = hashes.find(h => h.sn === sn);
+        let techName = "";
+        if (hashDoc && hashDoc.repairedBy) {
+          const emp = employees.find(e => e._id === hashDoc.repairedBy);
+          techName = emp ? emp.name : hashDoc.repairedByName;
+        } else {
+          const rep = repairs.find(r => r.hashSN === sn && r.type === "repair" && !r.superseded);
+          if (rep) {
+            const emp = employees.find(e => e._id === rep.employeeId);
+            techName = emp ? emp.name : (rep.employeeName || "Técnico");
+          }
+        }
+        if (techName) {
+          slots.push({ slot: idx + 1, sn, techName });
+        }
+      }
+    });
+    return slots;
+  };
+
   const repairedMachines = getRepairedMachines(data.machines, data.hashes, data.repairs);
   const filteredRep = repairedMachines.filter(m => {
     const snMatches = (m.sn || "").toLowerCase().includes(repairedSearch.toLowerCase()) || 
@@ -7658,7 +7684,7 @@ function TeamAdvanced({ctx}) {
               <tr style={{ borderBottom: `2px solid ${C.border}`, color: C.subtle }}>
                 <th style={{ padding: 10, fontWeight: 800 }}>MÁQUINA / SN</th>
                 <th style={{ padding: 10, fontWeight: 800 }}>MODELO</th>
-                <th style={{ padding: 10, fontWeight: 800 }}>TÉCNICO(S) RESPONSÁVEL(IS)</th>
+                <th style={{ padding: 10, fontWeight: 800 }}>PLACA(S) CONSERTADA(S) & TÉCNICO(S)</th>
                 <th style={{ padding: 10, fontWeight: 800, textAlign: "center" }}>STATUS ATUAL</th>
                 <th style={{ padding: 10, fontWeight: 800 }}>ÚLTIMA ATIVIDADE</th>
               </tr>
@@ -7670,22 +7696,35 @@ function TeamAdvanced({ctx}) {
                 </tr>
               ) : (
                 filteredRep.map(m => {
-                  const mHashes = data.hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
-                  const techIds = mHashes.map(h => h.repairedBy).filter(Boolean);
-                  const techs = data.employees.filter(e => techIds.includes(e._id)).map(e => e.name).join(", ") || "—";
+                  const slotInfos = getRepairedSlotsInfo(m, data.hashes, data.employees, data.repairs);
                   
                   const isGood = ["BOA", "LIGADA"].includes(m.situacao);
                   const isShipped = m.situacao === "SAIDA";
                   const badgeColor = isGood ? C.green : (isShipped ? C.blue : C.red);
+                  const statusLabel = isGood 
+                    ? "BOA (No Estoque)" 
+                    : (isShipped 
+                        ? `SAÍDA (Cliente: ${m.destino || "Não especificado"})` 
+                        : m.situacao
+                      );
 
                   return (
                     <tr key={m._id || m.sn} style={{ borderBottom: `1px solid ${C.border}` }}>
                       <td style={{ padding: 10, fontWeight: 800 }}>🖥️ {m.sn}</td>
                       <td style={{ padding: 10 }}>{m.model}</td>
-                      <td style={{ padding: 10, color: C.accent, fontWeight: 700 }}>{techs}</td>
+                      <td style={{ padding: 10 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          {slotInfos.map((info, i) => (
+                            <div key={i} style={{ fontSize: 10, color: C.accent, fontWeight: 700 }}>
+                              🛠️ Slot {info.slot}: HASH {info.sn} (consertada por {info.techName})
+                            </div>
+                          ))}
+                          {slotInfos.length === 0 && <span style={{ color: C.muted }}>—</span>}
+                        </div>
+                      </td>
                       <td style={{ padding: 10, textAlign: "center" }}>
                         <span style={{ background: badgeColor + "22", color: badgeColor, border: `1px solid ${badgeColor}55`, padding: "3px 8px", borderRadius: 4, fontWeight: 800, fontSize: 10 }}>
-                          {m.situacao}
+                          {statusLabel}
                         </span>
                       </td>
                       <td style={{ padding: 10, color: C.subtle }}>{fmtTS(m.updatedAt || m.addedAt || m._at)}</td>
