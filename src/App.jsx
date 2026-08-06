@@ -10300,10 +10300,43 @@ function EmpHistory({ctx,emp}){
   const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
   const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
   const delItem=async(item,isRepair)=>{
-    if(!confirm("Apagar essa movimentação do histórico? Não dá pra desfazer."))return;
-    await fbDel(isRepair?"repairs":"tests",item._id);
-    mutate(isRepair?"repairs":"tests",arr=>arr.filter(x=>x._id!==item._id));
-    await markChanged(isRepair?"repairs":"tests");
+    if(isRepair) {
+      if(!confirm("Deseja realmente apagar essa HASH de conserto?\n\nIsso removerá a HASH do inventário, do histórico do técnico e de ambas as abas da planilha (HASH e REPARO).")) return;
+      
+      // 1. Apaga do Firebase Repairs
+      await fbDel("repairs", item._id);
+      mutate("repairs", arr => arr.filter(x => x._id !== item._id));
+      await markChanged("repairs");
+
+      // 2. Apaga a HASH correspondente do inventário
+      const foundH = data.hashes.find(h => h.sn === item.hashSN && item.hashSN);
+      if (foundH) {
+        await fbDel("hashes", foundH._id);
+        mutate("hashes", arr => arr.filter(x => x._id !== foundH._id));
+        await markChanged("hashes");
+      }
+
+      // 3. Apaga das duas abas da planilha (REPARO DE HASH e HASH)
+      if (webhookUrl) {
+        const techEmp = data.employees.find(e => e._id === item.employeeId);
+        syncSheet(webhookUrl, "deleteRepairRow", {
+          sn: item.hashSN,
+          tecnico: techEmp?.name || item._byName || "",
+          date: item.date,
+          employeeName: user.name
+        });
+        
+        syncSheet(webhookUrl, "deleteHashRow", {
+          sn: item.hashSN,
+          employeeName: user.name
+        });
+      }
+    } else {
+      if(!confirm("Apagar essa movimentação do histórico? Não dá pra desfazer.")) return;
+      await fbDel("tests", item._id);
+      mutate("tests", arr => arr.filter(x => x._id !== item._id));
+      await markChanged("tests");
+    }
   };
   return<div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>

@@ -178,6 +178,8 @@ function doPost(e) {
         addHashRow(sheetHash, payload);
       } else if (action === "deleteHashRow") {
         deleteHashRow(sheetHash, payload);
+      } else if (action === "deleteRepairRow") {
+        deleteRepairRow(sheetReparo, payload);
       } else if (action === "machineToClient") {
         machineToClientRow(sheetMac, payload);
       } else if (action === "machineFromClient") {
@@ -505,6 +507,51 @@ function deleteHashRow(sheet, p) {
     const sn = sheet.getRange(row, COL_HASH_SN).getValue();
     const ss = sheet.getParent();
     archiveToLixeira(ss, "HASH", sn, model, "", p.employeeName);
+    sheet.deleteRow(row);
+  }
+}
+
+function findRepairRow(sheet, sn, tecnico, dateStr) {
+  if (!sheet) return -1;
+  const data = sheet.getDataRange().getValues();
+  const normSN = normalizeString(sn);
+  const normTec = normalizeString(tecnico);
+  
+  // Search from bottom to top to find the latest match first
+  for (let r = data.length - 1; r >= 1; r--) {
+    const row = data[r];
+    const rowSN = normalizeString(row[3]); // Column D (index 3)
+    if (rowSN === normSN) {
+      if (tecnico) {
+        const rowTec = normalizeString(row[6]); // Column G (index 6)
+        if (rowTec !== normTec) continue;
+      }
+      if (dateStr) {
+        let rowDateVal = row[0];
+        let rowDateStr = "";
+        if (rowDateVal instanceof Date) {
+          rowDateStr = Utilities.formatDate(rowDateVal, Session.getScriptTimeZone(), "dd/MM/yyyy");
+        } else {
+          rowDateStr = String(rowDateVal).trim();
+        }
+        if (rowDateStr !== dateStr) continue;
+      }
+      return r + 1; // 1-based row index
+    }
+  }
+  return -1;
+}
+
+function deleteRepairRow(sheet, p) {
+  if (!sheet) return;
+  const dateVal = p.date ? new Date(p.date + "T12:00:00") : null;
+  const dateStr = dateVal ? Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "dd/MM/yyyy") : "";
+  const row = findRepairRow(sheet, p.sn, p.tecnico, dateStr);
+  if (row !== -1) {
+    const model = sheet.getRange(row, 2).getValue(); // Column B
+    const sn = sheet.getRange(row, 4).getValue(); // Column D
+    const ss = sheet.getParent();
+    archiveToLixeira(ss, "REPARO DE HASH", sn, model, "", p.employeeName);
     sheet.deleteRow(row);
   }
 }
