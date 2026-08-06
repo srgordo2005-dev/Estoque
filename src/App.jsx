@@ -10294,10 +10294,24 @@ function ClientReport({ctx,client}){
 
 /* ═══ EQUIPE DETALHES ════════════════════════════════════════ */
 function EmpHistory({ctx,emp}){
-  const{data,mutate,user}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
+  const{data,mutate,user,webhookUrl}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
+  const[searchSN,setSearchSN]=useState("");
   const isSuperAdmin=user.code==="019";
   const allR=data.repairs.filter(r=>r.employeeId===emp._id||r._by===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id||t._by===emp._id);
-  const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
+  const dayR=allR.filter(r=>{
+    const matchesDate = !dateFilter || r.date === dateFilter;
+    const matchesSN = !searchSN || (r.hashSN && r.hashSN.toUpperCase().includes(searchSN));
+    return matchesDate && matchesSN;
+  });
+  const dayT=allT.filter(t=>{
+    const matchesDate = !dateFilter || t.date === dateFilter;
+    const matchesSN = !searchSN || 
+      (t.machineSN && t.machineSN.toUpperCase().includes(searchSN)) ||
+      (t.slot0HashSN && t.slot0HashSN.toUpperCase().includes(searchSN)) ||
+      (t.slot1HashSN && t.slot1HashSN.toUpperCase().includes(searchSN)) ||
+      (t.slot2HashSN && t.slot2HashSN.toUpperCase().includes(searchSN));
+    return matchesDate && matchesSN;
+  });
   const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
   const delItem=async(item,isRepair)=>{
     if(isRepair) {
@@ -10342,7 +10356,10 @@ function EmpHistory({ctx,emp}){
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
       {[[allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent],[allT.length,"Testes",C.blue],[data.feedbacks?.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length||0,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
     </div>
-    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>setDateFilter("")} style={{marginBottom:12,fontSize:11}}>📜 Tudo</Btn><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📤</Btn></div>
+    <div style={{marginBottom:12}}>
+      <input value={searchSN} onChange={e=>setSearchSN(e.target.value.toUpperCase())} placeholder="🔍 Buscar por SN da HASH ou Máquina..." style={{...inp,width:"100%"}}/>
+    </div>
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>{setDateFilter("");setSearchSN("");}} style={{marginBottom:12,fontSize:11}}>📜 Tudo</Btn><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📤</Btn></div>
     {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
       {dayR.map(r=>{
         const isRemove = r.type?.startsWith("remove");
