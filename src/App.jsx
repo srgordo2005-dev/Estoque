@@ -1244,6 +1244,7 @@ export default function App(){
   const toggleTheme=()=>{const next=theme==="dark"?"light":"dark";localStorage.setItem("hs_theme",next);setTheme(next)};
   const DEFAULT_WEBHOOK_URL="https://script.google.com/macros/s/AKfycbxZ1WpUhjvKWYEUAvQdaRHuu-mb1WLorVMOreihxvSJlMrddJYa-U1obUlu5tGtRjBv/exec";
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||DEFAULT_WEBHOOK_URL);
+  const[geminiApiKey,setGeminiApiKey]=useState(()=>localStorage.getItem("geminiApiKey")||import.meta.env.VITE_GEMINI_API_KEY||"");
   const [farmsConfig, setFarmsConfig] = usePersistedField("hs_farmsConfig", []);
   const setCol=(col,val)=>setData(d=>({...d,[col]:val}));
   const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
@@ -1546,7 +1547,7 @@ export default function App(){
     if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
     setTab(t);
   };
-  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, pendingScannerTest, setPendingScannerTest};
+  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,geminiApiKey,setGeminiApiKey,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, pendingScannerTest, setPendingScannerTest};
 
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
@@ -5836,6 +5837,156 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
 }
 
 
+function AiDiagnosisModal({ ctx, ip, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState("Conectando ao minerador...");
+  const [result, setResult] = useState("");
+  const [screenshot, setScreenshot] = useState(null);
+  const [error, setError] = useState("");
+
+  const startAnalysis = async () => {
+    if (!ctx.geminiApiKey) {
+      setError("Chave do Gemini API não configurada. Configure a sua chave na aba Config.");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setStatus("Obtendo dados e tirando print do Vnish...");
+    try {
+      // Fetch info and logs in parallel
+      const infoPromise = fetch(`http://localhost:3001/api/miner-info?ip=${ip}`).then(r => r.ok ? r.json() : null).catch(() => null);
+      const logPromise = fetch(`http://localhost:3001/api/miner-log?ip=${ip}`).then(r => r.ok ? r.json() : null).catch(() => null);
+      const printPromise = fetch('http://localhost:3001/api/screenshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip })
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+      const [info, logData, printData] = await Promise.all([infoPromise, logPromise, printPromise]);
+
+      let screenshotBase64 = null;
+      if (printData && printData.success && printData.image) {
+        screenshotBase64 = printData.image;
+        setScreenshot(printData.image);
+      }
+
+      setStatus("Enviando dados para o Gemini...");
+      
+      const systemInstruction = `Você é um Engenheiro Especialista em Reparo de ASICs, com foco em firmwares Vnish (especialmente Antminer S21 XP e similares). 
+O seu objetivo é analisar imagens (prints) ou textos extraídos do painel do Vnish e fornecer um diagnóstico rápido, preciso e "direto ao ponto" para o técnico de reparo.
+
+Quando o usuário apertar o botão de análise e enviar a tela do Vnish, você deve seguir estritamente estas 3 regras operacionais:
+
+REGRA 1: MAPEAMENTO DOS CHIPS (PADRÃO SNAKE)
+As Hashboards da S21 XP no Vnish organizam os chips em colunas de 7, em um formato Zigue-Zague (Snake). Use esta lógica exata para encontrar o número real do chip:
+- Linha 1 (Esquerda para a Direita): Chips 1 ao 7
+- Linha 2 (Direita para a Esquerda): Chips 14 ao 8
+- Linha 3 (Esquerda para a Direita): Chips 15 ao 21
+- Linha 4 (Direita para a Esquerda): Chips 28 ao 22
+- E assim por diante, invertendo a direção a cada linha.
+Sempre que encontrar um chip ruim, você deve cruzar a linha e a coluna onde ele está com essa tabela mental para entregar o NÚMERO EXATO DO CHIP ao técnico.
+
+REGRA 2: CLASSIFICAÇÃO DE CORES E HASHRATE
+Analise a grade de chips em cada Placa (1, 2 e 3):
+- Cor Vermelha (ou Hash 0.0 / Muito Baixo): Chip Crítico/Morto. Requer substituição imediata.
+- Cor Laranja (ou Hash inferior à média da placa): Chip com aviso/desgaste.
+Liste claramente os chips separados por Placa. Exemplo de saída: "PLACA 2: Chip 14 (Vermelho - Hash 121.7) na Linha 2, Col 1."
+
+REGRA 3: ANÁLISE DE LOGS E ALERTAS DA MÁQUINA
+Se a imagem ou os dados enviados contiverem a aba "Logs" ou mensagens de alerta, leia-os cuidadosamente.
+- Traduza o erro técnico para uma ação prática. 
+- Exemplo: se o log acusar "Chain 1 PIC error" ou perda de tensão, alerte o técnico que o problema pode não ser um chip isolado, mas sim a alimentação ou LDO daquela Hashboard.
+
+SEU TOM DE RESPOSTA:
+Seja analógico, técnico e funcional. Não enrole. Diga exatamente qual placa está com defeito, os números exatos dos chips que devem ser removidos e explique de forma resumida o que os logs dizem. Se uma placa estiver 100% boa, diga "Placa X: Saudável".`;
+
+      let promptText = `Aqui estão as informações coletadas da máquina via API:\n\n`;
+      if (info) {
+        promptText += `=== INFORMAÇÕES GERAIS ===\nIP: ${ip}\nModelo: ${info.model || 'N/A'}\nMAC: ${info.mac || 'N/A'}\nUptime: ${info.uptime || 0}s\n`;
+      }
+      if (logData) {
+        promptText += `\n=== LOGS E ESTADO VNISH ===\n${Array.isArray(logData) ? logData.join("\n") : JSON.stringify(logData, null, 2)}\n`;
+      } else {
+        promptText += `\n(Não foi possível obter logs textuais adicionais do minerador)\n`;
+      }
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${ctx.geminiApiKey}`;
+      
+      const parts = [];
+      if (screenshotBase64) {
+        const cleanBase64 = screenshotBase64.includes(',') ? screenshotBase64.split(',')[1] : screenshotBase64;
+        parts.push({
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: cleanBase64
+          }
+        });
+      }
+      parts.push({ text: promptText });
+
+      const body = {
+        contents: [{ parts }],
+        systemInstruction: {
+          parts: [{ text: systemInstruction }]
+        }
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error?.message || `HTTP error ${res.status}`);
+      }
+
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "Nenhum resultado gerado.";
+      setResult(text);
+      setLoading(false);
+    } catch (e) {
+      console.error(e);
+      setError("Erro ao realizar diagnóstico: " + e.message);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    startAnalysis();
+  }, [ip]);
+
+  return <div style={{padding: 10}}>
+    {loading ? (
+      <div style={{textAlign: 'center', padding: 20}}>
+        <div style={{fontSize: 24, marginBottom: 12}}>⏳</div>
+        <div style={{fontWeight: 800, color: C.blue, marginBottom: 8}}>{status}</div>
+        <div style={{fontSize: 11, color: C.muted}}>Isso pode levar de 5 a 15 segundos...</div>
+      </div>
+    ) : error ? (
+      <div>
+        <Alrt type="err">{error}</Alrt>
+        <Btn v="y" onClick={startAnalysis} style={{width: '100%', marginTop: 10}}>🔄 Tentar Novamente</Btn>
+      </div>
+    ) : (
+      <div>
+        <div style={{background: C.bg, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: '1.5', maxHeight: 350, overflowY: 'auto', border: `1px solid ${C.border}`}}>
+          {result}
+        </div>
+        {screenshot && (
+          <div style={{marginBottom: 10}}>
+            <div style={{fontSize: 10, color: C.muted, fontWeight: 700, marginBottom: 4}}>PAINEL CAPTURADO ANALISADO:</div>
+            <img src={screenshot} style={{width: '100%', borderRadius: 8, maxHeight: 150, objectFit: 'contain', border: `1.5px solid ${C.border}`}} />
+          </div>
+        )}
+        <Btn onClick={onClose} style={{width: '100%'}}>Fechar</Btn>
+      </div>
+    )}
+  </div>;
+}
+
 function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSession, doSubmit, triggerToast}) {
     const [listening, setListening] = useState(false);
     const [lastCapturedIP, setLastCapturedIP] = useState(session?.ip || "");
@@ -6047,6 +6198,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                        🌍 Abrir Dashboard
                     </Btn>
                     <Btn v="s" onClick={() => fetchAndApplyMinerInfo(ipToUse)} title="Extrair SNs">📋 HASH SNs</Btn>
+                    <Btn v="g" onClick={() => ctx.setModal(<Modal title="🤖 Diagnóstico Especialista (Vnish)" onClose={() => ctx.setModal(null)}><AiDiagnosisModal ctx={ctx} ip={ipToUse} onClose={() => ctx.setModal(null)} /></Modal>)} title="Análise Inteligente por IA">🤖 Analisar IA</Btn>
                  </>
               )}
 
@@ -8864,6 +9016,12 @@ function CfgPage({ctx}){
     const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="hashstock-backup-"+TODAY()+".json";a.click();
   };
   const[driveUrl,setDriveUrl]=useState(DRIVE_UPLOAD_URL),[driveTestRes,setDriveTestRes]=useState(null);
+  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem("geminiApiKey") || "");
+  const saveGeminiKey = () => {
+    localStorage.setItem("geminiApiKey", geminiKey);
+    setGeminiApiKey(geminiKey);
+    alert("✓ Chave do Gemini salva!");
+  };
   const saveDriveUrl=()=>{localStorage.setItem("driveUploadUrl",driveUrl);DRIVE_UPLOAD_URL=driveUrl;alert("✓ URL do Drive salva!")};
   const testDriveUrl=async()=>{try{const r=await fetch(driveUrl+"?action=test");const d=await r.json();setDriveTestRes(d.status==="ok"?"✓ Conectado! "+d.time:"✗ "+JSON.stringify(d))}catch(e){setDriveTestRes("✗ Falha: "+e.message)}};
   const saveWh=()=>{localStorage.setItem("webhookUrl",url);setWebhookUrl(url);alert("✓ Webhook salvo!")};
@@ -8959,6 +9117,12 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       <SL>💾 BACKUP (garantia extra)</SL>
       <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Baixa uma cópia completa de tudo (máquinas, HASHs, funcionários, histórico) num arquivo no seu computador. Recomendo baixar toda semana — se algum dia der algum problema no banco, você tem como recuperar tudo a partir desse arquivo.</div>
       <Btn v="g" onClick={exportBackup} style={{width:"100%"}}>⬇️ Baixar Backup Completo Agora</Btn>
+    </Card>
+    <Card style={{marginBottom:14}}>
+      <SL>🤖 INTELIGÊNCIA ARTIFICIAL (GEMINI)</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Cole aqui a sua chave de API do Google Gemini (para análise e diagnóstico automático de placas na aba de Teste).</div>
+      <Inp type="password" value={geminiKey} onChange={e=>setGeminiKey(e.target.value)} placeholder="AIzaSy..."/>
+      <Btn onClick={saveGeminiKey} style={{width:"100%"}}>💾 Salvar Chave do Gemini</Btn>
     </Card>
     <Card style={{marginBottom:14}}><SL>📸 GOOGLE DRIVE (fotos)</SL><div style={{color:C.muted,fontSize:11,marginBottom:8}}>Cole aqui a URL do Apps Script que salva as fotos no Drive de vocês (arquivo google-apps-script-drive-upload.js)</div><Inp value={driveUrl} onChange={e=>setDriveUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"/>{driveTestRes&&<Alrt type={driveTestRes.startsWith("✓")?"ok":"err"}>{driveTestRes}</Alrt>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={testDriveUrl} style={{flex:1}}>🔗 Testar</Btn><Btn onClick={saveDriveUrl} style={{flex:1}}>💾 Salvar</Btn></div></Card>
     <Card style={{marginBottom:14}}><SL>GOOGLE SHEETS WEBHOOK</SL><Inp value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/..."/>{testRes&&<Alrt type={testRes.startsWith("✓")?"ok":"err"}>{testRes}</Alrt>}<div style={{display:"flex",gap:8}}><Btn v="s" onClick={testWh} style={{flex:1}}>🔗 Testar</Btn><Btn onClick={saveWh} style={{flex:1}}>💾 Salvar</Btn></div></Card>
