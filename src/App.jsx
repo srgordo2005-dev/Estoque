@@ -5838,23 +5838,48 @@ function OnlineMinersModal({ctx, session, setMacInput, loadMachine, saveSession,
 
 
 function AiDiagnosisModal({ ctx, ip, onClose }) {
-  const [loading, setLoading] = useState(true);
-  const [status, setStatus] = useState("Conectando ao minerador...");
-  const [result, setResult] = useState("");
   const [screenshot, setScreenshot] = useState(null);
+  const [logsText, setLogsText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("");
+  const [result, setResult] = useState("");
   const [error, setError] = useState("");
 
-  const startAnalysis = async () => {
-    if (!ctx.geminiApiKey) {
-      setError("Chave do Gemini API não configurada. Configure a sua chave na aba Config.");
-      setLoading(false);
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setScreenshot(event.target.result);
+        };
+        reader.readAsDataURL(file);
+        e.preventDefault();
+      }
+    }
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setScreenshot(event.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const importFromBench = async () => {
+    if (!ip) {
+      alert("Nenhum IP ativo na bancada para importar.");
       return;
     }
     setLoading(true);
-    setError("");
-    setStatus("Obtendo dados e tirando print do Vnish...");
+    setStatus("Importando dados do painel do Vnish...");
     try {
-      // Fetch info and logs in parallel
       const infoPromise = fetch(`http://localhost:3001/api/miner-info?ip=${ip}`).then(r => r.ok ? r.json() : null).catch(() => null);
       const logPromise = fetch(`http://localhost:3001/api/miner-log?ip=${ip}`).then(r => r.ok ? r.json() : null).catch(() => null);
       const printPromise = fetch('http://localhost:3001/api/screenshot', {
@@ -5865,14 +5890,38 @@ function AiDiagnosisModal({ ctx, ip, onClose }) {
 
       const [info, logData, printData] = await Promise.all([infoPromise, logPromise, printPromise]);
 
-      let screenshotBase64 = null;
       if (printData && printData.success && printData.image) {
-        screenshotBase64 = printData.image;
         setScreenshot(printData.image);
       }
 
-      setStatus("Enviando dados para o Gemini...");
-      
+      let textStr = "";
+      if (info) {
+        textStr += `=== INFORMAÇÕES GERAIS ===\nIP: ${ip}\nModelo: ${info.model || 'N/A'}\nMAC: ${info.mac || 'N/A'}\nUptime: ${info.uptime || 0}s\n`;
+      }
+      if (logData) {
+        textStr += `\n=== LOGS E ESTADO VNISH ===\n${Array.isArray(logData) ? logData.join("\n") : JSON.stringify(logData, null, 2)}\n`;
+      }
+      setLogsText(textStr);
+      setLoading(false);
+    } catch(e) {
+      alert("Erro ao importar: " + e.message);
+      setLoading(false);
+    }
+  };
+
+  const startAnalysis = async () => {
+    if (!ctx.geminiApiKey) {
+      setError("Chave do Gemini API não configurada. Configure a sua chave na aba Config.");
+      return;
+    }
+    if (!screenshot && !logsText.trim()) {
+      alert("Por favor, cole um print do Vnish ou insira os logs para analisar.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setStatus("Analisando dados com a IA...");
+    try {
       const systemInstruction = `Você é um Engenheiro Especialista em Reparo de ASICs, com foco em firmwares Vnish (especialmente Antminer S21 XP e similares). 
 O seu objetivo é analisar imagens (prints) ou textos extraídos do painel do Vnish e fornecer um diagnóstico rápido, preciso e "direto ao ponto" para o técnico de reparo.
 
@@ -5901,21 +5950,11 @@ Se a imagem ou os dados enviados contiverem a aba "Logs" ou mensagens de alerta,
 SEU TOM DE RESPOSTA:
 Seja analógico, técnico e funcional. Não enrole. Diga exatamente qual placa está com defeito, os números exatos dos chips que devem ser removidos e explique de forma resumida o que os logs dizem. Se uma placa estiver 100% boa, diga "Placa X: Saudável".`;
 
-      let promptText = `Aqui estão as informações coletadas da máquina via API:\n\n`;
-      if (info) {
-        promptText += `=== INFORMAÇÕES GERAIS ===\nIP: ${ip}\nModelo: ${info.model || 'N/A'}\nMAC: ${info.mac || 'N/A'}\nUptime: ${info.uptime || 0}s\n`;
-      }
-      if (logData) {
-        promptText += `\n=== LOGS E ESTADO VNISH ===\n${Array.isArray(logData) ? logData.join("\n") : JSON.stringify(logData, null, 2)}\n`;
-      } else {
-        promptText += `\n(Não foi possível obter logs textuais adicionais do minerador)\n`;
-      }
-
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${ctx.geminiApiKey}`;
       
       const parts = [];
-      if (screenshotBase64) {
-        const cleanBase64 = screenshotBase64.includes(',') ? screenshotBase64.split(',')[1] : screenshotBase64;
+      if (screenshot) {
+        const cleanBase64 = screenshot.includes(',') ? screenshot.split(',')[1] : screenshot;
         parts.push({
           inlineData: {
             mimeType: "image/jpeg",
@@ -5923,7 +5962,11 @@ Seja analógico, técnico e funcional. Não enrole. Diga exatamente qual placa e
           }
         });
       }
-      parts.push({ text: promptText });
+      if (logsText.trim()) {
+        parts.push({ text: logsText });
+      } else {
+        parts.push({ text: "Analise a imagem em anexo." });
+      }
 
       const body = {
         contents: [{ parts }],
@@ -5954,34 +5997,69 @@ Seja analógico, técnico e funcional. Não enrole. Diga exatamente qual placa e
     }
   };
 
-  useEffect(() => {
-    startAnalysis();
-  }, [ip]);
-
-  return <div style={{padding: 10}}>
+  return <div style={{padding: 10, outline: 'none'}} onPaste={handlePaste}>
     {loading ? (
       <div style={{textAlign: 'center', padding: 20}}>
         <div style={{fontSize: 24, marginBottom: 12}}>⏳</div>
         <div style={{fontWeight: 800, color: C.blue, marginBottom: 8}}>{status}</div>
-        <div style={{fontSize: 11, color: C.muted}}>Isso pode levar de 5 a 15 segundos...</div>
+        <div style={{fontSize: 11, color: C.muted}}>Aguarde...</div>
       </div>
     ) : error ? (
       <div>
         <Alrt type="err">{error}</Alrt>
         <Btn v="y" onClick={startAnalysis} style={{width: '100%', marginTop: 10}}>🔄 Tentar Novamente</Btn>
       </div>
-    ) : (
+    ) : result ? (
       <div>
-        <div style={{background: C.bg, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: '1.5', maxHeight: 350, overflowY: 'auto', border: `1px solid ${C.border}`}}>
+        <div style={{fontWeight: 800, fontSize: 12, color: C.accent, marginBottom: 6}}>📋 RESULTADO DO DIAGNÓSTICO:</div>
+        <div style={{background: C.bg, borderRadius: 10, padding: 14, marginBottom: 14, fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: '1.5', maxHeight: 300, overflowY: 'auto', border: `1px solid ${C.border}`}}>
           {result}
         </div>
-        {screenshot && (
-          <div style={{marginBottom: 10}}>
-            <div style={{fontSize: 10, color: C.muted, fontWeight: 700, marginBottom: 4}}>PAINEL CAPTURADO ANALISADO:</div>
-            <img src={screenshot} style={{width: '100%', borderRadius: 8, maxHeight: 150, objectFit: 'contain', border: `1.5px solid ${C.border}`}} />
-          </div>
+        <div style={{display: 'flex', gap: 8}}>
+          <Btn v="b" onClick={() => setResult("")} style={{flex: 1, justifyContent: 'center'}}>Diagnosticar Outra</Btn>
+          <Btn onClick={onClose} style={{flex: 1, justifyContent: 'center'}}>Fechar</Btn>
+        </div>
+      </div>
+    ) : (
+      <div>
+        {ip && (
+          <Btn v="b" onClick={importFromBench} style={{width: '100%', marginBottom: 14, justifyContent: 'center'}}>
+             Importar da Bancada (Vnish IP: {ip})
+          </Btn>
         )}
-        <Btn onClick={onClose} style={{width: '100%'}}>Fechar</Btn>
+
+        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14}}>
+          <div>
+            <div style={{color: C.muted, fontSize: 10, fontWeight: 800, marginBottom: 4}}>PRINT DO VNISH (Ctrl+V para colar)</div>
+            {screenshot ? (
+              <div style={{position: 'relative', border: `1.5px solid ${C.border}`, borderRadius: 8, padding: 4, background: C.card2, textAlign: 'center'}}>
+                <img src={screenshot} style={{maxHeight: 120, maxWidth: '100%', borderRadius: 6, objectFit: 'contain'}} />
+                <button onClick={() => setScreenshot(null)} style={{position: 'absolute', top: 4, right: 4, background: C.red, color: '#fff', border: 'none', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', fontSize: 11, fontWeight: 900}}>✕</button>
+              </div>
+            ) : (
+              <label style={{display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 120, border: `2px dashed ${C.border}`, borderRadius: 8, cursor: 'pointer', background: C.card2, color: C.muted, fontSize: 11, textAlign: 'center'}}>
+                <span>📂 Selecionar Imagem</span>
+                <span style={{fontSize: 9, marginTop: 4}}>(ou cole o print diretamente com Ctrl+V)</span>
+                <input type="file" accept="image/*" onChange={handleFileChange} style={{display: 'none'}} />
+              </label>
+            )}
+          </div>
+
+          <div>
+            <div style={{color: C.muted, fontSize: 10, fontWeight: 800, marginBottom: 4}}>LOGS / TEXTO DO VNISH</div>
+            <textarea 
+              value={logsText} 
+              onChange={e => setLogsText(e.target.value)} 
+              placeholder="Cole os logs ou resumos de texto do painel aqui..." 
+              style={{...inp, width: '100%', height: 120, fontSize: 11, fontFamily: 'monospace', resize: 'none', background: C.card2, color: C.text, border: `1px solid ${C.border}`}}
+            />
+          </div>
+        </div>
+
+        <div style={{display: 'flex', gap: 8}}>
+          <Btn v="g" onClick={startAnalysis} style={{flex: 2, justifyContent: 'center'}}>🤖 Iniciar Diagnóstico</Btn>
+          <Btn onClick={onClose} style={{flex: 1, justifyContent: 'center'}}>Fechar</Btn>
+        </div>
       </div>
     )}
   </div>;
