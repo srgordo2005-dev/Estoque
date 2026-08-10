@@ -2247,6 +2247,171 @@ function BtcLiveTicker() {
   );
 }
 
+function WhatsAppReportModal({ ctx, onClose }) {
+  const generateGoodReport = (data) => {
+    const ms = {};
+    data.machines.forEach(m => {
+      if (!ms[m.model]) ms[m.model] = 0;
+      if (m.type !== "shell" && ["BOA", "LIGADA"].includes(m.situacao)) {
+        ms[m.model]++;
+      }
+    });
+
+    const lines = [
+      `*📋 RELATÓRIO DE MÁQUINAS PRONTAS (BOAS)*`,
+      `_Data: ${new Date().toLocaleDateString("pt-BR")}_`,
+      `\nOlá! Segue a quantidade de máquinas prontas e boas no estoque:\n`
+    ];
+
+    let totalGood = 0;
+    Object.keys(ms).sort().forEach(model => {
+      const qty = ms[model];
+      if (qty > 0) {
+        lines.push(`• *${model}*: ${qty} ${qty === 1 ? 'unidade boa' : 'unidades boas'}`);
+        totalGood += qty;
+      }
+    });
+
+    if (totalGood === 0) {
+      lines.push(`_Nenhuma máquina boa no momento._`);
+    }
+
+    lines.push(`\n*Total de Máquinas Boas:* ${totalGood} ${totalGood === 1 ? 'unidade' : 'unidades'}`);
+    return lines.join("\n");
+  };
+
+  const generateGeneralReport = (data) => {
+    const ms = {};
+    data.machines.forEach(m => {
+      if (!ms[m.model]) ms[m.model] = { boa: 0, ruim: 0, shell: 0, stock: 0 };
+      if (m.type === "shell") {
+        ms[m.model].shell++;
+      } else if (["BOA", "LIGADA"].includes(m.situacao)) {
+        ms[m.model].boa++;
+      } else if (["RUIM", "ENTRADA OFICINA"].includes(m.situacao)) {
+        ms[m.model].ruim++;
+      } else {
+        ms[m.model].stock++;
+      }
+    });
+
+    const lines = [
+      `*📊 RELATÓRIO GERAL DO ESTOQUE*`,
+      `_Data: ${new Date().toLocaleDateString("pt-BR")}_`,
+      `\nSegue o resumo de máquinas (Boas, Ruins, Carcaças e Totais):\n`
+    ];
+
+    let totalB = 0, totalR = 0, totalC = 0, totalS = 0;
+    Object.keys(ms).sort().forEach(model => {
+      const m = ms[model];
+      const totalModel = m.boa + m.ruim + m.shell + m.stock;
+      if (totalModel > 0) {
+        lines.push(`*${model}*`);
+        if (m.boa > 0) lines.push(`  • Prontas (Boas): ${m.boa}`);
+        if (m.ruim > 0) lines.push(`  • Ruins / Reparo: ${m.ruim}`);
+        if (m.shell > 0) lines.push(`  • Carcaças: ${m.shell}`);
+        if (m.stock > 0) lines.push(`  • Outros / Stock: ${m.stock}`);
+        lines.push(`  *Total*: ${totalModel}\n`);
+        
+        totalB += m.boa;
+        totalR += m.ruim;
+        totalC += m.shell;
+        totalS += m.stock;
+      }
+    });
+
+    const grandTotal = totalB + totalR + totalC + totalS;
+    lines.push(`*RESUMO GERAL:*`);
+    lines.push(`• Total Boas: ${totalB}`);
+    lines.push(`• Total Ruins/Reparo: ${totalR}`);
+    lines.push(`• Total Carcaças: ${totalC}`);
+    if (totalS > 0) lines.push(`• Total Outros/Stock: ${totalS}`);
+    lines.push(`*TOTAL GERAL DE MÁQUINAS:* ${grandTotal}`);
+    return lines.join("\n");
+  };
+
+  const [reportType, setReportType] = useState("good"); // "good" or "general"
+  
+  const reportText = reportType === "good" 
+    ? generateGoodReport(ctx.data) 
+    : generateGeneralReport(ctx.data);
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(reportText);
+    alert("✓ Relatório copiado para a área de transferência!");
+  };
+
+  const shareOnWhatsApp = () => {
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(reportText)}`;
+    window.open(url, '_blank');
+  };
+
+  return (
+    <div style={{padding: 10}}>
+      <div style={{display: 'flex', gap: 8, marginBottom: 14}}>
+        <button 
+          onClick={() => setReportType("good")} 
+          style={{
+            flex: 1, 
+            background: reportType === "good" ? C.accent : C.card2, 
+            color: '#fff', 
+            border: 'none', 
+            borderRadius: 8, 
+            padding: '10px 0', 
+            fontWeight: 700, 
+            fontSize: 12, 
+            cursor: 'pointer'
+          }}
+        >
+          📋 Apenas Boas
+        </button>
+        <button 
+          onClick={() => setReportType("general")} 
+          style={{
+            flex: 1, 
+            background: reportType === "general" ? C.accent : C.card2, 
+            color: '#fff', 
+            border: 'none', 
+            borderRadius: 8, 
+            padding: '10px 0', 
+            fontWeight: 700, 
+            fontSize: 12, 
+            cursor: 'pointer'
+          }}
+        >
+          📊 Geral (Tudo)
+        </button>
+      </div>
+
+      <div style={{
+        background: C.bg, 
+        color: C.text,
+        borderRadius: 8, 
+        padding: 12, 
+        fontFamily: 'monospace', 
+        fontSize: 12, 
+        whiteSpace: 'pre-wrap', 
+        maxHeight: 250, 
+        overflowY: 'auto', 
+        border: `1px solid ${C.border}`,
+        marginBottom: 14
+      }}>
+        {reportText}
+      </div>
+
+      <div style={{display: 'flex', gap: 8, marginBottom: 8}}>
+        <Btn v="b" onClick={copyToClipboard} style={{flex: 1, justifyContent: 'center'}}>
+          🗐 Copiar Texto
+        </Btn>
+        <Btn v="g" onClick={shareOnWhatsApp} style={{flex: 1, justifyContent: 'center'}}>
+          🟢 Enviar WhatsApp
+        </Btn>
+      </div>
+      <Btn onClick={onClose} style={{width: '100%', justifyContent: 'center'}}>Fechar</Btn>
+    </div>
+  );
+}
+
 function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab,setModal}=ctx;
   const today=TODAY();
@@ -2254,8 +2419,21 @@ function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
   return (
     <div style={{animation: 'fadeIn 0.3s ease-in-out'}}>
       <BtcLiveTicker />
-      <div style={{fontWeight:900,fontSize:22,marginBottom:4,color:'#fff'}}>Olá, {user.name.split(" ")[0]} 👋</div>
-      <div style={{color:C.muted,fontSize:12,marginBottom:14}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long", day:"numeric", month:"long"})}</div>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+        <div>
+          <div style={{fontWeight:900,fontSize:22,marginBottom:4,color:'#fff'}}>Olá, {user.name.split(" ")[0]} 👋</div>
+          <div style={{color:C.muted,fontSize:12,marginBottom:14}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long", day:"numeric", month:"long"})}</div>
+        </div>
+        {isAdmin && (
+          <button 
+            onClick={() => setModal(<Modal title="📊 Copiar Relatório WhatsApp" onClose={() => setModal(null)}><WhatsAppReportModal ctx={ctx} onClose={() => setModal(null)} /></Modal>)} 
+            style={{background:'none', border:'none', color:C.subtle, cursor:'pointer', fontSize:14, opacity: 0.3, padding: 8}}
+            title="Relatório WhatsApp (Admins)"
+          >
+            📊
+          </button>
+        )}
+      </div>
 
       {canApprove&&pendingApprs.length>0&&<Card accent={C.blue} onClick={()=>setTab("approvals")} style={{marginBottom:14, cursor:'pointer'}}><div style={{fontWeight:800,color:C.blue,fontSize:15}}>✅ {pendingApprs.length} máquina(s) aguardando revisão</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>Toque para revisar e autorizar</div></Card>}
       {!isAdmin&&myFdbs.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10,color:C.red}}>⚠️ Para Re-consertar ({myFdbs.length})</div>{myFdbs.map(f=><Card key={f._id} accent={C.red}><div style={{fontWeight:800,color:C.red}}>⚡ {f.hashSN||"SEM SN"}</div><div style={{fontSize:12,marginTop:4}}>{f.notes||"Ver log"}</div><By by={f._byName} at={f._at}/>{f.logPhotoKey&&<PhotoView photoKey={f.logPhotoKey} style={{marginTop:8,maxHeight:100}}/>}</Card>)}</div>}
