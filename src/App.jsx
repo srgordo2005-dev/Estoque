@@ -5352,6 +5352,8 @@ function HashDetail({ctx,hash,readOnly=false}){
   const[retroDate,setRetroDate]=useState(TODAY());
   const[retroEmpId,setRetroEmpId]=useState("");
   const[retroSaving,setRetroSaving]=useState(false);
+  const[transferTechId,setTransferTechId]=useState("");
+  const[transferring,setTransferring]=useState(false);
   useEffect(()=>{setH(hash)},[hash]);
   const upd=async(k,v)=>{
     if(h[k]===v)return;
@@ -5429,56 +5431,150 @@ function HashDetail({ctx,hash,readOnly=false}){
       {(data.pallets||[]).filter(pl=>(pl.hashesSN||[]).includes(h.sn)).map(pl=><div key={pl._id} style={{fontSize:11,color:C.blue,marginTop:4}}>📦 {pl.name}{pl.location?` — ${pl.location}`:""}</div>)}
       <By by={h._byName} at={h._at}/>
     </div>
-    {!readOnly && (user?.code === "ADMIN 019" || user?.name === "ADMIN 019") && (
-      <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:14,border:`1px solid ${C.border}`}}>
-        <div style={{fontWeight:800,fontSize:12,color:C.accent,marginBottom:8}}>🔧 REGISTRAR CONSERTO RETROATIVO</div>
-        <div style={{display:"flex",gap:8,marginBottom:8}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:9,color:C.muted,marginBottom:2}}>DATA DO CONSERTO</div>
-            <input type="date" value={retroDate} onChange={e=>setRetroDate(e.target.value)} style={{...inp,padding:"5px 8px",fontSize:11,width:"100%"}}/>
+    {!readOnly && (user?.code === "019" || user?.code === "ADMIN 019" || user?.name === "ADMIN 019") && (
+      <>
+        {h.repairedBy && (
+          <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:14,border:`1px solid ${C.border}`}}>
+            <div style={{fontWeight:800,fontSize:12,color:C.accent,marginBottom:8}}>🔄 TRANSFERIR TÉCNICO DO CONSERTO</div>
+            <div style={{fontSize:11,color:C.muted,marginBottom:6}}>
+              Atual: <b>{h.repairedByName || "Nenhum"}</b>
+            </div>
+            <div style={{display:"flex",gap:8,marginBottom:8}}>
+              <select value={transferTechId} onChange={e=>setTransferTechId(e.target.value)} style={{...inp,padding:"5px 6px",fontSize:11,flex:1,background:C.bg,color:C.text}}>
+                <option value="">Selecione o novo técnico...</option>
+                {data.employees.filter(e => e._id !== h.repairedBy && e.code !== "019").map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
+              </select>
+              <Btn v="g" onClick={async()=>{
+                if(!transferTechId){alert("Selecione o novo técnico!");return}
+                const emp=data.employees.find(e=>e._id===transferTechId);
+                if(!emp)return;
+                if(!confirm(`Confirma transferir os registros de conserto desta placa para ${emp.name}?`))return;
+                
+                setTransferring(true);
+                try {
+                  // 1. Encontra e atualiza o conserto ativo (não superseded) no Firestore repairs
+                  const activeRep = data.repairs.find(r => r.hashSN === h.sn && r.employeeId === h.repairedBy && !r.superseded && r.type === "repair");
+                  let prevTechName = h.repairedByName || "";
+                  
+                  if (activeRep) {
+                    const updatedRep = {
+                      ...activeRep,
+                      employeeId: emp._id,
+                      employeeCode: emp.code,
+                      employeeName: emp.name,
+                      _by: emp._id,
+                      _byName: emp.name,
+                      ...audit(user)
+                    };
+                    await fbSet("repairs", activeRep._id, updatedRep);
+                    mutate("repairs", arr => arr.map(x => x._id === activeRep._id ? updatedRep : x));
+                  }
+
+                  // 2. Atualiza a HASH no Firestore hashes
+                  const hu = {
+                    ...h,
+                    repairedBy: emp._id,
+                    repairedByName: emp.name,
+                    changeLog: [{
+                      field: "repairedBy",
+                      label: "Técnico do Conserto",
+                      from: h.repairedByName || "Nenhum",
+                      to: emp.name,
+                      by: user.name,
+                      at: stamp()
+                    }, ...(h.changeLog || [])].slice(0, 80),
+                    ...audit(user)
+                  };
+                  setH(hu);
+                  mutate("hashes", arr => arr.map(x => x._id === h._id ? hu : x));
+                  await fbSet("hashes", h._id, hu);
+                  await markChanged("hashes");
+                  await markChanged("repairs");
+
+                  // 3. Sincroniza com a planilha
+                  if (webhookUrl) {
+                    // Atualiza na aba HASH
+                    syncSheet(webhookUrl, "updateHash", {
+                      sn: hu.sn,
+                      model: hu.model,
+                      status: hu.status,
+                      location: hu.location,
+                      field: "repairedBy",
+                      to: emp.name,
+                      employeeName: user.name,
+                      employeeCode: user.code
+                    });
+
+                    // Atualiza na aba REPARO DE HASH
+                    syncSheet(webhookUrl, "transferRepair", {
+                      sn: hu.sn,
+                      fromTecnico: prevTechName,
+                      toTecnico: emp.name,
+                      employeeName: user.name
+                    });
+                  }
+
+                  alert(`✓ Conserto transferido com sucesso para ${emp.name}!`);
+                  setTransferTechId("");
+                } catch (err) {
+                  alert("Erro ao transferir: " + err.message);
+                }
+                setTransferring(false);
+              }} disabled={transferring || !transferTechId} style={{fontSize:11,padding:"6px 12px"}}>{transferring ? "..." : "Confirmar"}</Btn>
+            </div>
           </div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:9,color:C.muted,marginBottom:2}}>TÉCNICO</div>
-            <select value={retroEmpId} onChange={e=>setRetroEmpId(e.target.value)} style={{...inp,padding:"5px 6px",fontSize:11,width:"100%"}}>
-              <option value="">Selecione...</option>
-              {data.employees.map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
-            </select>
+        )}
+
+        <div style={{background:C.card2,borderRadius:10,padding:12,marginBottom:14,border:`1px solid ${C.border}`}}>
+          <div style={{fontWeight:800,fontSize:12,color:C.accent,marginBottom:8}}>🔧 REGISTRAR CONSERTO RETROATIVO</div>
+          <div style={{display:"flex",gap:8,marginBottom:8}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:9,color:C.muted,marginBottom:2}}>DATA DO CONSERTO</div>
+              <input type="date" value={retroDate} onChange={e=>setRetroDate(e.target.value)} style={{...inp,padding:"5px 8px",fontSize:11,width:"100%"}}/>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:9,color:C.muted,marginBottom:2}}>TÉCNICO</div>
+              <select value={retroEmpId} onChange={e=>setRetroEmpId(e.target.value)} style={{...inp,padding:"5px 6px",fontSize:11,width:"100%"}}>
+                <option value="">Selecione...</option>
+                {data.employees.map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
+              </select>
+            </div>
           </div>
+          <Btn v="g" onClick={async()=>{
+            if(!retroEmpId){alert("Selecione o técnico!");return}
+            const emp=data.employees.find(e=>e._id===retroEmpId);
+            if(!emp)return;
+            setRetroSaving(true);
+            const repId=uid();
+            const repRec={
+              hashSN:h.sn,
+              model:h.model,
+              material:h.material||"",
+              type:"repair",
+              photoKey:"",
+              employeeId:emp._id,
+              _by:emp._id,
+              _byName:emp.name,
+              _at:new Date(retroDate+"T12:00:00").toISOString(),
+              date:retroDate,
+              status:"TESTAR"
+            };
+            const res=await fbSet("repairs",repId,repRec);
+            if(res.ok){
+              mutate("repairs",arr=>[...arr,{...repRec,_id:repId}]);
+              const hu={...h,status:"TESTAR",repairedBy:emp._id,repairedByName:emp.name,...audit(user)};
+              setH(hu);
+              mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));
+              await fbSet("hashes",h._id,hu);
+              syncSheet(webhookUrl,"repair",{...repRec,employeeCode:emp.code,employeeName:emp.name,tecnico:emp.name});
+              alert("✓ Conserto retroativo registrado com sucesso!");
+            }else{
+              alert("Erro ao salvar: "+res.error);
+            }
+            setRetroSaving(false);
+          }} disabled={retroSaving} style={{width:"100%",fontSize:11,padding:"6px 0"}}>{retroSaving?"Gravando...":"💾 Gravar Conserto"}</Btn>
         </div>
-        <Btn v="g" onClick={async()=>{
-          if(!retroEmpId){alert("Selecione o técnico!");return}
-          const emp=data.employees.find(e=>e._id===retroEmpId);
-          if(!emp)return;
-          setRetroSaving(true);
-          const repId=uid();
-          const repRec={
-            hashSN:h.sn,
-            model:h.model,
-            material:h.material||"",
-            type:"repair",
-            photoKey:"",
-            employeeId:emp._id,
-            _by:emp._id,
-            _byName:emp.name,
-            _at:new Date(retroDate+"T12:00:00").toISOString(),
-            date:retroDate,
-            status:"TESTAR"
-          };
-          const res=await fbSet("repairs",repId,repRec);
-          if(res.ok){
-            mutate("repairs",arr=>[...arr,{...repRec,_id:repId}]);
-            const hu={...h,status:"TESTAR",repairedBy:emp._id,repairedByName:emp.name,...audit(user)};
-            setH(hu);
-            mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));
-            await fbSet("hashes",h._id,hu);
-            syncSheet(webhookUrl,"repair",{...repRec,employeeCode:emp.code,employeeName:emp.name,tecnico:emp.name});
-            alert("✓ Conserto retroativo registrado com sucesso!");
-          }else{
-            alert("Erro ao salvar: "+res.error);
-          }
-          setRetroSaving(false);
-        }} disabled={retroSaving} style={{width:"100%",fontSize:11,padding:"6px 0"}}>{retroSaving?"Gravando...":"💾 Gravar Conserto"}</Btn>
-      </div>
+      </>
     )}
     <SL>STATUS</SL>
     {readOnly ? (

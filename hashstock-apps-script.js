@@ -180,6 +180,8 @@ function doPost(e) {
         deleteHashRow(sheetHash, payload);
       } else if (action === "deleteRepairRow") {
         deleteRepairRow(sheetReparo, payload);
+      } else if (action === "transferRepair") {
+        transferRepairRow(sheetReparo, payload);
       } else if (action === "machineToClient") {
         machineToClientRow(sheetMac, payload);
       } else if (action === "machineFromClient") {
@@ -553,6 +555,14 @@ function deleteRepairRow(sheet, p) {
     const ss = sheet.getParent();
     archiveToLixeira(ss, "REPARO DE HASH", sn, model, "", p.employeeName);
     sheet.deleteRow(row);
+  }
+}
+
+function transferRepairRow(sheet, p) {
+  if (!sheet) return;
+  const row = findRepairRow(sheet, p.sn, p.fromTecnico);
+  if (row !== -1) {
+    sheet.getRange(row, 7).setValue(p.toTecnico); // Column G (Técnico)
   }
 }
 
