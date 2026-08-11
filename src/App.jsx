@@ -8009,7 +8009,7 @@ function TeamPage({ctx,canSeeEmp}){
 }
 
 function TeamAdvanced({ctx}) {
-  const { data, user } = ctx;
+  const { data, user, setModal } = ctx;
   const [expandedEmp, setExpandedEmp] = useState(null);
   const [expandedCategory, setExpandedCategory] = useState(null); // '1', '2', '3'
   const [repairedSearch, setRepairedSearch] = useState("");
