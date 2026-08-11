@@ -8016,6 +8016,7 @@ function TeamAdvanced({ctx}) {
   const savedFilter = localStorage.getItem("hs_team_repaired_status_filter");
   const [repairedStatusFilter, setRepairedStatusFilter] = useState(savedFilter || "ALL");
   const containerRef = useRef(null);
+  const [selectedMachines, setSelectedMachines] = useState({});
 
   useEffect(() => {
     if (localStorage.getItem("hs_team_show_advanced_machines") === "true") {
@@ -8171,6 +8172,24 @@ function TeamAdvanced({ctx}) {
         const employeeRepairs = data.repairs.filter(r => (r.employeeId === emp._id || r._by === emp._id) && r.type === "repair" && !r.superseded);
         const repairedHashesInstalled = data.hashes.filter(h => h.repairedBy === emp._id && h.machineSN && h.status === "NA MAQUINA");
         
+        const techMachinesMap = new Map();
+        data.hashes.forEach(h => {
+          if (!h.sn) return;
+          const isRepairedByEmp = h.repairedBy === emp._id || data.repairs.some(r => r.hashSN === h.sn && r.employeeId === emp._id && !r.superseded && r.type === "repair");
+          if (isRepairedByEmp && h.machineSN) {
+            const m = data.machines.find(mac => mac.sn === h.machineSN);
+            if (m) {
+              if (!techMachinesMap.has(m.sn)) {
+                techMachinesMap.set(m.sn, { machine: m, hashes: [] });
+              }
+              if (!techMachinesMap.get(m.sn).hashes.some(x => x.sn === h.sn)) {
+                techMachinesMap.get(m.sn).hashes.push(h);
+              }
+            }
+          }
+        });
+        const techMachinesList = Array.from(techMachinesMap.values());
+
         const machinesWithRepairedHashes = {};
         repairedHashesInstalled.forEach(h => {
           if (!machinesWithRepairedHashes[h.machineSN]) {
@@ -8248,6 +8267,110 @@ function TeamAdvanced({ctx}) {
                     </div>
                   </div>
                 )}
+
+                <div style={{ background: C.card2, borderRadius: 10, padding: 12, border: `1px solid ${C.border}`, marginTop: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 900, color: C.accent, marginBottom: 8, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>📋 Selecionar para Relatório WhatsApp</span>
+                    <span style={{ fontSize: 10, color: C.muted, textTransform: 'none' }}>
+                      {techMachinesList.filter(x => selectedMachines[`${emp._id}_${x.machine.sn}`]).length} selecionadas
+                    </span>
+                  </div>
+
+                  {techMachinesList.length > 0 ? (
+                    <>
+                      <div style={{ maxHeight: 160, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                        {techMachinesList.map(item => {
+                          const m = item.machine;
+                          const key = `${emp._id}_${m.sn}`;
+                          const isSelected = !!selectedMachines[key];
+                          return (
+                            <label key={m.sn} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: C.card, borderRadius: 8, cursor: "pointer", fontSize: 11, border: `1.5px solid ${isSelected ? C.accent : 'transparent'}` }}>
+                              <input 
+                                type="checkbox" 
+                                checked={isSelected} 
+                                onChange={e => {
+                                  setSelectedMachines(prev => ({
+                                    ...prev,
+                                    [key]: e.target.checked
+                                  }));
+                                }} 
+                                style={{ width: 14, height: 14, cursor: 'pointer' }}
+                              />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 800 }}>🖥️ {m.sn} ({m.model} · {m.th}TH)</div>
+                                <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>
+                                  {item.hashes.length} HASH${item.hashes.length > 1 ? 's' : ''} rep. por ele: {item.hashes.map(h => h.sn).join(", ")}
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => {
+                          const newSels = { ...selectedMachines };
+                          techMachinesList.forEach(x => {
+                            newSels[`${emp._id}_${x.machine.sn}`] = true;
+                          });
+                          setSelectedMachines(newSels);
+                        }} style={{ flex: 1, background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 0", fontSize: 10, cursor: 'pointer', fontWeight: 600 }}>Tudo</button>
+                        
+                        <button onClick={() => {
+                          const newSels = { ...selectedMachines };
+                          techMachinesList.forEach(x => {
+                            newSels[`${emp._id}_${x.machine.sn}`] = false;
+                          });
+                          setSelectedMachines(newSels);
+                        }} style={{ flex: 1, background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 0", fontSize: 10, cursor: 'pointer', fontWeight: 600 }}>Limpar</button>
+
+                        <Btn v="g" onClick={() => {
+                          const selectedList = techMachinesList.filter(x => selectedMachines[`${emp._id}_${x.machine.sn}`]);
+                          if (selectedList.length === 0) {
+                            alert("Selecione pelo menos uma máquina para gerar o relatório.");
+                            return;
+                          }
+
+                          let reportText = `*👷 MÁQUINAS CONSERTADAS — TÉCNICO ${emp.name.toUpperCase()} (#${emp.code})*\n`;
+                          reportText += `_Data: ${new Date().toLocaleDateString("pt-BR")}_\n\n`;
+
+                          selectedList.forEach((item, index) => {
+                            const m = item.machine;
+                            const count = item.hashes.length;
+                            reportText += `${index + 1}. *Máquina SN:* ${m.sn}\n`;
+                            reportText += `   • *Modelo/TH:* ${m.model} (${m.th}TH)\n`;
+                            reportText += `   • *Conserto:* Técnico consertou ${count} HASH${count > 1 ? 's' : ''} desta máquina.\n`;
+                            reportText += `   • *SN HASH${count > 1 ? 's' : ''}:* ${item.hashes.map(h => h.sn).join(", ")}\n\n`;
+                          });
+
+                          reportText += `*Total de máquinas:* ${selectedList.length}`;
+                          
+                          setModal(
+                            <Modal title="📋 Enviar Relatório de Reparos" onClose={() => setModal(null)}>
+                              <div style={{ padding: 10 }}>
+                                <div style={{ background: C.bg, color: C.text, borderRadius: 8, padding: 12, fontFamily: 'monospace', fontSize: 11, whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto', border: `1px solid ${C.border}`, marginBottom: 14 }}>
+                                  {reportText}
+                                </div>
+                                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                                  <Btn v="b" onClick={() => {
+                                    navigator.clipboard.writeText(reportText);
+                                    alert("✓ Relatório copiado!");
+                                  }} style={{ flex: 1, justifyContent: 'center' }}>🗐 Copiar</Btn>
+                                  <Btn v="g" onClick={() => {
+                                    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(reportText)}`, '_blank');
+                                  }} style={{ flex: 1, justifyContent: 'center' }}>🟢 WhatsApp</Btn>
+                                </div>
+                                <Btn onClick={() => setModal(null)} style={{ width: '100%', justifyContent: 'center' }}>Fechar</Btn>
+                              </div>
+                            </Modal>
+                          );
+                        }} style={{ flex: 2, fontSize: 11, padding: "5px 0" }}>📋 Copiar Relatório</Btn>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ color: C.muted, fontSize: 11, textAlign: 'center', padding: 8 }}>Esse técnico ainda não tem HASHs consertadas vinculadas a máquinas.</div>
+                  )}
+                </div>
 
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 800, color: C.accent, marginBottom: 6 }}>🔧 ULTIMOS CONSERTOS REALIZADOS (ATIVOS):</div>
