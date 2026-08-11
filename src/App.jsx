@@ -8514,7 +8514,7 @@ function TeamAdvanced({ctx}) {
 // Item 8: relatório com filtro por data mostrando TUDO que foi feito por
 // TODO MUNDO junto naquele dia, com data/hora de cada movimentação.
 function DailyTeamReport({ctx,initEmp="",employees=[]}){
-  const{data,setModal}=ctx;
+  const{data,setModal,user}=ctx;
   
   // Ler datas salvas ao clicar nos quadros do Dashboard
   const savedStart = localStorage.getItem("hs_team_start_date");
