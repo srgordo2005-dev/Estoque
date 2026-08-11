@@ -5457,11 +5457,10 @@ function HashDetail({ctx,hash,readOnly=false}){
                   let prevTechName = h.repairedByName || "";
                   
                   if (activeRep) {
+                    const { employeeCode, employeeName, ...cleanRep } = activeRep;
                     const updatedRep = {
-                      ...activeRep,
+                      ...cleanRep,
                       employeeId: emp._id,
-                      employeeCode: emp.code,
-                      employeeName: emp.name,
                       _by: emp._id,
                       _byName: emp.name,
                       ...audit(user)
@@ -8752,12 +8751,12 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         return;
       }
 
+      const { employeeCode, employeeName, ...cleanRep } = rep;
       const updatedRep = {
-        ...rep,
+        ...cleanRep,
         employeeId: targetEmp._id,
-        employeeCode: targetEmp.code,
-        employeeName: targetEmp.name,
         _by: targetEmp._id,
+        _byName: targetEmp.name,
         ...audit(user)
       };
 
