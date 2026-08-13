@@ -583,11 +583,15 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
   // 1. Initial Page Header
   drawPageHeader(`Relatório de Envios - ${client.name}`, `Filtro: ${dateFrom ? fmtDateLocal(dateFrom) : "Início"} até ${dateTo ? fmtDateLocal(dateTo) : "Hoje"}`);
 
-  // 2. Summary Box (styled like app card)
-  ensureSpace(42);
+  // 2. Summary Box (styled like app card, dynamically sized)
+  const qties = getQtyByModel(macsF, hshsF);
+  const rowCount = Math.max(1, Math.ceil(qties.length / 3));
+  const summaryBoxH = 12 + (rowCount * 6) + 12; // padding top/bottom + row spacing + total height
+
+  ensureSpace(summaryBoxH + 10);
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(marginX, y, pageW - 2 * marginX, 32, 3, 3, "FD");
+  doc.roundedRect(marginX, y, pageW - 2 * marginX, summaryBoxH, 3, 3, "FD");
 
   // Summary title
   doc.setFont("helvetica", "bold");
@@ -595,27 +599,27 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
   doc.setTextColor(15, 23, 42);
   doc.text("RESUMO DE ENVIO DA CARGA (QUANTIDADE POR MODELO)", marginX + 6, y + 8);
 
-  const qties = getQtyByModel(macsF, hshsF);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(71, 85, 105);
   
   let qX = marginX + 6;
-  let qY = y + 16;
+  let qY = y + 15;
   qties.forEach(([model, qty], idx) => {
     if (idx > 0 && idx % 3 === 0) {
       qX = marginX + 6;
       qY += 6;
     }
-    doc.text(`• ${model}: ${qty} un.`, qX, qY);
+    doc.text(`- ${model}: ${qty} un.`, qX, qY);
     qX += 60;
   });
 
   // Total line
+  const totalY = y + 15 + (rowCount * 6) + 5;
   doc.setFont("helvetica", "bold");
   doc.setTextColor(249, 115, 22);
-  doc.text(`TOTAL CONSOLIDADO: ${macsF.length} Máquina(s) · ${hshsF.length} HASH(s) Avulsa(s)`, marginX + 6, y + 27);
-  y += 38;
+  doc.text(`TOTAL CONSOLIDADO: ${macsF.length} Máquina(s) - 	ext{${hshsF.length}} HASH(s) Avulsa(s)`, marginX + 6, totalY);
+  y += summaryBoxH + 8;
 
   // 3. Process Date Groups
   const dateGroups = groupByDate(macsF, hshsF, loadPhotosF);
@@ -625,14 +629,14 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
   for (const [day, group] of dateGroups) {
     ensureSpace(20);
     
-    // Day Banner header
+    // Day Banner header (No emojis to prevent encoding issues)
     doc.setFillColor(241, 245, 249);
     doc.rect(marginX, y, pageW - 2 * marginX, 8, "F");
     
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.setTextColor(15, 23, 42);
-    doc.text(`📅 ENVIO DO DIA: ${day === "Sem Data" ? "Sem Data Registrada" : fmtDateLocal(day)}`, marginX + 4, y + 6);
+    doc.text(`ENVIO DO DIA: ${day === "Sem Data" ? "Sem Data Registrada" : fmtDateLocal(day)}`, marginX + 4, y + 6);
     y += 12;
 
     // A. Day Summary of Quantities per Model
@@ -641,8 +645,8 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8.5);
       doc.setTextColor(100, 116, 139);
-      const daySummaryStr = dayQties.map(([model, qty]) => `${model} (${qty} un)`).join(" · ");
-      doc.text(`Modelos deste dia: ${daySummaryStr}`, marginX + 4, y);
+      const daySummaryStr = dayQties.map(([model, qty]) => `${model} (${qty} un)`).join(" - ");
+      doc.text(`Modelos deste dia: 	ext{${daySummaryStr}}`, marginX + 4, y);
       y += 6;
     }
 
@@ -652,7 +656,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(249, 115, 22);
-      doc.text(`📸 Fotos da Carga / Carregamento (${group.photos.length})`, marginX + 4, y);
+      doc.text(`Fotos da Carga / Carregamento (${group.photos.length})`, marginX + 4, y);
       y += 6;
 
       let photoIdx = 0;
@@ -699,7 +703,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(15, 23, 42);
-      doc.text(`🖥️ Máquinas Enviadas (${group.macs.length})`, marginX + 4, y);
+      doc.text(`Maquinas Enviadas (${group.macs.length})`, marginX + 4, y);
       y += 6;
 
       for (const m of group.macs) {
@@ -722,7 +726,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9.5);
         doc.setTextColor(15, 23, 42);
-        doc.text(`${m.sn || "SEM SN"}  ·  ${m.model} (${m.th || "—"}TH)`, marginX + 11, y + 6);
+        doc.text(`${m.sn || "SEM SN"} - ${m.model} (${m.th || "-"}TH)`, marginX + 11, y + 6);
 
         // Subtitle Info
         doc.setFont("helvetica", "normal");
@@ -732,7 +736,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
         const slotsStr = slots.length ? `Placas HASH: ${slots.join(", ")}` : "Sem placas vinculadas";
         doc.text(slotsStr, marginX + 11, y + 12);
         
-        const testText = test ? `✓ Teste OK por ${test._byName || "técnico"}` : "Sem registro de teste recente";
+        const testText = test ? `Teste OK por ${test._byName || "tecnico"}` : "Sem registro de teste recente";
         doc.text(testText, marginX + 11, y + 17);
 
         // Draw Photo if exists
@@ -747,7 +751,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
               doc.setFont("helvetica", "italic");
               doc.setFontSize(7.5);
               doc.setTextColor(148, 163, 184);
-              doc.text(`${m.photoKey ? "Foto da máquina" : "Foto do teste"} - ${m._at ? fmtTS(m._at) : (test?._at ? fmtTS(test._at) : "")}`, marginX + 11, y + 21 + imgH + 3.5);
+              doc.text(`${m.photoKey ? "Foto da maquina" : "Foto do teste"} - 	ext{${m._at ? fmtTS(m._at) : (test?._at ? fmtTS(test._at) : "")}}`, marginX + 11, y + 21 + imgH + 3.5);
             } catch {
               doc.text("[Erro ao carregar imagem]", marginX + 11, y + 24);
             }
@@ -767,7 +771,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(15, 23, 42);
-      doc.text(`⚡ HASHs Avulsas Enviadas (${group.hashes.length})`, marginX + 4, y);
+      doc.text(`HASHs Avulsas Enviadas (${group.hashes.length})`, marginX + 4, y);
       y += 6;
 
       for (const h of group.hashes) {
@@ -787,13 +791,13 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9.5);
         doc.setTextColor(15, 23, 42);
-        doc.text(`${h.sn || "SEM SN"}  ·  ${h.model}`, marginX + 11, y + 6);
+        doc.text(`${h.sn || "SEM SN"} - 	ext{${h.model}}`, marginX + 11, y + 6);
 
         // Subtitle Info
         doc.setFont("helvetica", "normal");
         doc.setFontSize(8);
         doc.setTextColor(100, 116, 139);
-        doc.text(`Status: ${h.status} · Material: ${h.material || "Não especificado"}`, marginX + 11, y + 12);
+        doc.text(`Status: 	ext{${h.status}} - Material: 	ext{${h.material || "Nao especificado"}}`, marginX + 11, y + 12);
 
         y += cardH;
         done++;
@@ -805,6 +809,7 @@ async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,da
 
   doc.save(`relatorio-${client.name.replace(/[^a-z0-9]/gi,"_")}.pdf`);
 }
+
 const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Teste de Máquinas"},{key:"machines",label:"Estoque de Máquinas"},{key:"hashes",label:"Estoque de HASHs"},{key:"orders",label:"Pedidos"},{key:"approvals",label:"Revisão"},{key:"team",label:"Equipe"},{key:"clients",label:"Clientes"},{key:"admin",label:"Admin (acesso total)"}];
 
 /* ═══ UI PRIMITIVES ═════════════════════════════════════════════ */
