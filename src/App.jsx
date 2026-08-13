@@ -2774,7 +2774,7 @@ function AdminSummary({data, setTab}){
     <>
       <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20}}>
         <div className="card-3d" onClick={() => filterAndNav("", "", "")} style={{cursor: 'pointer'}}>
-          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{data.machines.length}</div>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{data.machines.filter(m => m.situacao !== "SAIDA").length}</div>
           <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🖥️ Máquinas Cadastradas</div>
           <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} Prontas · Ver todas ➔</div>
         </div>
