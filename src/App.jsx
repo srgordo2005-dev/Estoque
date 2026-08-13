@@ -513,83 +513,296 @@ async function loadImageAsDataURL(url){
     return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onloadend=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(blob)});
   }catch{return null}
 }
-async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,onProgress){
+async function generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,dateTo,onProgress){
   const doc=new jsPDF();
   const pageW=210,marginX=14,pageH=290;
   let y=20;
-  const line=()=>{doc.setDrawColor(220);doc.line(marginX,y,pageW-marginX,y);y+=6};
-  const ensureSpace=(needed)=>{if(y+needed>pageH){doc.addPage();y=20}};
 
-  // Cabeçalho
-  doc.setFillColor(30,41,59);doc.rect(0,0,pageW,26,"F");
-  doc.setTextColor(255,255,255);doc.setFontSize(16);doc.setFont(undefined,"bold");
-  doc.text("Relatorio de Envios",marginX,14);
-  doc.setFontSize(10);doc.setFont(undefined,"normal");
-  doc.text(`Cliente: ${client.name}`,marginX,21);
-  doc.setTextColor(0);y=34;
-  doc.setFontSize(9);doc.setTextColor(120);
-  doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}  -  ${macsF.length} maquina(s)  -  ${hshsF.length} HASH(s) avulsa(s)`,marginX,y);
-  doc.setTextColor(0);y+=10;
+  const fmtDateLocal = d => d && d !== "Sem Data" ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR") : "Sem Data";
 
-  let done=0;const total=macsF.length+hshsF.length+(loadPhotosF?.length||0);
-  if(macsF.length){
-    doc.setFontSize(13);doc.setFont(undefined,"bold");doc.text("Maquinas",marginX,y);y+=8;
-    for(const m of macsF){
-      ensureSpace(85);
-      doc.setFontSize(11);doc.setFont(undefined,"bold");doc.setTextColor(30,41,120);
-      doc.text(`${m.sn||"SEM SN"}  -  ${m.model}`,marginX,y);y+=6;
-      doc.setFont(undefined,"normal");doc.setFontSize(9);doc.setTextColor(80);
-      doc.text(`Enviada em: ${m._at?fmtTS(m._at):"-"}`,marginX,y);y+=5;
-      const slots=[m.hashSN0,m.hashSN1,m.hashSN2].filter(Boolean);
-      if(slots.length){doc.text(`HASHs instaladas: ${slots.join(", ")}`,marginX,y);y+=5}
-      const test=[...data.tests].reverse().find(t=>t.machineSN===m.sn&&t.overallResult==="good");
-      const photoToUse=m.photoKey||test?.testPhoto;
-      const photoLabel=m.photoKey?"Foto da maquina":"Foto do teste";
-      const photoDate=m.photoKey?(m._at?fmtTS(m._at):"-"):(test?._at?fmtTS(test._at):"-");
-      if(photoToUse){
-        const img=await loadImageAsDataURL(photoToUse);
-        if(img){
-          ensureSpace(120);
-          try{doc.addImage(img,"JPEG",marginX,y,130,97);
-            doc.setFontSize(8);doc.setTextColor(140);
-            doc.text(`${photoLabel} - ${photoDate}`,marginX,y+103);
-            doc.setTextColor(0);
-            y+=112;
-          }catch{y+=4}
+  const getQtyByModel = (macs, hashes) => {
+    const qties = {};
+    macs.forEach(m => {
+      if (m.model) qties[m.model] = (qties[m.model] || 0) + 1;
+    });
+    hashes.forEach(h => {
+      if (h.model) qties[h.model] = (qties[h.model] || 0) + 1;
+    });
+    return Object.entries(qties).sort((a, b) => b[1] - a[1]);
+  };
+
+  const groupByDate = (macs, hashes, loadPhotos) => {
+    const groups = {};
+    const add = (date, item, listKey) => {
+      const d = date ? date.slice(0, 10) : "Sem Data";
+      if (!groups[d]) groups[d] = { macs: [], hashes: [], photos: [] };
+      groups[d][listKey].push(item);
+    };
+    macs.forEach(m => add(m._at, m, "macs"));
+    hashes.forEach(h => add(h._at, h, "hashes"));
+    (loadPhotos || []).forEach(p => {
+      const d = p.date || (p._at ? p._at.slice(0, 10) : "Sem Data");
+      if (!groups[d]) groups[d] = { macs: [], hashes: [], photos: [] };
+      groups[d].photos.push(p);
+    });
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+  };
+
+  const drawPageHeader = (titleText, subtitleText) => {
+    // Slate banner
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageW, 28, "F");
+    
+    // Orange/Gold accent line
+    doc.setFillColor(249, 115, 22);
+    doc.rect(0, 28, pageW, 2, "F");
+
+    // Title
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(titleText, marginX, 14);
+
+    // Subtitle
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(203, 213, 225);
+    doc.text(subtitleText, marginX, 21);
+    
+    doc.setTextColor(30, 41, 59);
+    y = 38;
+  };
+
+  const ensureSpace = (needed) => {
+    if (y + needed > pageH - 15) {
+      doc.addPage();
+      drawPageHeader(`Relatório de Envios - ${client.name}`, `Gerado em ${new Date().toLocaleDateString("pt-BR")}`);
+    }
+  };
+
+  // 1. Initial Page Header
+  drawPageHeader(`Relatório de Envios - ${client.name}`, `Filtro: ${dateFrom ? fmtDateLocal(dateFrom) : "Início"} até ${dateTo ? fmtDateLocal(dateTo) : "Hoje"}`);
+
+  // 2. Summary Box (styled like app card)
+  ensureSpace(42);
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(marginX, y, pageW - 2 * marginX, 32, 3, 3, "FD");
+
+  // Summary title
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(15, 23, 42);
+  doc.text("RESUMO DE ENVIO DA CARGA (QUANTIDADE POR MODELO)", marginX + 6, y + 8);
+
+  const qties = getQtyByModel(macsF, hshsF);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(71, 85, 105);
+  
+  let qX = marginX + 6;
+  let qY = y + 16;
+  qties.forEach(([model, qty], idx) => {
+    if (idx > 0 && idx % 3 === 0) {
+      qX = marginX + 6;
+      qY += 6;
+    }
+    doc.text(`• ${model}: ${qty} un.`, qX, qY);
+    qX += 60;
+  });
+
+  // Total line
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(249, 115, 22);
+  doc.text(`TOTAL CONSOLIDADO: ${macsF.length} Máquina(s) · ${hshsF.length} HASH(s) Avulsa(s)`, marginX + 6, y + 27);
+  y += 38;
+
+  // 3. Process Date Groups
+  const dateGroups = groupByDate(macsF, hshsF, loadPhotosF);
+  let done = 0;
+  const total = macsF.length + hshsF.length + (loadPhotosF?.length || 0);
+
+  for (const [day, group] of dateGroups) {
+    ensureSpace(20);
+    
+    // Day Banner header
+    doc.setFillColor(241, 245, 249);
+    doc.rect(marginX, y, pageW - 2 * marginX, 8, "F");
+    
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`📅 ENVIO DO DIA: ${day === "Sem Data" ? "Sem Data Registrada" : fmtDateLocal(day)}`, marginX + 4, y + 6);
+    y += 12;
+
+    // A. Day Summary of Quantities per Model
+    const dayQties = getQtyByModel(group.macs, group.hashes);
+    if (dayQties.length > 0) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      const daySummaryStr = dayQties.map(([model, qty]) => `${model} (${qty} un)`).join(" · ");
+      doc.text(`Modelos deste dia: ${daySummaryStr}`, marginX + 4, y);
+      y += 6;
+    }
+
+    // B. Cargo Photos of this Date (Fotos da Carga)
+    if (group.photos.length > 0) {
+      ensureSpace(40);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(249, 115, 22);
+      doc.text(`📸 Fotos da Carga / Carregamento (${group.photos.length})`, marginX + 4, y);
+      y += 6;
+
+      let photoIdx = 0;
+      for (const p of group.photos) {
+        const img = await loadImageAsDataURL(p.photoKey);
+        if (img) {
+          ensureSpace(90);
+          
+          const isLeft = photoIdx % 2 === 0;
+          const imgW = 85;
+          const imgH = 64;
+          const imgX = isLeft ? marginX + 4 : marginX + 94;
+          const imgY = y;
+
+          try {
+            doc.addImage(img, "JPEG", imgX, imgY, imgW, imgH);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`Carga - ${fmtDateLocal(p.date)} (Foto ${photoIdx + 1})`, imgX, imgY + imgH + 4);
+            
+            if (!isLeft || photoIdx === group.photos.length - 1) {
+              y += imgH + 8;
+            }
+          } catch {
+            doc.setDrawColor(226, 232, 240);
+            doc.rect(imgX, imgY, imgW, imgH, "S");
+            doc.text("Erro ao carregar imagem", imgX + 15, imgY + 30);
+            if (!isLeft || photoIdx === group.photos.length - 1) {
+              y += imgH + 8;
+            }
+          }
+          photoIdx++;
         }
+        done++;
+        onProgress?.(done, total);
       }
-      doc.setTextColor(0);y+=4;line();
-      done++;onProgress?.(done,total);
+      y += 4;
     }
-  }
-  if(hshsF.length){
-    ensureSpace(20);
-    doc.setFontSize(13);doc.setFont(undefined,"bold");doc.text("HASHs avulsas",marginX,y);y+=8;
-    doc.setFont(undefined,"normal");doc.setFontSize(9);
-    for(const h of hshsF){
-      ensureSpace(8);
-      doc.text(`${h.sn||"SEM SN"}  -  ${h.model}  -  ${h.status}  -  ${h._at?fmtTS(h._at):"-"}`,marginX,y);y+=6;
-      done++;onProgress?.(done,total);
-    }
-  }
-  if(loadPhotosF?.length){
-    ensureSpace(20);
-    doc.setFontSize(13);doc.setFont(undefined,"bold");doc.setTextColor(0);doc.text("Fotos da Carga do Envio",marginX,y);y+=8;
-    for(const p of loadPhotosF){
-      const img=await loadImageAsDataURL(p.photoKey);
-      if(img){
-        ensureSpace(112);
-        try{
-          doc.addImage(img,"JPEG",marginX,y,130,97);
-          doc.setFontSize(8);doc.setTextColor(140);
-          doc.text(`Carga - ${fmtDate(p.date)}`,marginX,y+103);
-          doc.setTextColor(0);
-          y+=112;
-        }catch{y+=4}
+
+    // C. Machines of this day
+    if (group.macs.length > 0) {
+      ensureSpace(15);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`🖥️ Máquinas Enviadas (${group.macs.length})`, marginX + 4, y);
+      y += 6;
+
+      for (const m of group.macs) {
+        const test = [...data.tests].reverse().find(t => t.machineSN === m.sn && t.overallResult === "good");
+        const photoToUse = m.photoKey || test?.testPhoto;
+        const cardH = photoToUse ? 104 : 32;
+
+        ensureSpace(cardH);
+
+        // Draw Card Background
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(marginX + 4, y, pageW - 2 * marginX - 8, cardH - 5, 2, 2, "FD");
+
+        // Orange Left Border
+        doc.setFillColor(249, 115, 22);
+        doc.rect(marginX + 4, y, 3, cardH - 5, "F");
+
+        // Machine details
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`${m.sn || "SEM SN"}  ·  ${m.model} (${m.th || "—"}TH)`, marginX + 11, y + 6);
+
+        // Subtitle Info
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        const slots = [m.hashSN0, m.hashSN1, m.hashSN2].filter(Boolean);
+        const slotsStr = slots.length ? `Placas HASH: ${slots.join(", ")}` : "Sem placas vinculadas";
+        doc.text(slotsStr, marginX + 11, y + 12);
+        
+        const testText = test ? `✓ Teste OK por ${test._byName || "técnico"}` : "Sem registro de teste recente";
+        doc.text(testText, marginX + 11, y + 17);
+
+        // Draw Photo if exists
+        if (photoToUse) {
+          const img = await loadImageAsDataURL(photoToUse);
+          if (img) {
+            try {
+              const imgW = 90;
+              const imgH = 68;
+              doc.addImage(img, "JPEG", marginX + 11, y + 21, imgW, imgH);
+              
+              doc.setFont("helvetica", "italic");
+              doc.setFontSize(7.5);
+              doc.setTextColor(148, 163, 184);
+              doc.text(`${m.photoKey ? "Foto da máquina" : "Foto do teste"} - ${m._at ? fmtTS(m._at) : (test?._at ? fmtTS(test._at) : "")}`, marginX + 11, y + 21 + imgH + 3.5);
+            } catch {
+              doc.text("[Erro ao carregar imagem]", marginX + 11, y + 24);
+            }
+          }
+        }
+
+        y += cardH;
+        done++;
+        onProgress?.(done, total);
       }
-      done++;onProgress?.(done,total);
+      y += 2;
+    }
+
+    // D. Hashes of this day
+    if (group.hashes.length > 0) {
+      ensureSpace(15);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`⚡ HASHs Avulsas Enviadas (${group.hashes.length})`, marginX + 4, y);
+      y += 6;
+
+      for (const h of group.hashes) {
+        const cardH = 22;
+        ensureSpace(cardH);
+
+        // Draw Card Background
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(marginX + 4, y, pageW - 2 * marginX - 8, cardH - 4, 2, 2, "FD");
+
+        // Blue Left Border
+        doc.setFillColor(14, 165, 233);
+        doc.rect(marginX + 4, y, 3, cardH - 4, "F");
+
+        // Hash details
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`${h.sn || "SEM SN"}  ·  ${h.model}`, marginX + 11, y + 6);
+
+        // Subtitle Info
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Status: ${h.status} · Material: ${h.material || "Não especificado"}`, marginX + 11, y + 12);
+
+        y += cardH;
+        done++;
+        onProgress?.(done, total);
+      }
+      y += 4;
     }
   }
+
   doc.save(`relatorio-${client.name.replace(/[^a-z0-9]/gi,"_")}.pdf`);
 }
 const PERMS=[{key:"repairs",label:"Conserto de HASHs"},{key:"testing",label:"Teste de Máquinas"},{key:"machines",label:"Estoque de Máquinas"},{key:"hashes",label:"Estoque de HASHs"},{key:"orders",label:"Pedidos"},{key:"approvals",label:"Revisão"},{key:"team",label:"Equipe"},{key:"clients",label:"Clientes"},{key:"admin",label:"Admin (acesso total)"}];
@@ -2829,7 +3042,7 @@ function MacPage({ctx}){
     f.id==="withHash"?(m.hash0==="ON"||m.hash1==="ON"||m.hash2==="ON"):
     f.id==="noHash"?(m.hash0!=="ON"&&m.hash1!=="ON"&&m.hash2!=="ON"):m.situacao===f.id
   ).length]));
-  const openAdd=()=>setModal(<Modal title="Adicionar" onClose={()=>setModal(null)}><AddModeSelect ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
+  const openAdd=()=>setModal(<Modal title="Adicionar" onClose={()=>setModal(null)}><AddMachineModalWrapper ctx={ctx} initialMode={null} onClose={()=>setModal(null)}/></Modal>);
   const openDetail=m=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m}/></Modal>);
   const selMachines=filtered.filter(m=>selected.has(m._id));
   return<div>
@@ -10655,13 +10868,19 @@ function ClientLoadPhotos({ctx,client}){
     await fbSet("loadPhotos",id,d);mutate("loadPhotos",arr=>[...arr,{...d,_id:id}]);await markChanged("loadPhotos");
     setAdding(false);
   };
+  const removePhoto=async(photoDoc)=>{
+    if(!confirm("Deseja realmente excluir esta foto da carga?"))return;
+    await fbDel("loadPhotos",photoDoc._id);
+    mutate("loadPhotos",arr=>arr.filter(x=>x._id!==photoDoc._id));
+    await markChanged("loadPhotos");
+  };
   return<div style={{marginBottom:14}}>
     <SL>📸 Fotos da Carga do Envio ({myPhotos.length})</SL>
     <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Pode adicionar quantas quiser — cada uma fica salva com a data de hoje, sem apagar as anteriores.</div>
     {!adding?<Btn v="b" onClick={()=>setAdding(true)} style={{width:"100%",marginBottom:10}}>➕ Adicionar Foto da Carga</Btn>
       :<div style={{marginBottom:10}}><PhotoCapture photoKey={null} onChange={addPhoto} folder="cargas" snHint={client.name}/></div>}
     {myPhotos.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-      {myPhotos.map(p=><div key={p._id}><PhotoView photoKey={p.photoKey} style={{maxHeight:120}}/><div style={{fontSize:10,color:C.muted,marginTop:2,textAlign:"center"}}>{fmtDate(p.date)}</div></div>)}
+      {myPhotos.map(p=><div key={p._id} style={{position:"relative",background:C.card2,borderRadius:10,padding:6,border:`1px solid ${C.border}`}}><PhotoView photoKey={p.photoKey} style={{maxHeight:120,borderRadius:6}}/><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}><span style={{fontSize:10,color:C.muted}}>{fmtDate(p.date)}</span><button onClick={()=>removePhoto(p)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:10,fontWeight:"bold"}}>✕ Excluir</button></div></div>)}
     </div>}
   </div>;
 }
@@ -10869,7 +11088,7 @@ function ClientReport({ctx,client}){
   const loadPhotosF=(data.loadPhotos||[]).filter(p=>p.clientId===client._id&&inRange(p._at));
   const baixarPDF=async()=>{
     setGen(true);setGenProg("Montando...");
-    try{await generateClientPDF(client,macsF,hshsF,data,loadPhotosF,(done,total)=>setGenProg(`Montando... ${done}/${total}`))}
+    try{await generateClientPDF(client,macsF,hshsF,data,loadPhotosF,dateFrom,dateTo,(done,total)=>setGenProg(`Montando... ${done}/${total}`))}
     catch(e){alert("Erro ao gerar PDF: "+e.message)}
     setGen(false);setGenProg("");
   };
