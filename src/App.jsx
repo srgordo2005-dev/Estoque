@@ -3112,6 +3112,19 @@ function BulkMachineAction({ctx,action,machines,onDone}){
         if(forceOn){["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}))}
       }
       await markChanged("machines");
+      if (sit === "SAIDA") {
+        const sns = machines.map(m=>m.sn).filter(Boolean);
+        for(const pl of data.pallets){
+          const hasAny = (pl.machinesSN||[]).some(sn => sns.includes(sn));
+          if(hasAny){
+            const ns=(pl.machinesSN||[]).filter(sn => !sns.includes(sn));
+            const upd2={...pl,machinesSN:ns,...audit(user)};
+            mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));
+            await fbSet("pallets",pl._id,upd2);
+          }
+        }
+        await markChanged("pallets");
+      }
     }else if(action==="pallet"&&palletId){
       const pl=data.pallets.find(p=>p._id===palletId);if(pl){const sns=machines.map(m=>m.sn).filter(Boolean);const ns=[...new Set([...(pl.machinesSN||[]),...sns])];const upd={...pl,machinesSN:ns,...audit(user)};mutate("pallets",arr=>arr.map(x=>x._id===palletId?upd:x));await fbSet("pallets",palletId,upd);await markChanged("pallets")}
     }else if(action==="client"&&clientId){
@@ -3119,6 +3132,21 @@ function BulkMachineAction({ctx,action,machines,onDone}){
         const sns=machines.map(m=>m.sn).filter(Boolean);
         for(const m of machines){const mHashes=data.hashes.filter(h=>h.machineSN===m.sn);for(const h of mHashes){const uh={...h,status:"SAIDA",location:"Vendida: "+cl.name,...audit(user)};mutate("hashes",arr=>arr.map(x=>x._id===h._id?uh:x));await fbSet("hashes",h._id,uh);syncSheet(webhookUrl,"hashSaida",{sn:uh.sn,machineSN:m.sn,employeeName:user.name,employeeCode:user.code})}const um={...m,situacao:"SAIDA",destino:cl.name,...audit(user)};mutate("machines",arr=>arr.map(x=>x._id===m._id?um:x));await fbSet("machines",m._id,um);syncSheet(webhookUrl,"machineToClient",{sn:m.sn,destino:cl.name,employeeName:user.name,employeeCode:user.code})}
         const ns=[...new Set([...(cl.machinesSN||[]),...sns])];const updc={...cl,machinesSN:ns,...audit(user)};mutate("clients",arr=>arr.map(x=>x._id===clientId?updc:x));await fbSet("clients",clientId,updc);
+        
+        // Sai de qualquer palete que estivesse
+        if(sns.length > 0){
+          for(const pl of data.pallets){
+            const hasAny = (pl.machinesSN||[]).some(sn => sns.includes(sn));
+            if(hasAny){
+              const palletNS=(pl.machinesSN||[]).filter(sn => !sns.includes(sn));
+              const upd2={...pl,machinesSN:palletNS,...audit(user)};
+              mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));
+              await fbSet("pallets",pl._id,upd2);
+            }
+          }
+          await markChanged("pallets");
+        }
+
         await markChanged("machines");await markChanged("hashes");await markChanged("clients");
       }
     }else if(action==="remove"){
