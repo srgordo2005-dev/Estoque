@@ -2636,7 +2636,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
         if (m.boa > 0) lines.push(`  • Prontas (Boas): ${m.boa}`);
         if (m.ruim > 0) lines.push(`  • Ruins / Reparo: ${m.ruim}`);
         if (m.shell > 0) lines.push(`  • Carcaças: ${m.shell}`);
-        if (m.stock > 0) lines.push(`  • Outros / Stock: 	ext{${m.stock}}`);
+        if (m.stock > 0) lines.push(`  • Outros / Stock: ${m.stock}`);
         lines.push(`  *Total*: ${totalModel}\n`);
         
         totalB += m.boa;
@@ -2651,7 +2651,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
     lines.push(`• Total Boas: ${totalB}`);
     lines.push(`• Total Ruins/Reparo: ${totalR}`);
     lines.push(`• Total Carcaças: ${totalC}`);
-    if (totalS > 0) lines.push(`• Total Outros/Stock: 	ext{${totalS}}`);
+    if (totalS > 0) lines.push(`• Total Outros/Stock: ${totalS}`);
     lines.push(`*TOTAL GERAL DE MÁQUINAS:* ${grandTotal}`);
     return lines.join("\n");
   };
@@ -2761,7 +2761,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
           </div>
           <div style={{maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4, marginBottom: 10}}>
             {hashReportData.map(g => (
-              <div key={g.norm} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, paddingBottom: 6, borderBottom: `1px solid 	ext{${C.border}}44`}}>
+              <div key={g.norm} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, paddingBottom: 6, borderBottom: `1px solid ${C.border}44`}}>
                 <div>
                   <span style={{fontWeight: 'bold', color: C.text}}>{g.hashModel}</span>
                   <span style={{color: C.muted, fontSize: 10, marginLeft: 6}}>
@@ -2795,7 +2795,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
             ))}
           </div>
 
-          <div style={{display: 'flex', gap: 8, alignItems: 'center', paddingTop: 8, borderTop: `1px solid 	ext{${C.border}}`}}>
+          <div style={{display: 'flex', gap: 8, alignItems: 'center', paddingTop: 8, borderTop: `1px solid ${C.border}`}}>
             <select 
               id="add-extra-model-select"
               style={{
@@ -2860,6 +2860,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
   );
 }
 
+
 function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
   const{user,data,setTab,setModal}=ctx;
   const today=TODAY();
@@ -2898,22 +2899,48 @@ function AdminSummary({ctx, data, setTab}){
   const { setModal } = ctx;
   const today = TODAY();
   const ms = {};
+  
+  const normalizeModel = (model) => {
+    if (!model) return "";
+    return model.replace(/\s+/g, "").toUpperCase().trim();
+  };
+
+  const displayNames = {};
+
   data.machines.forEach(m => {
-    if (!ms[m.model]) ms[m.model] = {model: m.model, boa: 0, stock: 0, ruim: 0, shell: 0, conserto: 0};
-    if (m.type === "shell") ms[m.model].shell++;
-    else if (["BOA", "LIGADA"].includes(m.situacao)) ms[m.model].boa++;
-    else if (m.situacao === "STOCK") ms[m.model].stock++;
-    else if (m.situacao === "ENTRADA OFICINA") ms[m.model].conserto++;
-    else ms[m.model].ruim++;
+    const rawModel = m.model || "SEM MODELO";
+    const norm = normalizeModel(rawModel);
+
+    if (!displayNames[norm]) {
+      displayNames[norm] = rawModel;
+    } else if (rawModel.includes(" ") && !displayNames[norm].includes(" ")) {
+      displayNames[norm] = rawModel;
+    }
+
+    if (!ms[norm]) {
+      ms[norm] = { model: "", norm, boa: 0, stock: 0, ruim: 0, shell: 0, conserto: 0, goodHashes: 0 };
+    }
+
+    if (m.type === "shell") {
+      ms[norm].shell++;
+    } else {
+      if (["BOA", "LIGADA"].includes(m.situacao)) ms[norm].boa++;
+      else if (m.situacao === "STOCK") ms[norm].stock++;
+      else if (m.situacao === "ENTRADA OFICINA") ms[norm].conserto++;
+      else ms[norm].ruim++;
+    }
+
+    if (m.situacao !== "SAIDA") {
+      if (m.hash0 === "ON") ms[norm].goodHashes++;
+      if (m.hash1 === "ON") ms[norm].goodHashes++;
+      if (m.hash2 === "ON") ms[norm].goodHashes++;
+    }
   });
 
-  const validMachinesForHashes = data.machines.filter(m => m.situacao !== "SAIDA");
-  let totalGoodHashesInStock = 0;
-  validMachinesForHashes.forEach(m => {
-    if (m.hash0 === "ON") totalGoodHashesInStock++;
-    if (m.hash1 === "ON") totalGoodHashesInStock++;
-    if (m.hash2 === "ON") totalGoodHashesInStock++;
+  Object.keys(ms).forEach(norm => {
+    ms[norm].model = displayNames[norm];
   });
+
   const normD = d => {
     if (!d) return "";
     if (d.includes("/")) {
@@ -3018,18 +3045,12 @@ function AdminSummary({ctx, data, setTab}){
           <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} Prontas · Ver todas ➔</div>
         </div>
 
-        <div className="card-3d" onClick={() => setModal(<Modal title="📊 Copiar Relatório WhatsApp" onClose={() => setModal(null)}><WhatsAppReportModal ctx={ctx} onClose={() => setModal(null)} /></Modal>)} style={{cursor: 'pointer'}}>
-          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{totalGoodHashesInStock}</div>
-          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>⚡ HASHs Boas (nas Máqs)</div>
-          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Gerar Relatório HASH ➔</div>
-        </div>
-
         <div className="card-3d" onClick={() => {
             localStorage.setItem("hs_team_subtab", "daily");
             localStorage.setItem("hs_team_start_date", "");
             localStorage.setItem("hs_team_end_date", "");
             if (setTab) setTab("team");
-          }} style={{cursor: 'pointer', gridColumn: "1 / -1"}}>
+          }} style={{cursor: 'pointer'}}>
           <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{totalRepairsAllTime}</div>
           <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>📜 Total Consertadas (Geral)</div>
           <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Acessar Histórico ➔</div>
@@ -3057,7 +3078,6 @@ function AdminSummary({ctx, data, setTab}){
           <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Ver Relatório de Equipe ➔</div>
         </div>
 
-        {/* Gráfico de Porcentagem Visual Premium reunindo as métricas pedidas */}
         <div className="card-3d" onClick={navToAdvancedTeam} style={{gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20, background: "linear-gradient(135deg, #181d28 0%, #10131c 100%)", cursor: "pointer", padding: 20}}>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
@@ -3074,14 +3094,13 @@ function AdminSummary({ctx, data, setTab}){
                 <div style={{fontWeight: 900, fontSize: 16, color: C.accent}}>{repairedThisWeekCount}</div>
                 <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Consertadas esta Semana</div>
               </div>
-              <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.border}`}}>
+              <div style={{background: C.card2 + "77", borderRadius: 8, padding: "8px 4px", border: `1px solid ${C.red}`}}>
                 <div style={{fontWeight: 900, fontSize: 16, color: C.red}}>{badCount}</div>
                 <div style={{fontSize: 9, color: C.muted, textTransform: 'uppercase'}}>Máquinas Ruins</div>
               </div>
             </div>
           </div>
 
-          {/* SVG Circular Radial Progress Chart */}
           <div style={{ display: "flex", justifyContent: "center", alignItems: "center", position: "relative", width: 100, height: 100 }}>
             <style>{`
               @keyframes stroke-anim-${percentage} {
@@ -3125,7 +3144,7 @@ function AdminSummary({ctx, data, setTab}){
           </div>
         </div>
       </div>
-{/* TABELA DE MODELOS COM FILTROS INTERATIVOS COMBINADOS */}
+
       <Card style={{background: 'linear-gradient(135deg, #181d28 0%, #10131c 100%)', border: `1px solid ${C.border}`}}>
         <div style={{fontWeight: 800, fontSize: 14, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
           <span style={{color: C.accent}}>📊 POR MODELO (INTERATIVO)</span>
@@ -3139,11 +3158,11 @@ function AdminSummary({ctx, data, setTab}){
         </div>
 
         <div style={{fontSize: 11, color: C.subtle, marginBottom: 10}}>
-          Clique no nome do modelo ou em qualquer tag de status para abrir a aba Máquinas filtrada!
+          Clique no nome do modelo ou tag de status para filtrar. Clique em "⚡ hash boas" para ver o relatório!
         </div>
 
         {Object.values(ms).sort((a, b) => (b.boa + b.ruim + b.stock) - (a.boa + a.ruim + a.stock)).map(s => (
-          <div key={s.model} style={{display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap', gap: 6}}>
+          <div key={s.norm} style={{display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap', gap: 6}}>
             <div 
               onClick={() => filterAndNav(s.model, "", "")}
               style={{fontWeight: 800, fontSize: 13, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6}}
@@ -3153,7 +3172,16 @@ function AdminSummary({ctx, data, setTab}){
               <span style={{fontSize: 10, color: C.accent, fontWeight: 700}}>➔</span>
             </div>
 
-            <div style={{display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end"}}>
+            <div style={{display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center"}}>
+              {s.goodHashes > 0 && (
+                <button 
+                  onClick={() => setModal(<Modal title="📊 Copiar Relatório WhatsApp" onClose={() => setModal(null)}><WhatsAppReportModal ctx={ctx} onClose={() => setModal(null)} /></Modal>)}
+                  style={{background: C.blue + '22', border: `1px solid ${C.blue}`, color: C.blue, borderRadius: 12, padding: '2px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3}}
+                  title={`Ver/Gerar relatório das HASHs boas (${s.goodHashes} un. em máquinas)`}
+                >
+                  ⚡ {s.goodHashes} hash boa{s.goodHashes > 1 ? 's' : ''} ➔
+                </button>
+              )}
               {s.boa > 0 && (
                 <button 
                   onClick={() => filterAndNav(s.model, "BOA", "")} 
@@ -3206,6 +3234,7 @@ function AdminSummary({ctx, data, setTab}){
     </>
   );
 }
+
 
 /* ═══ MACHINES ══════════════════════════════════════════════════ */
 function FilterBar({filters,active,onToggle,counts,label}){
