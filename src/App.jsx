@@ -2888,13 +2888,14 @@ function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
       {!isAdmin&&myRevisit.length>0&&<div style={{marginBottom:16}}><div style={{fontWeight:800,fontSize:14,marginBottom:10,color:C.red}}>🔁 Para Revisar ({myRevisit.length})</div>{myRevisit.map(m=><Card key={m._id} accent={C.red}><div style={{fontWeight:800}}>🖥️ {m.sn||"SEM SN"} — {m.model}</div><div style={{fontSize:12,color:C.red,marginTop:4}}>{m.adminNote||"Admin solicitou revisão"}</div></Card>)}</div>}
 
       {/* DASHBOARD PRINCIPAL DE RESUMO DE ESTOQUE E PRODUTIVIDADE */}
-      <AdminSummary data={data} setTab={setTab}/>
+      <AdminSummary ctx={ctx} data={data} setTab={setTab}/>
 
       <div style={{marginTop:16}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,today,ctx.setModal)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
     </div>
   );
 }
-function AdminSummary({data, setTab}){
+function AdminSummary({ctx, data, setTab}){
+  const { setModal } = ctx;
   const today = TODAY();
   const ms = {};
   data.machines.forEach(m => {
@@ -2904,6 +2905,14 @@ function AdminSummary({data, setTab}){
     else if (m.situacao === "STOCK") ms[m.model].stock++;
     else if (m.situacao === "ENTRADA OFICINA") ms[m.model].conserto++;
     else ms[m.model].ruim++;
+  });
+
+  const validMachinesForHashes = data.machines.filter(m => m.situacao !== "SAIDA");
+  let totalGoodHashesInStock = 0;
+  validMachinesForHashes.forEach(m => {
+    if (m.hash0 === "ON") totalGoodHashesInStock++;
+    if (m.hash1 === "ON") totalGoodHashesInStock++;
+    if (m.hash2 === "ON") totalGoodHashesInStock++;
   });
   const normD = d => {
     if (!d) return "";
@@ -3005,8 +3014,14 @@ function AdminSummary({data, setTab}){
       <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20}}>
         <div className="card-3d" onClick={() => filterAndNav("", "", "")} style={{cursor: 'pointer'}}>
           <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{data.machines.filter(m => m.situacao !== "SAIDA").length}</div>
-          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🖥️ Máquinas Cadastradas</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>🖥️ Máquinas no Estoque</div>
           <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>{data.machines.filter(m => ["BOA", "STOCK"].includes(m.situacao)).length} Prontas · Ver todas ➔</div>
+        </div>
+
+        <div className="card-3d" onClick={() => setModal(<Modal title="📊 Copiar Relatório WhatsApp" onClose={() => setModal(null)}><WhatsAppReportModal ctx={ctx} onClose={() => setModal(null)} /></Modal>)} style={{cursor: 'pointer'}}>
+          <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{totalGoodHashesInStock}</div>
+          <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>⚡ HASHs Boas (nas Máqs)</div>
+          <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Gerar Relatório HASH ➔</div>
         </div>
 
         <div className="card-3d" onClick={() => {
@@ -3014,7 +3029,7 @@ function AdminSummary({data, setTab}){
             localStorage.setItem("hs_team_start_date", "");
             localStorage.setItem("hs_team_end_date", "");
             if (setTab) setTab("team");
-          }} style={{cursor: 'pointer'}}>
+          }} style={{cursor: 'pointer', gridColumn: "1 / -1"}}>
           <div className="gold-text" style={{fontSize: 42, fontWeight: 900}}>{totalRepairsAllTime}</div>
           <div style={{fontWeight: 800, fontSize: 16, marginTop: 8, color: '#fff', textTransform: 'uppercase', letterSpacing: 1}}>📜 Total Consertadas (Geral)</div>
           <div style={{fontSize: 12, color: '#aaa', marginTop: 8}}>Acessar Histórico ➔</div>
