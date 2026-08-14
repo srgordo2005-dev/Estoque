@@ -2488,7 +2488,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
     const machineTHs = {};
     const hashMaterials = {};
 
-    const validMachines = data.machines.filter(m => ["BOA", "LIGADA"].includes(m.situacao));
+    const validMachines = data.machines.filter(m => ["BOA", "LIGADA", "STOCK"].includes(m.situacao) && m.situacao !== "PREPARANDO");
 
     validMachines.forEach(m => {
       const slots = [
@@ -2930,7 +2930,7 @@ function AdminSummary({ctx, data, setTab}){
       else ms[norm].ruim++;
     }
 
-    if (["BOA", "LIGADA"].includes(m.situacao)) {
+    if (["BOA", "LIGADA", "STOCK"].includes(m.situacao) && m.situacao !== "PREPARANDO") {
       if (m.hash0 === "ON") ms[norm].goodHashes++;
       if (m.hash1 === "ON") ms[norm].goodHashes++;
       if (m.hash2 === "ON") ms[norm].goodHashes++;
@@ -3349,6 +3349,7 @@ function MacPage({ctx}){
         <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🛠️ Mudar Status</Btn>
         <Btn v="p" onClick={()=>setBulkAction("pallet")} style={{fontSize:11,padding:"6px 10px"}}>📦 Mover p/ Palete</Btn>
         <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>🚚 Enviar p/ Cliente</Btn>
+        <Btn v="b" onClick={()=>setBulkAction("slots")} style={{fontSize:11,padding:"6px 10px"}}>🔌 Alterar Slots/HASHs</Btn>
         <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn></> }
       </div>}
     </div>
@@ -3366,7 +3367,7 @@ function MacPage({ctx}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:14,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}{m.sheetRow&&<span style={{fontSize:11,color:C.muted,fontWeight:500,marginLeft:6}}>(Linha {m.sheetRow})</span>}</div><div style={{color:C.muted,fontSize:12}}>{m.model} · {m.th}TH</div><By by={m._byName} at={m._at}/><LastMove log={m.changeLog}/></div><SP s={m.situacao}/></div>
         <div style={{display:"flex",gap:5,flexWrap:"wrap"}}><HP s={m.hash0}/><HP s={m.hash1}/><HP s={m.hash2}/>{m.controladora&&<span style={{fontSize:10,color:C.subtle}}>CTR:{m.controladora}</span>}{m.fans&&<span style={{fontSize:10,color:C.subtle}}>FAN:{m.fans}</span>}</div>
       </Card></div>)}
-    {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="pallet"?"📦 Mover p/ Palete":bulkAction==="client"?"👤 Enviar p/ Cliente":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
+    {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="pallet"?"📦 Mover p/ Palete":bulkAction==="client"?"👤 Enviar p/ Cliente":bulkAction==="slots"?"🔌 Alterar Slots em Lote":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
       <BulkMachineAction ctx={ctx} action={bulkAction} machines={selMachines} onDone={()=>{setBulkAction(null);setSelected(new Set());setSelMode(false)}}/>
     </Modal>}
   </div>;
@@ -3375,6 +3376,10 @@ function MacPage({ctx}){
 function BulkMachineAction({ctx,action,machines,onDone}){
   const{data,mutate,user,webhookUrl}=ctx;
   const[sit,setSit]=useState("BOA"),[palletId,setPalletId]=useState(""),[clientId,setClientId]=useState(""),[saving,setSaving]=useState(false);
+  const [slot0, setSlot0] = useState("KEEP");
+  const [slot1, setSlot1] = useState("KEEP");
+  const [slot2, setSlot2] = useState("KEEP");
+
   const apply=async()=>{
     setSaving(true);
     if(action==="status"){
@@ -3423,6 +3428,54 @@ function BulkMachineAction({ctx,action,machines,onDone}){
 
         await markChanged("machines");await markChanged("hashes");await markChanged("clients");
       }
+    }else if(action==="slots"){
+      for(const m of machines){
+        const patch = {};
+        const changedFields = [];
+        const logs = [];
+        
+        if (slot0 !== "KEEP") {
+          patch.hash0 = slot0;
+          if (m.hash0 !== slot0) {
+            changedFields.push({ field: "hash0", val: slot0 });
+            logs.push({ field: "hash0", label: "Slot 1 (HASH)", from: m.hash0 || "OFF", to: slot0, by: user.name, at: stamp() });
+          }
+        }
+        if (slot1 !== "KEEP") {
+          patch.hash1 = slot1;
+          if (m.hash1 !== slot1) {
+            changedFields.push({ field: "hash1", val: slot1 });
+            logs.push({ field: "hash1", label: "Slot 2 (HASH)", from: m.hash1 || "OFF", to: slot1, by: user.name, at: stamp() });
+          }
+        }
+        if (slot2 !== "KEEP") {
+          patch.hash2 = slot2;
+          if (m.hash2 !== slot2) {
+            changedFields.push({ field: "hash2", val: slot2 });
+            logs.push({ field: "hash2", label: "Slot 3 (HASH)", from: m.hash2 || "OFF", to: slot2, by: user.name, at: stamp() });
+          }
+        }
+
+        if (changedFields.length > 0) {
+          const newLog = [...logs, ...(m.changeLog || [])].slice(0, 80);
+          const u = { ...m, ...patch, changeLog: newLog, ...audit(user) };
+          mutate("machines", arr => arr.map(x => x._id === m._id ? u : x));
+          await fbSet("machines", m._id, u);
+          
+          changedFields.forEach(f => {
+            syncSheet(webhookUrl, "updateMachine", {
+              id: u._id,
+              sn: u.sn || "SEM SN",
+              row: u.sheetRow,
+              field: f.field,
+              to: f.val,
+              employeeName: user.name,
+              employeeCode: user.code
+            });
+          });
+        }
+      }
+      await markChanged("machines");
     }else if(action==="remove"){
       if(!confirm(`⚠️ Tem certeza que deseja REMOVER as ${machines.length} máquinas selecionadas permanentemente? Isso também as apagará da planilha!`)) {
         setSaving(false);
@@ -3487,9 +3540,24 @@ function BulkMachineAction({ctx,action,machines,onDone}){
     {action==="status"&&<Sel label="NOVA SITUAÇÃO" value={sit} onChange={e=>setSit(e.target.value)}>{SIT_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>}
     {action==="pallet"&&<Sel label="PALETE DESTINO" value={palletId} onChange={e=>setPalletId(e.target.value)}><option value="">Selecionar...</option>{(data.pallets||[]).map(p=><option key={p._id} value={p._id}>{p.name}</option>)}</Sel>}
     {action==="client"&&<><Sel label="CLIENTE DESTINO" value={clientId} onChange={e=>setClientId(e.target.value)}><option value="">Selecionar...</option>{(data.clients||[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}</Sel><div style={{color:C.amber,fontSize:11,marginBottom:10}}>⚠️ Máquinas e HASHs internas vão para SAIDA</div></>}
+    
+    {action==="slots"&&<div style={{background:C.card2,padding:10,borderRadius:8,marginBottom:14,display:"flex",flexDirection:"column",gap:10}}>
+      {[0,1,2].map(i=>{
+        const val=i===0?slot0:i===1?slot1:slot2;
+        const setVal=i===0?setSlot0:i===1?setSlot1:setSlot2;
+        return<div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:11,fontWeight:700,color:C.text}}>Slot {i+1} (HASH):</span>
+          <div style={{display:"flex",gap:4}}>
+            {["KEEP","ON","OFF"].map(opt=><button key={opt} onClick={()=>setVal(opt)} style={{background:val===opt?(opt==="ON"?C.green:opt==="OFF"?C.red:C.accent):C.bg,color:"#fff",border:"1px solid "+(val===opt?"transparent":C.border),borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{opt==="KEEP"?"Manter":opt}</button>)}
+          </div>
+        </div>;
+      })}
+    </div>}
+
     <Btn v={action==="remove"?"d":"g"} onClick={apply} disabled={saving||(action==="pallet"&&!palletId)||(action==="client"&&!clientId)} style={{width:"100%"}}>{saving?"Processando...":action==="remove"?"🗑️ Remover "+machines.length+" máquina(s)":"✓ Aplicar a "+machines.length}</Btn>
   </div>;
 }
+
 
 function MapeamentoPrateleira({ctx, onClose}){
   const {data, mutate, user, setModal} = ctx;
