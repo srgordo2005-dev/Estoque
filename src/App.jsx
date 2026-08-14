@@ -2466,12 +2466,118 @@ function BtcLiveTicker() {
 }
 
 function WhatsAppReportModal({ ctx, onClose }) {
+  const { user, data, setTab, setModal, gChips } = ctx;
+  const [reportType, setReportType] = useState("good"); // "good", "general", or "hashes"
+  const [looseQuantities, setLooseQuantities] = useState({});
+  const [extraModels, setExtraModels] = useState([]);
+
+  const normalizeModel = (model) => {
+    if (!model) return "";
+    return model.replace(/\s+/g, "").toUpperCase().trim();
+  };
+
+  const allSystemModels = [...new Set([
+    ...DEF_MODELS.map(m => m.m),
+    ...data.customModels.filter(m => !m._hidden && m.th >= 0).map(m => m.m)
+  ])].sort();
+
+  const getHashReportData = () => {
+    const groups = {};
+    const displayNames = {};
+    const machineModels = {};
+    const machineTHs = {};
+    const hashMaterials = {};
+
+    const validMachines = data.machines.filter(m => m.situacao !== "SAIDA");
+
+    validMachines.forEach(m => {
+      const slots = [
+        { status: m.hash0, sn: m.hashSN0 },
+        { status: m.hash1, sn: m.hashSN1 },
+        { status: m.hash2, sn: m.hashSN2 }
+      ];
+
+      slots.forEach(slot => {
+        if (slot.status === "ON") {
+          const h = slot.sn ? data.hashes.find(x => x.sn === slot.sn) : null;
+          const rawHashModel = h?.model || m.model || "";
+          const normHashModel = normalizeModel(rawHashModel);
+
+          if (!normHashModel) return;
+
+          if (!displayNames[normHashModel]) {
+            displayNames[normHashModel] = rawHashModel;
+          } else if (rawHashModel.includes(" ") && !displayNames[normHashModel].includes(" ")) {
+            displayNames[normHashModel] = rawHashModel;
+          }
+
+          const rawMachineModel = m.model || "";
+          if (!machineModels[normHashModel]) {
+            machineModels[normHashModel] = rawMachineModel;
+            machineTHs[normHashModel] = m.th || "";
+            hashMaterials[normHashModel] = h?.material || "";
+          }
+
+          if (!groups[normHashModel]) {
+            groups[normHashModel] = {
+              norm: normHashModel,
+              hashModel: "",
+              machineModel: "",
+              th: "",
+              chips: null,
+              installedCount: 0
+            };
+          }
+          groups[normHashModel].installedCount++;
+        }
+      });
+    });
+
+    const reportData = Object.keys(groups).map(norm => {
+      const g = groups[norm];
+      g.hashModel = displayNames[norm];
+      g.machineModel = machineModels[norm];
+      g.th = machineTHs[norm];
+      
+      const material = hashMaterials[norm];
+      g.chips = gChips(g.hashModel, material);
+      g.looseCount = Number(looseQuantities[norm] || 0);
+      g.totalCount = g.installedCount + g.looseCount;
+      return g;
+    });
+
+    // Append extra models
+    const activeNorms = new Set(reportData.map(r => r.norm));
+    extraModels.forEach(norm => {
+      if (!activeNorms.has(norm)) {
+        const originalName = allSystemModels.find(m => normalizeModel(m) === norm) || norm;
+        const chips = gChips(originalName, "");
+        reportData.push({
+          norm,
+          hashModel: originalName,
+          machineModel: originalName,
+          th: "",
+          chips,
+          installedCount: 0,
+          looseCount: Number(looseQuantities[norm] || 0),
+          totalCount: Number(looseQuantities[norm] || 0)
+        });
+      }
+    });
+
+    return reportData.sort((a, b) => b.totalCount - a.totalCount);
+  };
+
+  const hashReportData = getHashReportData();
+
   const generateGoodReport = (data) => {
     const ms = {};
     data.machines.forEach(m => {
-      if (!ms[m.model]) ms[m.model] = 0;
+      const norm = normalizeModel(m.model);
+      if (!norm) return;
+      if (!ms[norm]) ms[norm] = { name: m.model, qty: 0 };
       if (m.type !== "shell" && ["BOA", "LIGADA"].includes(m.situacao)) {
-        ms[m.model]++;
+        ms[norm].qty++;
       }
     });
 
@@ -2482,11 +2588,11 @@ function WhatsAppReportModal({ ctx, onClose }) {
     ];
 
     let totalGood = 0;
-    Object.keys(ms).sort().forEach(model => {
-      const qty = ms[model];
-      if (qty > 0) {
-        lines.push(`• *${model}*: ${qty} ${qty === 1 ? 'unidade boa' : 'unidades boas'}`);
-        totalGood += qty;
+    Object.keys(ms).sort().forEach(norm => {
+      const item = ms[norm];
+      if (item.qty > 0) {
+        lines.push(`• *${item.name}*: ${item.qty} ${item.qty === 1 ? 'unidade boa' : 'unidades boas'}`);
+        totalGood += item.qty;
       }
     });
 
@@ -2501,15 +2607,17 @@ function WhatsAppReportModal({ ctx, onClose }) {
   const generateGeneralReport = (data) => {
     const ms = {};
     data.machines.forEach(m => {
-      if (!ms[m.model]) ms[m.model] = { boa: 0, ruim: 0, shell: 0, stock: 0 };
+      const norm = normalizeModel(m.model);
+      if (!norm) return;
+      if (!ms[norm]) ms[norm] = { name: m.model, boa: 0, ruim: 0, shell: 0, stock: 0 };
       if (m.type === "shell") {
-        ms[m.model].shell++;
+        ms[norm].shell++;
       } else if (["BOA", "LIGADA"].includes(m.situacao)) {
-        ms[m.model].boa++;
+        ms[norm].boa++;
       } else if (["RUIM", "ENTRADA OFICINA"].includes(m.situacao)) {
-        ms[m.model].ruim++;
+        ms[norm].ruim++;
       } else {
-        ms[m.model].stock++;
+        ms[norm].stock++;
       }
     });
 
@@ -2520,15 +2628,15 @@ function WhatsAppReportModal({ ctx, onClose }) {
     ];
 
     let totalB = 0, totalR = 0, totalC = 0, totalS = 0;
-    Object.keys(ms).sort().forEach(model => {
-      const m = ms[model];
+    Object.keys(ms).sort().forEach(norm => {
+      const m = ms[norm];
       const totalModel = m.boa + m.ruim + m.shell + m.stock;
       if (totalModel > 0) {
-        lines.push(`*${model}*`);
+        lines.push(`*${m.name}*`);
         if (m.boa > 0) lines.push(`  • Prontas (Boas): ${m.boa}`);
         if (m.ruim > 0) lines.push(`  • Ruins / Reparo: ${m.ruim}`);
         if (m.shell > 0) lines.push(`  • Carcaças: ${m.shell}`);
-        if (m.stock > 0) lines.push(`  • Outros / Stock: ${m.stock}`);
+        if (m.stock > 0) lines.push(`  • Outros / Stock: 	ext{${m.stock}}`);
         lines.push(`  *Total*: ${totalModel}\n`);
         
         totalB += m.boa;
@@ -2539,20 +2647,49 @@ function WhatsAppReportModal({ ctx, onClose }) {
     });
 
     const grandTotal = totalB + totalR + totalC + totalS;
-    lines.push(`*RESUMO GERAL:*`);
+    lines.push(`*RESUMO GERAL:*\n`);
     lines.push(`• Total Boas: ${totalB}`);
     lines.push(`• Total Ruins/Reparo: ${totalR}`);
     lines.push(`• Total Carcaças: ${totalC}`);
-    if (totalS > 0) lines.push(`• Total Outros/Stock: ${totalS}`);
+    if (totalS > 0) lines.push(`• Total Outros/Stock: 	ext{${totalS}}`);
     lines.push(`*TOTAL GERAL DE MÁQUINAS:* ${grandTotal}`);
     return lines.join("\n");
   };
 
-  const [reportType, setReportType] = useState("good"); // "good" or "general"
+  const generateHashesReport = (reportData) => {
+    const lines = [
+      `*⚡ RELATÓRIO DE PLACAS HASH DISPONÍVEIS (ESTOQUE)*`,
+      `_Data: ${new Date().toLocaleDateString("pt-BR")}_`,
+      `\nResumo de placas HASH boas prontas em máquinas e avulsas:\n`
+    ];
+
+    let grandTotal = 0;
+    reportData.forEach(g => {
+      if (g.totalCount > 0) {
+        const chipsStr = g.chips ? ` (${g.chips} chips)` : "";
+        const machineStr = g.th ? ` · Máquina: ${g.machineModel} ${g.th}TH` : "";
+        lines.push(`• *${g.hashModel}*${chipsStr}${machineStr}`);
+        lines.push(`  - Em máquina (prontas): ${g.installedCount} un`);
+        lines.push(`  - Avulsas (soltas): ${g.looseCount} un`);
+        lines.push(`  *Total disponível*: ${g.totalCount} un\n`);
+        grandTotal += g.totalCount;
+      }
+    });
+
+    if (grandTotal === 0) {
+      lines.push(`_Nenhuma placa HASH boa no estoque no momento._`);
+    } else {
+      lines.push(`*TOTAL GERAL DE PLACAS HASH:* ${grandTotal} unidades`);
+    }
+
+    return lines.join("\n");
+  };
   
   const reportText = reportType === "good" 
-    ? generateGoodReport(ctx.data) 
-    : generateGeneralReport(ctx.data);
+    ? generateGoodReport(data) 
+    : reportType === "general"
+      ? generateGeneralReport(data)
+      : generateHashesReport(hashReportData);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(reportText);
@@ -2566,7 +2703,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
 
   return (
     <div style={{padding: 10}}>
-      <div style={{display: 'flex', gap: 8, marginBottom: 14}}>
+      <div style={{display: 'flex', gap: 6, marginBottom: 14}}>
         <button 
           onClick={() => setReportType("good")} 
           style={{
@@ -2577,11 +2714,11 @@ function WhatsAppReportModal({ ctx, onClose }) {
             borderRadius: 8, 
             padding: '10px 0', 
             fontWeight: 700, 
-            fontSize: 12, 
+            fontSize: 11, 
             cursor: 'pointer'
           }}
         >
-          📋 Apenas Boas
+          📋 Máqs Boas
         </button>
         <button 
           onClick={() => setReportType("general")} 
@@ -2593,13 +2730,106 @@ function WhatsAppReportModal({ ctx, onClose }) {
             borderRadius: 8, 
             padding: '10px 0', 
             fontWeight: 700, 
-            fontSize: 12, 
+            fontSize: 11, 
             cursor: 'pointer'
           }}
         >
-          📊 Geral (Tudo)
+          📊 Máqs Geral
+        </button>
+        <button 
+          onClick={() => setReportType("hashes")} 
+          style={{
+            flex: 1, 
+            background: reportType === "hashes" ? C.accent : C.card2, 
+            color: '#fff', 
+            border: 'none', 
+            borderRadius: 8, 
+            padding: '10px 0', 
+            fontWeight: 700, 
+            fontSize: 11, 
+            cursor: 'pointer'
+          }}
+        >
+          ⚡ Placas HASH
         </button>
       </div>
+
+      {reportType === "hashes" && (
+        <div style={{marginBottom: 14, background: C.card2, borderRadius: 10, padding: 12, border: `1px solid ${C.border}`}}>
+          <div style={{fontWeight: 800, fontSize: 11, color: C.accent, marginBottom: 8, textTransform: "uppercase"}}>
+            Ajustar Placas Soltas (Avulsas) no Estoque
+          </div>
+          <div style={{maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4, marginBottom: 10}}>
+            {hashReportData.map(g => (
+              <div key={g.norm} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, paddingBottom: 6, borderBottom: `1px solid 	ext{${C.border}}44`}}>
+                <div>
+                  <span style={{fontWeight: 'bold', color: C.text}}>{g.hashModel}</span>
+                  <span style={{color: C.muted, fontSize: 10, marginLeft: 6}}>
+                    (Na Máq: {g.installedCount})
+                  </span>
+                </div>
+                <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
+                  <span style={{fontSize: 10, color: C.muted}}>Soltas:</span>
+                  <input 
+                    type="number" 
+                    min="0"
+                    value={looseQuantities[g.norm] === undefined ? "" : looseQuantities[g.norm]} 
+                    onChange={e => {
+                      const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                      setLooseQuantities(prev => ({ ...prev, [g.norm]: val }));
+                    }}
+                    placeholder="0"
+                    style={{
+                      background: C.bg, 
+                      color: C.text, 
+                      border: `1px solid ${C.border}`, 
+                      borderRadius: 6, 
+                      width: 50, 
+                      padding: "3px 6px", 
+                      fontSize: 12,
+                      textAlign: 'center'
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{display: 'flex', gap: 8, alignItems: 'center', paddingTop: 8, borderTop: `1px solid 	ext{${C.border}}`}}>
+            <select 
+              id="add-extra-model-select"
+              style={{
+                background: C.bg, 
+                color: C.text, 
+                border: `1px solid ${C.border}`, 
+                borderRadius: 6, 
+                padding: "4px 8px", 
+                fontSize: 11,
+                flex: 1
+              }}
+            >
+              <option value="">+ Selecionar outro modelo...</option>
+              {allSystemModels.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <Btn 
+              v="s" 
+              onClick={() => {
+                const sel = document.getElementById("add-extra-model-select");
+                if (sel && sel.value) {
+                  const norm = normalizeModel(sel.value);
+                  if (!extraModels.includes(norm)) {
+                    setExtraModels(prev => [...prev, norm]);
+                  }
+                  sel.value = "";
+                }
+              }}
+              style={{fontSize: 10, padding: "5px 12px"}}
+            >
+              Adicionar
+            </Btn>
+          </div>
+        </div>
+      )}
 
       <div style={{
         background: C.bg, 
@@ -2609,7 +2839,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
         fontFamily: 'monospace', 
         fontSize: 12, 
         whiteSpace: 'pre-wrap', 
-        maxHeight: 250, 
+        maxHeight: 200, 
         overflowY: 'auto', 
         border: `1px solid ${C.border}`,
         marginBottom: 14
