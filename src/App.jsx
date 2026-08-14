@@ -2473,7 +2473,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
 
   const normalizeModel = (model) => {
     if (!model) return "";
-    return model.replace(/\s+/g, "").toUpperCase().trim();
+    return model.replace(/[\s\-_]/g, "").toUpperCase().trim();
   };
 
   const allSystemModels = [...new Set([
@@ -2902,7 +2902,7 @@ function AdminSummary({ctx, data, setTab}){
   
   const normalizeModel = (model) => {
     if (!model) return "";
-    return model.replace(/\s+/g, "").toUpperCase().trim();
+    return model.replace(/[\s\-_]/g, "").toUpperCase().trim();
   };
 
   const displayNames = {};
