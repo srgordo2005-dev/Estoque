@@ -2488,7 +2488,7 @@ function WhatsAppReportModal({ ctx, onClose }) {
     const machineTHs = {};
     const hashMaterials = {};
 
-    const validMachines = data.machines.filter(m => m.situacao !== "SAIDA");
+    const validMachines = data.machines.filter(m => ["BOA", "LIGADA"].includes(m.situacao));
 
     validMachines.forEach(m => {
       const slots = [
@@ -2930,7 +2930,7 @@ function AdminSummary({ctx, data, setTab}){
       else ms[norm].ruim++;
     }
 
-    if (m.situacao !== "SAIDA") {
+    if (["BOA", "LIGADA"].includes(m.situacao)) {
       if (m.hash0 === "ON") ms[norm].goodHashes++;
       if (m.hash1 === "ON") ms[norm].goodHashes++;
       if (m.hash2 === "ON") ms[norm].goodHashes++;
@@ -3313,7 +3313,7 @@ function MacPage({ctx}){
     {id:"complete",label:"Completas",color:C.blue},
     {id:"shell",label:"Carcaças",color:C.muted},
     {id:"nosn",label:"Sem SN",color:C.red},
-    {id:"withHash",label:"Com HASH ON",color:C.green},
+    {id:"withHash",label:"Com pelo menos 1 HASH ON (boas)",color:C.green},
     {id:"noHash",label:"Sem HASH",color:C.amber},
   ];
   const macCounts=Object.fromEntries(macFilters.map(f=>[f.id,data.machines.filter(m=>
