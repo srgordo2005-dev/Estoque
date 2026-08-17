@@ -5249,14 +5249,16 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
   const{data,mutate,user,webhookUrl,gChips}=ctx;
   const slotField=`hashSN${i}`;
   const[localSN,setLocalSN]=useState(m[slotField]||"");
+  const[sc,setSc]=useState(false);
   useEffect(()=>{setLocalSN(m[slotField]||"")},[m[slotField]]);
   const slotSN=m[slotField]||"";
   const slotHash=slotSN?data.hashes.find(h=>normSNField(h.sn)===normSNField(slotSN)):null;
-  const commit=async()=>{
-    const upper=localSN.toUpperCase().trim();
+  const commit=async(valOverride)=>{
+    const valueToCommit = typeof valOverride === "string" ? valOverride : localSN;
+    const upper=valueToCommit.toUpperCase().trim();
     setLocalSN(upper);
     if(upper===normSNField(slotSN))return;
-    resolveSNDuplicates(localSN, "hash", ctx, async (found) => {
+    resolveSNDuplicates(upper, "hash", ctx, async (found) => {
       const actualSN = found ? found.sn : upper;
       await upd(slotField, actualSN);
       // Se já tinha outra HASH nesse slot, desvincula ela (volta pra fila de teste)
@@ -5278,13 +5280,15 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
   };
   const notFound=localSN.trim()&&!data.hashes.find(h=>normSNField(h.sn)===localSN.toUpperCase().trim());
   return<div style={{marginBottom:8}}>
-    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
       <span style={{color:C.subtle,fontSize:10,width:50,flexShrink:0,fontWeight:800}}>SLOT {i+1}</span>
-      <input value={localSN} onChange={e=>setLocalSN(e.target.value.toUpperCase())} onBlur={commit} onKeyDown={e=>e.key==="Enter"&&e.target.blur()} placeholder="SN da HASH" style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}/>
-      <select value={m["hash"+i]||"OFF"} onChange={e=>upd("hash"+i,e.target.value)} style={{...inp,width:78,padding:"7px 6px",fontSize:10}}>
+      <input value={localSN} onChange={e=>setLocalSN(e.target.value.toUpperCase())} onBlur={()=>commit()} onKeyDown={e=>e.key==="Enter"&&e.target.blur()} placeholder="SN da HASH" style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}/>
+      <button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"7px 10px",cursor:"pointer",fontSize:13,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}} title="Escanear">📷</button>
+      <select value={m["hash"+i]||"OFF"} onChange={e=>upd("hash"+i,e.target.value)} style={{...inp,width:72,padding:"7px 6px",fontSize:10}}>
         {CTR_OPTS.map(s=><option key={s}>{s}</option>)}
       </select>
     </div>
+    {sc&&<BarcodeScanner onScan={v=>{setLocalSN(v.toUpperCase());setSc(false);commit(v.toUpperCase())}} onClose={()=>setSc(false)}/>}
     {slotHash&&<div style={{width:"calc(100% - 58px)",marginLeft:58,marginTop:4}}>
       <div style={{background:HST_C[slotHash.status]+"15",border:"1px solid "+HST_C[slotHash.status]+"44",borderRadius:8,padding:"5px 12px",marginBottom:4,fontSize:11}}>
         <span style={{color:HST_C[slotHash.status],fontWeight:700}}>{"⚡ "+slotHash.model+" — "+(slotHash.sn||"").slice(0,14)}</span>
@@ -5303,6 +5307,8 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
     </div>}
   </div>;
 }
+
+
 function MachineDetail({ctx,machine,readOnly}){
   const{data,mutate,setModal,user,webhookUrl,allModels,gTH}=ctx;const models=allModels();
   const[m,setM]=useState(machine);
@@ -6286,7 +6292,6 @@ function ConsertaPage({ctx}){
 
   const doSubmit=async(type)=>{
     if(!f.hashSN.trim())return;
-    if(!photoKey){setPhotoErr("Foto obrigatória!");return}
     setPhotoErr("");
     const sn=f.hashSN.toUpperCase().trim();const id=uid();
     // "Chips trocados" (parte do reparo) é DIFERENTE de "chips da placa"
@@ -6400,22 +6405,13 @@ function ConsertaPage({ctx}){
               </Card>;
             })}
           </div>
-        </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.red,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,width:"100%",justifyContent:"center",animation:"repairGlow 1.8s ease-in-out infinite"}}>⚠️ {failedTests.length} placa(s) ruim(ns) no teste</button>
+        </Modal>)} style={{display:"flex",alignItems:"center",gap:6,background:C.red,border:"none",color:"#fff",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:12,width:"100%",justifyContent:"center",animation:"repairGlow 1.8s ease-in-out infinite"}}>⚠️ {failedTests.length} placa(s) sua(s) reprovada(s)</button>
     </>}
-    <HashSearchBox ctx={ctx}/>
-    {saved==="repair"&&<Alrt type="ok">✓ Conserto registrado! HASH vai para fila de teste.</Alrt>}
-    {saved==="already_good"&&<Alrt type="ok">✅ Registrada como já estava boa! Vai para fila de teste.</Alrt>}
     <Card>
-      <SL>REGISTRAR CONSERTO DE HASH</SL>
-      <div style={{display:"flex",gap:8,alignItems:"flex-end",marginBottom:0}}>
-        <div style={{flex:1}}>
-          <SNInput label="SN DA HASHBOARD" value={f.hashSN} onChange={v=>{
-            set("hashSN",v);
-            const ex=data.hashes.find(h=>h.sn===v.toUpperCase().trim());
-            if(ex){if(ex.model)set("model",ex.model);if(ex.material)set("material",ex.material);if(ex.chips)set("boardChips",ex.chips)}
-          }} placeholder="Bipe, escaneie ou digite" list="hsh-rep"/>
-        </div>
-        <Btn v="b" onClick={()=>ctx.setModal(<Modal title="Gerar SN" onClose={()=>ctx.setModal(null)}><GenerateSNModal ctx={ctx} onClose={(newSN)=>{ctx.setModal(null);if(typeof newSN==='string'&&newSN){set("hashSN",newSN);}}}/></Modal>)} style={{height:44,marginBottom:12,padding:"0 12px"}}>+ SN</Btn>
+      <div style={{fontWeight:800,fontSize:14,color:C.accent,marginBottom:12}}>🔧 REGISTRAR CONSERTO</div>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>DIGITE OU BIPAR HASH SN</div>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <input list="hsh-rep" value={f.hashSN} onChange={e=>set("hashSN",e.target.value.toUpperCase())} placeholder="Digite ou bipe o SN da HASH" style={{...inp,flex:1}}/>
       </div>
       {(() => {
         const existingHash = f.hashSN.trim() ? data.hashes.find(h => h.sn === f.hashSN.toUpperCase().trim()) : null;
@@ -6446,7 +6442,7 @@ function ConsertaPage({ctx}){
         <Inp label="LDOs" type="number" value={f.ldos} onChange={e=>set("ldos",e.target.value)} placeholder="0"/>
       </div>:<Inp label="DESCRIÇÃO DO CONSERTO" value={f.obsManual} onChange={e=>set("obsManual",e.target.value)} placeholder="Ex: 3 chips U3 trocados, reballing..."/>}
       <Inp label="OBSERVAÇÃO ADICIONAL" value={f.notes} onChange={e=>set("notes",e.target.value)} placeholder="Opcional..."/>
-      <PhotoCapture label="FOTO / PRINT (obrigatória)" photoKey={photoKey} onChange={k=>{setPhotoKey(k);setPhotoErr("")}} folder="consertos" snHint={f.hashSN} onUploadFail={setPhotoBlocked} required/>
+      <PhotoCapture label="FOTO / PRINT (opcional)" photoKey={photoKey} onChange={k=>{setPhotoKey(k);setPhotoErr("")}} folder="consertos" snHint={f.hashSN} onUploadFail={setPhotoBlocked}/>
       {photoErr&&<Alrt type="err">{photoErr}</Alrt>}
       <div style={{display:"flex",gap:8}}>
         <Btn v="y" onClick={()=>{if(confirm(`Confirma que a HASH ${f.hashSN||"(sem SN)"} já estava boa, sem precisar de conserto?`))doSubmit("already_good")}} disabled={photoBlocked} style={{flex:1}}>✅ Já Estava Boa</Btn>
@@ -6457,6 +6453,7 @@ function ConsertaPage({ctx}){
     <div style={{marginTop:14}}><Btn v="s" onClick={()=>copyReport(user,data.repairs,data.tests,TODAY(),ctx.setModal)} style={{width:"100%",justifyContent:"center"}}>📋 Copiar Relatório do Dia</Btn></div>
   </div>;
 }
+
 
 /* ═══ TESTE ═════════════════════════════════════════════════════ */
 // Input de SN do slot com estado LOCAL — só chama onCommit (que faz toda a
