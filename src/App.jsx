@@ -4668,22 +4668,22 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                 </div>
                 
                 <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => ctx.setModal({
-                        content: <ScannerSettingsModal 
-                            pools={pools} setPools={setPools}
-                            overclockEnabled={overclockEnabled} setOverclockEnabled={setOverclockEnabled}
-                            ocModel={ocModel} setOcModel={setOcModel}
-                            ocMode={ocMode} setOcMode={setOcMode}
-                            ocOption={ocOption} setOcOption={setOcOption}
-                            onlySuccessMiners={onlySuccessMiners} setOnlySuccessMiners={setOnlySuccessMiners}
-                            reOverclocking={reOverclocking} setReOverclocking={setReOverclocking}
-                            powerControl={powerControl} setPowerControl={setPowerControl}
-                            lpmType={lpmType} setLpmType={setLpmType}
-                            onClose={() => ctx.setModal(null)} 
-                        />,
-                        title: "Configurações Globais",
-                        hideHeader: true
-                    })} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button onClick={() => ctx.setModal(
+                        <Modal title="Configurações Globais" onClose={() => ctx.setModal(null)}>
+                            <ScannerSettingsModal 
+                                pools={pools} setPools={setPools}
+                                overclockEnabled={overclockEnabled} setOverclockEnabled={setOverclockEnabled}
+                                ocModel={ocModel} setOcModel={setOcModel}
+                                ocMode={ocMode} setOcMode={setOcMode}
+                                ocOption={ocOption} setOcOption={setOcOption}
+                                onlySuccessMiners={onlySuccessMiners} setOnlySuccessMiners={setOnlySuccessMiners}
+                                reOverclocking={reOverclocking} setReOverclocking={setReOverclocking}
+                                powerControl={powerControl} setPowerControl={setPowerControl}
+                                lpmType={lpmType} setLpmType={setLpmType}
+                                onClose={() => ctx.setModal(null)} 
+                            />
+                        </Modal>
+                    )} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                         ⚙️ Configurações
                     </button>
                     <button style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
@@ -4817,7 +4817,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                     <div style={{ flex: 1.6, display: 'flex', flexDirection: 'column', gap: 2 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                             <span style={{ fontSize: 13, fontWeight: 900, color: '#fff' }}>{m.model || "Antminer S19"}</span>
-                                            <span style={{ fontSize: 7, fontWeight: 900, color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '1px 4px', borderRadius: 3, background: 'rgba(16,185,129,0.06)' }}>Hashcore</span>
+                                            <span style={{ fontSize: 7, fontWeight: 900, color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '1px 4px', borderRadius: 3, background: 'rgba(16,185,129,0.06)' }}>HashStock</span>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#8892b0' }}>
                                             <span style={{ color: '#fff', fontWeight: 800 }}>{m.ip}</span>
@@ -5030,7 +5030,7 @@ function DataCenterPage({ctx}) {
                     <div style={{fontWeight:900, fontSize:22, color:'#10b981', display:'flex', alignItems:'center', gap:10}}>
                        <span style={{fontSize:28}}>🏢</span> Fazendas Cadastradas
                        {user?.code === "019" && (
-                            <button onClick={() => ctx.setModal({content: <FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} />, title: "Configuração", hideHeader: true})} style={{background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#fff', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer', marginLeft: 10}}>
+                            <button onClick={() => ctx.setModal(<Modal title="Configuração" onClose={() => ctx.setModal(null)}><FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} /></Modal>)} style={{background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#fff', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer', marginLeft: 10}}>
                                ⚙️ Gerenciar Fazendas
                             </button>
                        )}
@@ -5304,63 +5304,63 @@ function DataCenterPage({ctx}) {
                 </div>
             </div>
 
-            {/* Subbar: Breadcrumbs + Stats Badges */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', background: '#151b26', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#8892b0' }}>
-                    <span style={{ cursor: 'pointer' }} onClick={() => setSelectedFarmName(null)}>🏠</span>
-                    <span>&gt;</span>
-                    <span style={{ color: '#fff', fontWeight: 800 }}>{selectedShelf}</span>
-                    <span style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 900, color: '#e2e8f0' }}>Vão Ativo</span>
-                </div>
-
-                {/* Hashcore Stats Row for Shelf view */}
-                <div style={{ display: 'flex', gap: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>MINERADORES</span>
-                            <span style={{ fontSize: 12, fontWeight: 900, color: '#fff' }}>{totalRackMiners || '--'}</span>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: 9, color: '#10b981', fontWeight: 900 }}>DESBLOQUEADOS</span>
-                            <span style={{ fontSize: 12, fontWeight: 900, color: '#10b981' }}>{onlineRackMiners || '--'}</span>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 900 }}>ERROS</span>
-                            <span style={{ fontSize: 12, fontWeight: 900, color: '#ef4444' }}>{errorRackMiners || '--'}</span>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 100 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: 9, color: '#3b82f6', fontWeight: 900 }}>HASHRATE</span>
-                            <span style={{ fontSize: 12, fontWeight: 900, color: '#3b82f6' }}>{totalRackHashrate ? totalRackHashrate.toFixed(1) + ' TH/s' : '--'}</span>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(6,182,212,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 100 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: 9, color: '#06b6d4', fontWeight: 900 }}>POTÊNCIA</span>
-                            <span style={{ fontSize: 12, fontWeight: 900, color: '#06b6d4' }}>{totalRackPower ? totalRackPower.toFixed(0) + ' W' : '--'}</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 6 }}>
-                    <span style={{ fontSize: 10, fontWeight: 900, color: '#8892b0', alignSelf: 'center', marginRight: 4 }}>PRATELEIRA:</span>
-                    <select 
-                        value={currentShelf} 
-                        onChange={e => setSelectedShelf(e.target.value)} 
-                        style={{ background: '#1c2430', color: '#fff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
-                    >
-                        {shelvesList.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                </div>
-            </div>
-
             {farmSubTab === "shelf" ? (
                 <div style={{display: 'flex', flexDirection: 'column', gap: 14, flex: 1, padding: 20, overflow: 'hidden'}}>
+                    
+                    {/* Subbar: Breadcrumbs + Stats Badges */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', background: '#151b26', borderBottom: '1px solid rgba(255,255,255,0.05)', borderRadius: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#8892b0' }}>
+                            <span style={{ cursor: 'pointer' }} onClick={() => setSelectedFarmName(null)}>🏠</span>
+                            <span>&gt;</span>
+                            <span style={{ color: '#fff', fontWeight: 800 }}>{selectedShelf}</span>
+                            <span style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 900, color: '#e2e8f0' }}>Vão Ativo</span>
+                        </div>
+
+                        {/* Hashcore Stats Row for Shelf view */}
+                        <div style={{ display: 'flex', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>MINERADORES</span>
+                                    <span style={{ fontSize: 12, fontWeight: 900, color: '#fff' }}>{totalRackMiners || '--'}</span>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontSize: 9, color: '#10b981', fontWeight: 900 }}>DESBLOQUEADOS</span>
+                                    <span style={{ fontSize: 12, fontWeight: 900, color: '#10b981' }}>{onlineRackMiners || '--'}</span>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 900 }}>ERROS</span>
+                                    <span style={{ fontSize: 12, fontWeight: 900, color: '#ef4444' }}>{errorRackMiners || '--'}</span>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 100 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontSize: 9, color: '#3b82f6', fontWeight: 900 }}>HASHRATE</span>
+                                    <span style={{ fontSize: 12, fontWeight: 900, color: '#3b82f6' }}>{totalRackHashrate ? totalRackHashrate.toFixed(1) + ' TH/s' : '--'}</span>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(6,182,212,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 100 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ fontSize: 9, color: '#06b6d4', fontWeight: 900 }}>POTÊNCIA</span>
+                                    <span style={{ fontSize: 12, fontWeight: 900, color: '#06b6d4' }}>{totalRackPower ? totalRackPower.toFixed(0) + ' W' : '--'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 6 }}>
+                            <span style={{ fontSize: 10, fontWeight: 900, color: '#8892b0', alignSelf: 'center', marginRight: 4 }}>PRATELEIRA:</span>
+                            <select 
+                                value={currentShelf} 
+                                onChange={e => setSelectedShelf(e.target.value)} 
+                                style={{ background: '#1c2430', color: '#fff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                            >
+                                {shelvesList.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+                    </div>
                     
                     {/* Legenda de Cores */}
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#151b26', padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.04)'}}>
