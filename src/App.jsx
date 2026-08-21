@@ -4459,6 +4459,8 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const [firmwareModal, setFirmwareModal] = useState(false);
     const [selectedMiner, setSelectedMiner] = useState(null); // Side Drawer
     const [showExportMenu, setShowExportMenu] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [activeLayoutMode, setActiveLayoutMode] = useState("Normal"); // Normal, Compacto, Metrico, Pools
     
     // Pool configuration settings matching the BTC Tools screenshot
     const [pools, setPools] = useState([
@@ -4530,720 +4532,481 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     };
 
     const doScan = async () => {
-        const checkedRanges = ipRanges.filter(r => r.checked);
-        if (checkedRanges.length === 0) return alert("Marque ao menos uma faixa de IP para escanear.");
-        
+        const activeRanges = ipRanges.filter(r => r.checked);
+        if (activeRanges.length === 0) {
+            return alert("Nenhuma faixa de IP marcada para escaneamento.");
+        }
+
         setScanning(true);
-        setSelectedIps([]);
-        
-        for (const rangeObj of checkedRanges) {
+        let allResults = [];
+
+        for (const rangeObj of activeRanges) {
             const parsed = parseRange(rangeObj.range);
             if (!parsed) continue;
+
             try {
-                const res = await fetch(`http://localhost:3001/api/scan-range`, {
+                const res = await fetch('http://localhost:3001/api/scan-range', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ start: parsed.start, end: parsed.end })
                 });
                 if (res.ok) {
-                    const scanData = await res.json();
-                    if (scanData.miners && scanData.miners.length > 0) {
-                        setMiners(prev => {
-                            const next = [...prev];
-                            scanData.miners.forEach(m => {
-                                const t = m.telemetry || {};
-                                const fans = t.hardware?.fans || [];
-                                const fanStr = fans.length > 0 ? `${fans[0].speed_rpm} RPM` : "0 RPM";
-                                const formatted = {
-                                    ...m,
-                                    workingMode: m.workingMode || "Normal",
-                                    fanSpeed: fanStr,
-                                    pool1: m.pool1 || t.pools?.[0]?.url || pools[0].url
-                                };
-                                const idx = next.findIndex(x => x.ip === m.ip);
-                                if (idx !== -1) {
-                                    next[idx] = formatted;
-                                } else {
-                                    next.push(formatted);
-                                }
-                            });
-                            return next;
-                        });
+                    const payload = await res.json();
+                    if (payload && Array.isArray(payload.miners)) {
+                        allResults = [...allResults, ...payload.miners];
                     }
                 }
-            } catch(e) {}
+            } catch (err) {
+                console.error("Erro ao escanear faixa:", rangeObj.range, err);
+            }
         }
+
+        setMiners(prev => {
+            // Merge results without duplicate IPs
+            const newMap = new Map();
+            prev.forEach(x => newMap.set(x.ip, x));
+            allResults.forEach(x => newMap.set(x.ip, x));
+            return Array.from(newMap.values());
+        });
         setScanning(false);
     };
 
-    const handleSelectAll = (e) => {
-        if (e.target.checked) {
-            setSelectedIps(miners.map(m => m.ip));
-        } else {
-            setSelectedIps([]);
-        }
-    };
+    const runAction = async (ips, type, args = {}) => {
+        if (!ips || ips.length === 0) return alert("Selecione pelo menos um dispositivo.");
+        const confirmLabel = type === 'reboot' ? 'Reiniciar' : 'Configurar';
+        if (!confirm(`Deseja aplicar a ação [${confirmLabel}] para ${ips.length} mineradores?`)) return;
 
-    const handleSelectRow = (ip) => {
-        setSelectedIps(prev => 
-            prev.includes(ip) ? prev.filter(x => x !== ip) : [...prev, ip]
-        );
-    };
-
-    const runAction = async (ips, action, payload = {}) => {
-        let successCount = 0;
-        let failCount = 0;
-        for (const ip of ips) {
-            try {
-                const res = await fetch(`http://localhost:3001/api/miner-action`, {
+        try {
+            await Promise.all(ips.map(async (ip) => {
+                const endpoint = type === 'reboot' ? 'reboot' : 'set-pool';
+                const body = type === 'reboot' ? { ip } : { ip, ...args };
+                await fetch(`http://localhost:3001/api/${endpoint}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ip, action, payload })
-                });
-                if (res.ok) {
-                    const r = await res.json();
-                    if (r.ok) successCount++;
-                    else failCount++;
-                } else {
-                    failCount++;
-                }
-            } catch(e) {
-                failCount++;
-            }
+                    body: JSON.stringify(body)
+                }).catch(() => null);
+            }));
+            alert("Comandos enviados com sucesso!");
+            doScan();
+        } catch (err) {
+            alert("Erro ao enviar comando: " + err.message);
         }
-        alert(`Ação "${action}" concluída!\nSucessos: ${successCount}\nFalhas: ${failCount}`);
     };
 
-    const applyConfig = async (targetIps) => {
-        if (targetIps.length === 0) return alert("Selecione os mineradores para aplicar as configurações.");
-        
-        const payload = {
-            pools: pools.filter(p => p.enabled).map(p => ({
-                url: p.url,
-                user: p.user,
-                pass: p.pass,
-                suffix: p.suffix
-            })),
-            overclock: overclockEnabled ? {
-                model: ocModel,
-                mode: ocMode,
-                option: ocOption,
-                reOverclocking,
-                onlySuccessMiners,
-                powerControl,
-                lpmType
-            } : null
-        };
+    // Calculate aggregated metrics
+    const totalMiners = miners.length;
+    const onlineMiners = miners.filter(m => m.status === 'mining').length;
+    const errorMiners = miners.filter(m => m.status === 'offline' || (m.temp && m.temp > 85)).length;
+    const totalHashrate = miners.reduce((sum, m) => sum + (m.hashrate || 0), 0);
+    
+    // Estimate power helper
+    const estimatePower = (modelName) => {
+        const name = String(modelName || "").toLowerCase();
+        if (name.includes("s21")) return 3500;
+        if (name.includes("s19")) return 3250;
+        if (name.includes("t19")) return 3150;
+        if (name.includes("m30")) return 3400;
+        if (name.includes("m50")) return 3300;
+        return 3200;
+    };
 
-        await runAction(targetIps, "config", payload);
+    const totalPower = miners.reduce((sum, m) => sum + (m.power || (m.telemetry?.power) || estimatePower(m.model)), 0);
+
+    const handleExportExcel = () => {
+        const rows = miners.map(m => ({
+            "IP": m.ip,
+            "Modelo": m.model || "Antminer",
+            "MAC": m.mac_address || m.telemetry?.mac_address || "",
+            "Status": m.status === 'mining' ? "Minerando" : "Offline/Erro",
+            "Hashrate RT (TH/s)": m.hashrate ? Number(m.hashrate.toFixed(1)) : 0,
+            "Hashrate Avg (TH/s)": m.hashrateAvg ? Number(m.hashrateAvg.toFixed(1)) : 0,
+            "Temp (°C)": m.temp || 0,
+            "Uptime": m.uptime ? Math.floor(m.uptime / 60) + "m" : "",
+            "Pool Ativa": m.telemetry?.pool_active || m.pool || ""
+        }));
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Scanner Report");
+        XLSX.writeFile(wb, `scanner_report_${Date.now()}.xlsx`);
     };
 
     const handleExportCSV = () => {
-        if (miners.length === 0) return alert("Nenhum dado para exportar.");
-        
-        let csv = "IP,MAC,Status,Brand,Model,Active Boards,Hash Rate RT,Hash Rate Avg,Power (W),Temperature,Fan Speed,Elapsed,Pool 1\n";
+        let csv = "IP,Modelo,MAC,Status,Hashrate_RT,Hashrate_Avg,Temp,Uptime,Pool_Ativa\n";
         miners.forEach(m => {
-            const telemetry = m.telemetry || {};
-            const brand = telemetry.brand || "-";
-            const mac = telemetry.mac_address || "-";
-            const power = telemetry.efficiency?.power_consumption_watts || 0;
-            const bActive = telemetry.hardware?.boards_active ?? 0;
-            const bTotal = telemetry.hardware?.boards_total ?? 0;
-            csv += `"${m.ip}","${mac}","${m.status}","${brand}","${m.model || '-'}","${bActive}/${bTotal}","${m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}","${m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' TH/s' : '0 TH/s'}","${power}","${m.temp ? m.temp + '°C' : '-'}","${m.fanSpeed}","${formatUptime(m.uptime)}","${m.pool1}"\n`;
+            csv += `"${m.ip}","${m.model || "Antminer"}","${m.mac_address || m.telemetry?.mac_address || ""}","${m.status === 'mining' ? 'Minerando' : 'Offline'}","${m.hashrate || 0}","${m.hashrateAvg || 0}","${m.temp || 0}","${m.uptime || 0}","${m.telemetry?.pool_active || m.pool || ''}"\n`;
         });
-
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.setAttribute("href", url);
-        link.setAttribute("download", "relatorio_scan_fazenda.csv");
-        link.style.visibility = 'hidden';
+        link.setAttribute("download", `scanner_report_${Date.now()}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     };
 
-    const handleExportXLSX = () => {
-        if (miners.length === 0) return alert("Nenhum dado para exportar.");
-        
-        const rows = miners.map(m => {
-            const telemetry = m.telemetry || {};
-            const bActive = telemetry.hardware?.boards_active ?? 0;
-            const bTotal = telemetry.hardware?.boards_total ?? 0;
-            const power = telemetry.efficiency?.power_consumption_watts || 0;
-            const efficiency = telemetry.efficiency?.joules_per_th || 0;
-            
-            const mac = telemetry.mac_address || m.sn || m.ip;
-            
-            return {
-                "DATA DO SCAN": new Date().toLocaleString(),
-                "IP": m.ip,
-                "ENDEREÇO MAC": mac,
-                "FABRICANTE": telemetry.brand || "-",
-                "MODELO": m.model || "-",
-                "STATUS": m.status === 'mining' ? 'LIGADA' : 'ERRO',
-                "HASHRATE RT (TH/s)": m.hashrate ? Number(m.hashrate.toFixed(1)) : 0,
-                "HASHRATE AVG (TH/s)": m.hashrateAvg ? Number(m.hashrateAvg.toFixed(1)) : 0,
-                "PLACAS ATIVAS": `${bActive} / ${bTotal}`,
-                "TEMP MÁX CHIP (°C)": m.temp || 0,
-                "POTÊNCIA (W)": power,
-                "EFICIÊNCIA (J/TH)": efficiency,
-                "TEMPO ATIVO": formatUptime(m.uptime),
-                "POOL ATIVA": m.pool1 || ""
-            };
-        });
-
-        const worksheet = XLSX.utils.json_to_sheet(rows);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Relatório de Scan");
-        
-        const maxLens = {};
-        rows.forEach(row => {
-            Object.keys(row).forEach(key => {
-                const val = String(row[key]);
-                maxLens[key] = Math.max(maxLens[key] || key.length, val.length);
-            });
-        });
-        worksheet["!cols"] = Object.keys(maxLens).map(key => ({ wch: maxLens[key] + 3 }));
-
-        XLSX.writeFile(workbook, "relatorio_scan_fazenda.xlsx");
-    };
-
-    // Calculate Summary Metrics like Hashcore Toolkit
-    const totalMiners = miners.length;
-    const onlineMiners = miners.filter(m => m.status === 'mining').length;
-    const errorMiners = miners.filter(m => {
-        const telemetry = m.telemetry || {};
-        const bActive = telemetry.hardware?.boards_active ?? 3;
-        const bTotal = telemetry.hardware?.boards_total ?? 3;
-        return m.status === 'error' || m.status === 'offline' || bActive < bTotal;
-    }).length;
-    const totalHashrate = miners.reduce((sum, m) => sum + (m.hashrate || 0), 0);
-    const totalPower = miners.reduce((sum, m) => sum + (m.telemetry?.efficiency?.power_consumption_watts || 0), 0);
-
-    const renderVisualChains = (bActive, bTotal) => {
-        const list = [];
-        for (let i = 0; i < bTotal; i++) {
-            const isActive = i < bActive;
-            list.push(
-                <div key={i} style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 2,
-                    background: isActive ? C.green : '#3f444e',
-                    border: `1px solid ${isActive ? 'transparent' : 'rgba(255,255,255,0.15)'}`
-                }} />
-            );
-        }
-        return <div style={{ display: 'flex', gap: 3, alignItems: 'center' }} title={`Cadeias de Hash: ${bActive} de ${bTotal} ativas`}>{list}</div>;
-    };
+    const filteredMiners = miners.filter(m => {
+        if (!searchQuery.trim()) return true;
+        const q = searchQuery.toLowerCase();
+        return (m.ip && m.ip.includes(q)) || 
+               (m.model && m.model.toLowerCase().includes(q)) || 
+               (m.mac_address && m.mac_address.toLowerCase().includes(q)) ||
+               (m.telemetry?.mac_address && m.telemetry.mac_address.toLowerCase().includes(q));
+    });
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', background: C.bg, position: 'relative' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#11161d', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
             
-            {/* Banner de download do helper se offline */}
-            {!localConnected && (
-                <div style={{
-                    background: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    color: '#ff6b6b',
-                    borderRadius: 10,
-                    padding: '8px 12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontSize: 12,
-                    fontWeight: 700
-                }}>
-                    <span>⚠️ Servidor Local Helper não detectado na porta 3001. As ações de varredura e lote não funcionarão.</span>
-                    <button 
-                        onClick={() => window.location.href = "https://github.com/srgordo2005-dev/Estoque/releases/latest/download/HashStock-Setup.exe"}
-                        style={{
-                            background: '#ef4444',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: 6,
-                            padding: '4px 10px',
-                            fontWeight: 900,
-                            cursor: 'pointer',
-                            fontSize: 10
-                        }}
-                    >
-                        📥 Baixar Servidor Local (HashStock-Setup.exe)
+            {/* Topbar: HASHSTOCK TOOLKIT */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 20, fontWeight: 900, color: '#10b981', tracking: '0.5px' }}>HASHSTOCK TOOLKIT</span>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+                    </div>
+                    <span style={{ fontSize: 11, color: '#8892b0', marginTop: 2 }}>App para configurar e gerenciar dispositivos de mineração</span>
+                </div>
+                
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => ctx.setModal({
+                        content: <ScannerSettingsModal 
+                            pools={pools} setPools={setPools}
+                            overclockEnabled={overclockEnabled} setOverclockEnabled={setOverclockEnabled}
+                            ocModel={ocModel} setOcModel={setOcModel}
+                            ocMode={ocMode} setOcMode={setOcMode}
+                            ocOption={ocOption} setOcOption={setOcOption}
+                            onlySuccessMiners={onlySuccessMiners} setOnlySuccessMiners={setOnlySuccessMiners}
+                            reOverclocking={reOverclocking} setReOverclocking={setReOverclocking}
+                            powerControl={powerControl} setPowerControl={setPowerControl}
+                            lpmType={lpmType} setLpmType={setLpmType}
+                            onClose={() => ctx.setModal(null)} 
+                        />,
+                        title: "Configurações Globais",
+                        hideHeader: true
+                    })} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        ⚙️ Configurações
                     </button>
-                </div>
-            )}
-
-            {/* Hashcore Toolkit Summary Badges Bar */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, background: C.card, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.blue}` }}>
-                    <span style={{ fontSize: 18 }}>📊</span>
-                    <div>
-                        <div style={{ fontSize: 14, fontWeight: 900, color: C.text }}>{totalMiners}</div>
-                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Mineradores</div>
-                    </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.green}` }}>
-                    <span style={{ color: C.green, fontSize: 18 }}>🟢</span>
-                    <div>
-                        <div style={{ fontSize: 14, fontWeight: 900, color: C.green }}>{onlineMiners}</div>
-                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Desbloqueados</div>
-                    </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.red}` }}>
-                    <span style={{ color: C.red, fontSize: 18 }}>🔴</span>
-                    <div>
-                        <div style={{ fontSize: 14, fontWeight: 900, color: C.red }}>{errorMiners}</div>
-                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Com Erro</div>
-                    </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.accent}` }}>
-                    <span style={{ color: C.accent, fontSize: 18 }}>⚡</span>
-                    <div>
-                        <div style={{ fontSize: 14, fontWeight: 900, color: C.accent }}>{totalHashrate.toFixed(1)} TH/s</div>
-                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Hashrate Total</div>
-                    </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.blue}` }}>
-                    <span style={{ color: C.blue, fontSize: 18 }}>🔌</span>
-                    <div>
-                        <div style={{ fontSize: 14, fontWeight: 900, color: C.blue }}>{totalPower.toLocaleString()} W</div>
-                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Potência Total</div>
-                    </div>
+                    <button style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                        📈 Operações
+                    </button>
                 </div>
             </div>
 
-            {/* Linha de Botões de Ação (Actions Bar) */}
-            <div style={{ background: C.card2, padding: 8, borderRadius: 10, border: `1px solid ${C.border}`, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', position: 'relative' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.card, padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}` }}>
-                    <span style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>IP RANGE:</span>
-                    <input 
-                        type="text" 
-                        value={ipRanges[0]?.range || ""} 
-                        onChange={e => setIpRanges([{ ...ipRanges[0], range: e.target.value }])}
-                        style={{ background: 'transparent', border: 'none', color: C.text, fontSize: 10, fontWeight: 700, width: 130, outline: 'none' }}
-                    />
+            {/* Subbar: Breadcrumbs + Stats Badges */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', background: '#151b26', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#8892b0' }}>
+                    <span style={{ cursor: 'pointer' }}>🏠</span>
+                    <span>&gt;</span>
+                    <select style={{ background: 'transparent', border: 'none', color: '#e2e8f0', fontWeight: 800, fontSize: 13, cursor: 'pointer', outline: 'none' }}>
+                        <option value="h">h</option>
+                    </select>
+                    <span style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 900, color: '#e2e8f0' }}>1 Intervalos</span>
                 </div>
 
-                <button 
-                    onClick={() => ctx.setModal({
-                        title: "Configurações de Pools & Overclock",
-                        content: <ScannerSettingsModal pools={pools} setPools={setPools} overclockEnabled={overclockEnabled} setOverclockEnabled={setOverclockEnabled} ocModel={ocModel} setOcModel={setOcModel} ocMode={ocMode} setOcMode={setOcMode} ocOption={ocOption} setOcOption={setOcOption} onlySuccessMiners={onlySuccessMiners} setOnlySuccessMiners={setOnlySuccessMiners} reOverclocking={reOverclocking} setReOverclocking={setReOverclocking} powerControl={powerControl} setPowerControl={setPowerControl} lpmType={lpmType} setLpmType={setLpmType} onClose={() => ctx.setModal(null)} />
-                    })}
-                    style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
-                >
-                    ⚙️ Configs
-                </button>
-
-                <div style={{ width: 1, height: 16, background: C.border, margin: '0 2px' }} />
-
-                <Btn onClick={doScan} disabled={scanning} style={{ background: C.blue, color: '#fff', fontWeight: 900, padding: '6px 14px', fontSize: 12 }}>
-                    {scanning ? "Escaneando..." : "🔍 SCAN"}
-                </Btn>
-                <button 
-                    onClick={() => setMonitoring(!monitoring)} 
-                    style={{ 
-                        background: monitoring ? C.green + "22" : C.card, 
-                        border: `1px solid ${monitoring ? C.green : C.border}`, 
-                        color: monitoring ? C.green : C.text, 
-                        padding: "6px 10px", 
-                        borderRadius: 6, 
-                        fontSize: 11, 
-                        fontWeight: 800, 
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4
-                    }}
-                >
-                    {monitoring ? "🟢 Monitor: ON" : "⏸️ Monitor: OFF"}
-                </button>
-                
-                <Btn v="s" onClick={() => applyConfig(selectedIps)} disabled={selectedIps.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>⚙️ CONFIG SELECTED</Btn>
-                
-                <Btn v="r" onClick={() => runAction(selectedIps, "reboot")} disabled={selectedIps.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>🔄 REBOOT SELECTED</Btn>
-                
-                <Btn v="y" onClick={() => setFirmwareModal(true)} style={{ fontSize: 10, padding: '5px 10px' }}>💾 FIRMWARE UPGRADE</Btn>
-                
-                <div style={{ flex: 1 }} />
-                
-                <div style={{ position: 'relative' }}>
-                    <button 
-                        onClick={() => setShowExportMenu(!showExportMenu)} 
-                        style={{ 
-                            background: C.blue, 
-                            border: 'none', 
-                            color: '#fff', 
-                            padding: '6px 14px', 
-                            borderRadius: 6, 
-                            fontWeight: 900, 
-                            fontSize: 11, 
-                            cursor: 'pointer', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 4 
-                        }}
-                    >
-                        📤 Exportar...
-                    </button>
-                    {showExportMenu && (
-                        <div style={{
-                            position: 'absolute',
-                            bottom: '100%',
-                            right: 0,
-                            background: C.card,
-                            border: `1px solid ${C.border}`,
-                            borderRadius: 8,
-                            padding: 6,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 4,
-                            zIndex: 10,
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                            minWidth: 150
-                        }}>
-                            <button 
-                                onClick={() => { handleExportXLSX(); setShowExportMenu(false); }} 
-                                style={{ 
-                                    background: 'transparent', 
-                                    border: 'none', 
-                                    color: C.text, 
-                                    padding: '8px 10px', 
-                                    fontSize: 11, 
-                                    textAlign: 'left', 
-                                    cursor: 'pointer', 
-                                    borderRadius: 4, 
-                                    fontWeight: 700 
-                                }}
-                            >
-                                📊 Excel (.xlsx)
-                            </button>
-                            <button 
-                                onClick={() => { handleExportCSV(); setShowExportMenu(false); }} 
-                                style={{ 
-                                    background: 'transparent', 
-                                    border: 'none', 
-                                    color: C.text, 
-                                    padding: '8px 10px', 
-                                    fontSize: 11, 
-                                    textAlign: 'left', 
-                                    cursor: 'pointer', 
-                                    borderRadius: 4, 
-                                    fontWeight: 700 
-                                }}
-                            >
-                                📝 CSV (.csv)
-                            </button>
+                {/* Hashcore Stats Row */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>MINERADORES</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#fff' }}>{totalMiners || '--'}</span>
                         </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#10b981', fontWeight: 900 }}>DESBLOQUEADOS</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#10b981' }}>{onlineMiners || '--'}</span>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 900 }}>ERROS</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#ef4444' }}>{errorMiners || '--'}</span>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 100 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#3b82f6', fontWeight: 900 }}>HASHRATE</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#3b82f6' }}>{totalHashrate ? totalHashrate.toFixed(1) + ' TH/s' : '--'}</span>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(6,182,212,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 100 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#06b6d4', fontWeight: 900 }}>POTÊNCIA</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#06b6d4' }}>{totalPower ? totalPower.toFixed(0) + ' W' : '--'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 6 }}>
+                    <button style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Filtro ▾</button>
+                    <button style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Visualização ▾</button>
+                    <button onClick={() => setShowExportMenu(!showExportMenu)} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer', position: 'relative' }}>
+                        📤 Exportar
+                        {showExportMenu && (
+                            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#1c2430', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: 4, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 100 }}>
+                                <button onClick={handleExportExcel} style={{ background: 'none', border: 'none', color: '#e2e8f0', padding: '6px 10px', fontSize: 10, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}>XLSX</button>
+                                <button onClick={handleExportCSV} style={{ background: 'none', border: 'none', color: '#e2e8f0', padding: '6px 10px', fontSize: 10, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}>CSV</button>
+                            </div>
+                        )}
+                    </button>
+                </div>
+            </div>
+
+            {/* Layout Main Section */}
+            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+                
+                {/* Left IP Ranges Sidebar (Hashcore style folder panel) */}
+                <div style={{ width: 220, background: '#151b26', borderRight: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', padding: '16px 12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 900, color: '#8892b0', letterSpacing: '0.5px' }}>📁 FAIXAS IP (Ranges)</span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            <button onClick={handleAddIpRange} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, width: 20, height: 20, fontSize: 10, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>+</button>
+                            <button onClick={handleRemoveSelectedRanges} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 4, width: 20, height: 20, fontSize: 10, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>-</button>
+                        </div>
+                    </div>
+
+                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {ipRanges.map(r => (
+                            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: r.checked ? 'rgba(16,185,129,0.06)' : 'transparent', border: `1px solid ${r.checked ? 'rgba(16,185,129,0.15)' : 'transparent'}`, borderRadius: 6, padding: '6px 8px', transition: 'all 0.15s' }}>
+                                <input type="checkbox" checked={r.checked} onChange={() => toggleRangeCheck(r.id)} style={{ cursor: 'pointer' }} />
+                                <span style={{ fontSize: 11, fontWeight: r.checked ? 800 : 600, color: r.checked ? '#fff' : '#8892b0', cursor: 'pointer', fontFamily: 'monospace' }} onClick={() => toggleRangeCheck(r.id)}>{r.range}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <button onClick={doScan} disabled={scanning} style={{ width: '100%', background: scanning ? 'rgba(16,185,129,0.5)' : '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }}>
+                            {scanning ? "⏳ ESCANEANDO..." : "🔍 SCAN"}
+                        </button>
+                        <button onClick={() => setMonitoring(!monitoring)} style={{ width: '100%', background: monitoring ? '#ef4444' : '#1c2430', border: `1px solid ${monitoring ? 'transparent' : 'rgba(255,255,255,0.08)'}`, color: '#fff', borderRadius: 8, padding: '8px 0', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>
+                            📺 Monitor: {monitoring ? "ON" : "OFF"}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Main List of Cards */}
+                <div style={{ flex: 1, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    
+                    {filteredMiners.length === 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60%', gap: 10, color: '#8892b0' }}>
+                            <span style={{ fontSize: 32 }}>📡</span>
+                            <span style={{ fontSize: 13, fontWeight: 800 }}>Nenhum minerador escaneado na lista. Marque as faixas e clique em SCAN.</span>
+                        </div>
+                    ) : (
+                        filteredMiners.map((m, idx) => {
+                            const isOffline = m.status === 'offline';
+                            const isError = m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown');
+                            const isWarning = m.temp > 75 && m.temp <= 85;
+
+                            const pConsumption = m.power || (m.telemetry?.power) || estimatePower(m.model);
+
+                            // Compact styling support
+                            const isCompact = activeLayoutMode === "Compacto";
+                            const isMetric = activeLayoutMode === "Metrico";
+                            const isPoolsMode = activeLayoutMode === "Pools";
+
+                            return (
+                                <div key={m.ip || idx} onClick={() => setSelectedMiner(m)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#18202b', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, padding: isCompact ? '6px 14px' : '10px 16px', marginBottom: 6, cursor: 'pointer', transition: 'all 0.15s' }}>
+                                    
+                                    {/* Column 1: Checkbox */}
+                                    <div style={{ width: 35, display: 'flex', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                                        <input type="checkbox" checked={selectedIps.includes(m.ip)} onChange={() => setSelectedIps(prev => prev.includes(m.ip) ? prev.filter(x => x !== m.ip) : [...prev, m.ip])} style={{ cursor: 'pointer' }} />
+                                    </div>
+
+                                    {/* Column 2: Device Identifier (Model, IP, MAC) */}
+                                    <div style={{ flex: 1.6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span style={{ fontSize: 13, fontWeight: 900, color: '#fff' }}>{m.model || "Antminer S19"}</span>
+                                            <span style={{ fontSize: 7, fontWeight: 900, color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '1px 4px', borderRadius: 3, background: 'rgba(16,185,129,0.06)' }}>Hashcore</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#8892b0' }}>
+                                            <span style={{ color: '#fff', fontWeight: 800 }}>{m.ip}</span>
+                                            <span>·</span>
+                                            <span style={{ fontFamily: 'monospace' }}>{m.mac_address || m.telemetry?.mac_address || "· -"}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Column 3: RT Hashrate */}
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: 13, fontWeight: 900, color: isMetric ? '#10b981' : '#fff' }}>{m.hashrate ? m.hashrate.toFixed(1) + " TH/s" : "0.00 TH/s"}</span>
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Média: {m.hashrateAvg ? m.hashrateAvg.toFixed(1) + " TH" : "0.0 TH"}</span>}
+                                    </div>
+
+                                    {/* Column 4: Power Consumption */}
+                                    <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>{pConsumption} W</span>
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Potência</span>}
+                                    </div>
+
+                                    {/* Column 5: Chip Temperature */}
+                                    <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: 12, fontWeight: 800, color: isError ? '#ef4444' : (isWarning ? '#ff9800' : '#fff') }}>{m.temp ? `${m.temp}°C` : '49-65 °C'}</span>
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Temp chip</span>}
+                                    </div>
+
+                                    {/* Column 6: Fans / Cooling */}
+                                    <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>Auto 65%</span>
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Refrigeração</span>}
+                                    </div>
+
+                                    {/* Column 7: Preset Mode */}
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: 11, fontWeight: 800, color: '#8892b0' }}>Disabled</span>
+                                        {!isCompact && <span style={{ fontSize: 8, color: '#64748b' }}>Predefinição</span>}
+                                    </div>
+
+                                    {/* Column 8: Firmware */}
+                                    <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981' }} />
+                                            1.2.7
+                                        </span>
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Firmware</span>}
+                                    </div>
+
+                                    {/* Column 9: Uptime */}
+                                    <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{m.uptime ? Math.floor(m.uptime / 60) + "h " + (m.uptime % 60) + "m" : "2:17"}</span>
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Tempo ativo</span>}
+                                    </div>
+
+                                    {/* Column 10: Chains Block Indicators */}
+                                    <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                        <div style={{ display: 'flex', gap: 3 }}>
+                                            <div style={{ width: 8, height: 8, background: '#10b981', borderRadius: 2 }} />
+                                            <div style={{ width: 8, height: 8, background: '#10b981', borderRadius: 2 }} />
+                                            <div style={{ width: 8, height: 8, background: '#10b981', borderRadius: 2 }} />
+                                        </div>
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Cadeias</span>}
+                                    </div>
+
+                                    {/* Column 11: Pool & Active Worker */}
+                                    <div style={{ flex: 1.8, display: 'flex', flexDirection: 'column', maxWidth: 170, overflow: 'hidden' }}>
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                                            {m.telemetry?.pool_active || m.pool || "stratum+tcp://btc.viabtc.top:3333"}
+                                        </span>
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>worker: {m.worker || "worker1"}</span>}
+                                    </div>
+
+                                    {/* Column 12: Actions & Status Badge */}
+                                    <div style={{ flex: 1.2, display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
+                                        <button onClick={() => { if(confirm("Reiniciar minerador?")) runAction([m.ip], "reboot"); }} style={{ padding: '2px 4px', fontSize: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 3, color: '#e2e8f0', cursor: 'pointer', fontWeight: 800 }}>amI</button>
+                                        <button style={{ padding: '2px 4px', fontSize: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 3, color: '#e2e8f0', cursor: 'pointer', fontWeight: 800 }}>nand</button>
+                                        
+                                        <div style={{ display: 'flex', alignItems: 'center', background: isOffline ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)', border: `1px solid ${isOffline ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'}`, padding: '4px 8px', borderRadius: 12, height: 18 }}>
+                                            <span style={{ fontSize: 8, fontWeight: 900, color: isOffline ? '#ef4444' : '#10b981' }}>
+                                                {isOffline ? '❌ Offline' : '🔓 Minerando'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            );
+                        })
                     )}
                 </div>
             </div>
 
-            {/* Tabela de Dispositivos Simplificada e Mais Limpa */}
-            <div style={{ flex: 1, overflow: 'auto', background: C.card2, borderRadius: 10, border: `1px solid ${C.border}` }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
-                    <thead style={{ position: 'sticky', top: 0, background: C.card, zIndex: 5, borderBottom: `2px solid ${C.border}` }}>
-                        <tr style={{ color: C.accent }}>
-                            <th style={{ padding: '12px 8px', width: 30, textAlign: 'center' }}>
-                                <input type="checkbox" onChange={handleSelectAll} checked={selectedIps.length === miners.length && miners.length > 0} />
-                            </th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>DISPOSITIVO (MODELO / IP / MAC)</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>HASHRATE RT</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>POTÊNCIA</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>TEMP CHIP</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>REFRIGERAÇÃO</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>PREDEFINIÇÃO</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>FIRMWARE</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>TEMPO ATIVO</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>CADEIAS</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>POOL / WORKER ATIVO</th>
-                            <th style={{ padding: '12px 8px', fontWeight: 900, textAlign: 'center' }}>STATUS</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {miners.length === 0 ? (
-                            <tr>
-                                <td colSpan="12" style={{ textAlign: 'center', padding: 40, color: C.muted, fontSize: 12 }}>
-                                    {scanning ? "Buscando dispositivos (filtrando DVRs)..." : "Marque as faixas de IP e clique em SCAN."}
-                                </td>
-                            </tr>
-                        ) : (
-                            miners.map((m, idx) => {
-                                const isSelected = selectedIps.includes(m.ip);
-                                const t = m.telemetry || {};
-                                const mac = t.mac_address || "-";
-                                const bActive = t.hardware?.boards_active ?? 0;
-                                const bTotal = t.hardware?.boards_total ?? 0;
-                                const power = t.efficiency?.power_consumption_watts || 0;
-                                const efficiency = t.efficiency?.joules_per_th || 0;
-                                
-                                return (
-                                    <tr 
-                                        key={idx} 
-                                        onClick={() => setSelectedMiner(m)}
-                                        style={{ 
-                                            borderBottom: `1px solid ${C.border}`, 
-                                            background: isSelected ? C.blue + '11' : 'transparent', 
-                                            transition: 'background 0.2s',
-                                            cursor: 'pointer'
-                                        }}
-                                        onMouseEnter={e => { if(!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
-                                        onMouseLeave={e => { if(!isSelected) e.currentTarget.style.background = 'transparent'; }}
-                                    >
-                                        <td style={{ padding: '10px 8px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-                                            <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(m.ip)} />
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <span style={{ fontWeight: 800, color: C.text, fontSize: 12 }}>{m.model || 'Antminer'}</span>
-                                                    <span style={{ background: C.green + '22', color: C.green, fontSize: 8, fontWeight: 900, padding: '2px 6px', borderRadius: 4 }}>Hashcore</span>
-                                                </div>
-                                                <div style={{ display: 'flex', gap: 8, fontSize: 10, color: C.subtle, marginTop: 4 }}>
-                                                    <span style={{ color: C.blue, fontWeight: 700 }}>{m.ip}</span>
-                                                    <span>•</span>
-                                                    <span style={{ fontFamily: 'monospace' }}>{mac}</span>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ fontWeight: 900, color: C.green, fontSize: 12 }}>{m.hashrate ? m.hashrate.toFixed(2) + ' TH/s' : '0.00 TH/s'}</div>
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Média: {m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' TH/s' : '0.0 TH/s'}</div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ fontWeight: 800, color: C.text }}>{power ? power + ' W' : '0 W'}</div>
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Potência</div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ fontWeight: 800, color: m.temp > 80 ? C.red : C.text }}>{m.temp ? m.temp + ' °C' : '30-65 °C'}</div>
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Temp chip</div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ fontWeight: 800, color: C.text }}>{m.fanSpeed || 'Auto'}</div>
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Refrigeração</div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ color: C.text, fontWeight: 700 }}>{m.workingMode || 'Normal'}</div>
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Predefinição</div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.text, fontWeight: 700 }}>
-                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.green }} />
-                                                {t.firmware_version || '1.2.7'}
-                                            </div>
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Firmware</div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ color: C.text, fontWeight: 700 }}>{m.uptime ? formatUptime(m.uptime) : '-'}</div>
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Tempo ativo</div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            {renderVisualChains(bActive, bTotal)}
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Cadeias</div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px' }}>
-                                            <div style={{ color: C.blue, fontFamily: 'monospace', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }} title={m.pool1}>
-                                                {m.pool1 ? (m.pool1.includes('//') ? m.pool1.split('//')[1] : m.pool1) : '-'}
-                                            </div>
-                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>worker: <b>{t.pools?.[0]?.user || pools[0].user}</b></div>
-                                        </td>
-                                        <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                                            <span style={{ 
-                                                background: m.status === 'mining' && bActive === bTotal ? 'rgba(76,175,80,0.15)' : (bActive < bTotal && bActive > 0 ? 'rgba(255,152,0,0.15)' : 'rgba(244,67,54,0.15)'), 
-                                                color: m.status === 'mining' && bActive === bTotal ? C.green : (bActive < bTotal && bActive > 0 ? '#ff9800' : C.red), 
-                                                padding: '4px 8px', borderRadius: 6, fontWeight: 900, fontSize: 8, display: 'inline-flex', alignItems: 'center', gap: 4 
-                                            }}>
-                                                🔓 {m.status === 'mining' && bActive === bTotal ? 'Minerando' : (bActive < bTotal && bActive > 0 ? 'Alerta' : 'Offline')}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                );
-                            })
-                        )}
-                    </tbody>
-                </table>
+            {/* Floating Bottom Navigation Bar (Centered) */}
+            <div style={{ position: 'fixed', bottom: 20, left: '55%', transform: 'translateX(-50%)', background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: '4px 12px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: 6, zIndex: 1000 }}>
+                {/* Search bar inside toolbar */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.03)', padding: '4px 8px', borderRadius: 16 }}>
+                    <span style={{ fontSize: 11 }}>🔍</span>
+                    <input 
+                        type="text" 
+                        value={searchQuery} 
+                        onChange={e => setSearchQuery(e.target.value)} 
+                        placeholder="Pesquisar..." 
+                        style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 11, outline: 'none', width: 80, fontWeight: 800 }} 
+                    />
+                </div>
+                
+                <div style={{ height: 16, width: 1, background: 'rgba(255,255,255,0.1)' }} />
+
+                <button onClick={() => setActiveLayoutMode("Normal")} style={{ background: activeLayoutMode === "Normal" ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', borderRadius: 16, padding: '6px 12px', color: activeLayoutMode === "Normal" ? '#fff' : '#8892b0', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>Normal</button>
+                <button onClick={() => setActiveLayoutMode("Compacto")} style={{ background: activeLayoutMode === "Compacto" ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', borderRadius: 16, padding: '6px 12px', color: activeLayoutMode === "Compacto" ? '#fff' : '#8892b0', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>Compacto</button>
+                <button onClick={() => setActiveLayoutMode("Metrico")} style={{ background: activeLayoutMode === "Metrico" ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', borderRadius: 16, padding: '6px 12px', color: activeLayoutMode === "Metrico" ? '#fff' : '#8892b0', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>Métrico</button>
+                <button onClick={() => setActiveLayoutMode("Pools")} style={{ background: activeLayoutMode === "Pools" ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', borderRadius: 16, padding: '6px 12px', color: activeLayoutMode === "Pools" ? '#fff' : '#8892b0', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>Pools</button>
+
+                <div style={{ height: 16, width: 1, background: 'rgba(255,255,255,0.1)' }} />
+
+                <button style={{ background: 'transparent', border: 'none', color: '#8892b0', fontSize: 10, cursor: 'pointer' }}>⚙️</button>
+                <button style={{ background: 'transparent', border: 'none', color: '#8892b0', fontSize: 10, cursor: 'pointer' }}>...</button>
             </div>
 
-            {/* BACKDROP DO SIDE DRAWER */}
+            {/* Selected Miner Detail Side Drawer */}
             {selectedMiner && (
-                <div 
-                    onClick={() => setSelectedMiner(null)}
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        width: '100vw',
-                        height: '100vh',
-                        background: 'rgba(0,0,0,0.6)',
-                        zIndex: 999
-                    }}
-                />
-            )}
+                <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 420, background: '#151b26', borderLeft: '1px solid rgba(255,255,255,0.08)', boxShadow: '-8px 0 32px rgba(0,0,0,0.5)', zIndex: 1010, display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ fontWeight: 900, fontSize: 14, color: '#fff' }}>📋 Detalhes do Dispositivo</div>
+                        <button onClick={() => setSelectedMiner(null)} style={{ background: 'none', border: 'none', color: '#8892b0', fontSize: 16, cursor: 'pointer', fontWeight: 900 }}>×</button>
+                    </div>
 
-            {/* SIDE DRAWER (ABA LATERAL PROFISSIONAL) */}
-            {selectedMiner && (() => {
-                const m = selectedMiner;
-                const t = m.telemetry || {};
-                const brand = t.brand || "Desconhecido";
-                const mac = t.mac_address || "-";
-                const bActive = t.hardware?.boards_active ?? 0;
-                const bTotal = t.hardware?.boards_total ?? 0;
-                const power = t.efficiency?.power_consumption_watts || 0;
-                const efficiency = t.efficiency?.joules_per_th || 0;
-
-                return (
-                    <div style={{
-                        position: 'fixed',
-                        top: 0,
-                        right: 0,
-                        width: 480,
-                        height: '100vh',
-                        background: '#12161e',
-                        borderLeft: `1px solid ${C.border}`,
-                        boxShadow: '-8px 0 35px rgba(0,0,0,0.7)',
-                        zIndex: 1000,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        overflow: 'hidden'
-                    }}>
-                        {/* Header Drawer */}
-                        <div style={{ padding: '20px 24px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#171c26' }}>
-                            <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <span style={{ fontSize: 22 }}>⛏️</span>
-                                    <h2 style={{ margin: 0, fontSize: 18, color: C.text, fontWeight: 900 }}>{m.model || 'Antminer'}</h2>
-                                </div>
-                                <div style={{ color: C.blue, fontSize: 12, fontWeight: 800, marginTop: 4 }}>IP: {m.ip}</div>
-                            </div>
-                            <button 
-                                onClick={() => setSelectedMiner(null)} 
-                                style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: 20, fontWeight: 900, cursor: 'pointer', padding: 8 }}
-                            >
-                                ✕
-                            </button>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
+                            <div style={{ fontSize: 11, color: '#8892b0', fontWeight: 900 }}>IP ADDRESS</div>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: '#10b981', fontFamily: 'monospace', marginTop: 2 }}>{selectedMiner.ip}</div>
                         </div>
 
-                        {/* Content Drawer */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-                            
-                            {/* Card Status & Identificação */}
-                            <div style={{ background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: 14 }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 11 }}>
-                                    <div><span style={{ color: C.muted }}>Fabricante:</span> <b style={{ color: C.text }}>{brand}</b></div>
-                                    <div><span style={{ color: C.muted }}>Status:</span> <b style={{ color: m.status === 'mining' ? C.green : C.red }}>{m.status?.toUpperCase() || 'UNKNOWN'}</b></div>
-                                    <div style={{ gridColumn: '1 / -1' }}><span style={{ color: C.muted }}>Endereço MAC:</span> <b style={{ fontFamily: 'monospace', color: C.text }}>{mac}</b></div>
-                                    <div style={{ gridColumn: '1 / -1' }}><span style={{ color: C.muted }}>Tempo Ativo (Uptime):</span> <b style={{ color: C.text }}>{formatUptime(m.uptime)}</b></div>
-                                </div>
-                            </div>
-
-                            {/* Detalhes de Desempenho */}
-                            <div>
-                                <h3 style={{ fontSize: 11, color: C.accent, fontWeight: 900, letterSpacing: 0.5, margin: '0 0 8px 0', textTransform: 'uppercase' }}>⚡ Desempenho & Hashrate</h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                                    <div style={{ background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: 12, textAlign: 'center' }}>
-                                        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>RT HASHRATE</div>
-                                        <div style={{ fontSize: 20, fontWeight: 900, color: C.green, marginTop: 4 }}>{m.hashrate ? m.hashrate.toFixed(2) : '0.00'} TH/s</div>
-                                    </div>
-                                    <div style={{ background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: 12, textAlign: 'center' }}>
-                                        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>MÉDIA (AVG)</div>
-                                        <div style={{ fontSize: 20, fontWeight: 900, color: C.text, marginTop: 4 }}>{m.hashrateAvg ? m.hashrateAvg.toFixed(2) : '0.00'} TH/s</div>
-                                    </div>
-                                    <div style={{ background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: 12, textAlign: 'center' }}>
-                                        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>CONSUMO</div>
-                                        <div style={{ fontSize: 20, fontWeight: 900, color: C.text, marginTop: 4 }}>{power} W</div>
-                                    </div>
-                                    <div style={{ background: C.card, borderRadius: 10, border: `1px solid ${C.border}`, padding: 12, textAlign: 'center' }}>
-                                        <div style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>EFICIÊNCIA</div>
-                                        <div style={{ fontSize: 20, fontWeight: 900, color: C.accent, marginTop: 4 }}>{efficiency} J/TH</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Detalhes de Placas (Cadeias Hash) */}
-                            <div>
-                                <h3 style={{ fontSize: 11, color: C.accent, fontWeight: 900, letterSpacing: 0.5, margin: '0 0 8px 0', textTransform: 'uppercase' }}>🧱 Cadeias de Hash ({bActive}/{bTotal} Ativas)</h3>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {(t.hardware?.boards_detail || []).map((b, bIdx) => (
-                                        <div key={bIdx} style={{ background: C.card, border: `1px solid ${b.hashrate_th > 0 ? C.border : C.red + '44'}`, borderRadius: 8, padding: 12 }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: b.hashrate_th > 0 ? C.green : C.red, fontSize: 12 }}>
-                                                <span>Placa #{b.board_index + 1}</span>
-                                                <span>{b.hashrate_th || 0} TH/s</span>
-                                            </div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8, fontSize: 10, color: C.muted }}>
-                                                <div>Temp Entrada: <b style={{ color: C.text }}>{b.temp_inlet || 0}°C</b></div>
-                                                <div>Temp Saída: <b style={{ color: C.text }}>{b.temp_outlet || 0}°C</b></div>
-                                                <div>Temp Chip: <b style={{ color: b.temp_chip > 80 ? C.red : C.text }}>{b.temp_chip || 0}°C</b></div>
-                                                <div>Voltagem: <b style={{ color: C.text }}>{b.voltage || 0}V</b></div>
-                                                <div style={{ gridColumn: '1 / -1', color: b.hardware_errors > 0 ? C.red : C.muted }}>Erros HW: <b>{b.hardware_errors || 0}</b></div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Ventiladores (Coolers) */}
-                            <div>
-                                <h3 style={{ fontSize: 11, color: C.accent, fontWeight: 900, letterSpacing: 0.5, margin: '0 0 8px 0', textTransform: 'uppercase' }}>🌀 Ventiladores (Coolers)</h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                                    {(t.hardware?.fans || []).map((f, fIdx) => (
-                                        <div key={fIdx} style={{ background: C.card, borderRadius: 8, border: `1px solid ${C.border}`, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
-                                            <span style={{ color: C.muted }}>Cooler #{f.fan_index + 1}</span>
-                                            <span style={{ fontWeight: 800, color: f.status === 'OK' ? C.green : C.red }}>{f.speed_rpm} RPM</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Configuração de Pools */}
-                            <div>
-                                <h3 style={{ fontSize: 11, color: C.accent, fontWeight: 900, letterSpacing: 0.5, margin: '0 0 8px 0', textTransform: 'uppercase' }}>🌐 Pools de Mineração</h3>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    {(t.pools || []).map((p, pIdx) => (
-                                        <div key={pIdx} style={{ background: C.card, borderRadius: 8, border: `1px solid ${C.border}`, padding: 12, fontSize: 10, opacity: p.status === 'ALIVE' ? 1 : 0.6 }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                <span style={{ fontWeight: 800, color: C.blue }}>Pool #{p.index + 1} ({p.status})</span>
-                                                <span style={{ fontWeight: 800, color: C.green }}>A: {p.accepted} · R: {p.rejected}</span>
-                                            </div>
-                                            <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', color: C.text }}>{p.url}</div>
-                                            <div style={{ marginTop: 4, color: C.muted }}>Worker: <b style={{ color: C.text }}>{p.user}</b></div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
+                        <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
+                            <div style={{ fontSize: 11, color: '#8892b0', fontWeight: 900 }}>HARDWARE MODEL</div>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: '#fff', marginTop: 2 }}>{selectedMiner.model || "Antminer S19/S21"}</div>
                         </div>
 
-                        {/* Footer Drawer - Quick Actions */}
-                        <div style={{ padding: '16px 20px', borderTop: `1px solid ${C.border}`, background: '#171c26', display: 'flex', gap: 8 }}>
-                            <button 
-                                onClick={() => { if(confirm("Deseja reiniciar esta máquina?")) runAction([m.ip], "reboot"); }}
-                                style={{ flex: 1, background: C.red, color: '#fff', border: 'none', borderRadius: 6, padding: '10px 0', fontWeight: 800, cursor: 'pointer', fontSize: 11 }}
-                            >
-                                🔄 REBOOT
-                            </button>
-                            <button 
-                                onClick={() => runAction([m.ip], "blink", { enable: true })}
-                                style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, padding: '10px 0', fontWeight: 800, cursor: 'pointer', fontSize: 11 }}
-                            >
-                                💡 LOCALIZAR LED
-                            </button>
+                        <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
+                            <div style={{ fontSize: 11, color: '#8892b0', fontWeight: 900 }}>MAC ADDRESS</div>
+                            <div style={{ fontSize: 13, fontWeight: 900, color: '#fff', fontFamily: 'monospace', marginTop: 2 }}>{selectedMiner.mac_address || selectedMiner.telemetry?.mac_address || "N/A"}</div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                            <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
+                                <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>REALTIME HASHRATE</div>
+                                <div style={{ fontSize: 15, fontWeight: 900, color: '#fff', marginTop: 2 }}>{selectedMiner.hashrate ? selectedMiner.hashrate.toFixed(1) + ' TH/s' : '0.0 TH'}</div>
+                            </div>
+                            <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
+                                <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>AVERAGE HASHRATE</div>
+                                <div style={{ fontSize: 15, fontWeight: 900, color: '#fff', marginTop: 2 }}>{selectedMiner.hashrateAvg ? selectedMiner.hashrateAvg.toFixed(1) + ' TH/s' : '0.0 TH'}</div>
+                            </div>
+                        </div>
+
+                        <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
+                            <div style={{ fontSize: 11, color: '#8892b0', fontWeight: 900 }}>HASH CHAINS STATUS</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                                {[1, 2, 3].map((id, idx) => (
+                                    <div key={id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: 4 }}>
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: '#8892b0' }}>Chain #{id}</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} />
+                                            <span style={{ fontSize: 10, fontWeight: 900, color: '#10b981' }}>OK</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
-                );
-            })()}
+
+                    <div style={{ padding: '16px 20px', borderTop: '1px solid rgba(255,255,255,0.06)', background: '#121721', display: 'flex', gap: 8 }}>
+                        <button onClick={() => { if(confirm("Deseja reiniciar esta máquina?")) runAction([selectedMiner.ip], "reboot"); }} style={{ flex: 1, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, padding: '10px 0', fontWeight: 900, cursor: 'pointer', fontSize: 11 }}>
+                            🔄 REBOOT
+                        </button>
+                        <button onClick={() => setSelectedMiner(null)} style={{ flex: 1, background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', color: '#fff', borderRadius: 6, padding: '10px 0', fontWeight: 900, cursor: 'pointer', fontSize: 11 }}>
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            )}
 
         </div>
     );
 }
-
-
 
 function DataCenterPage({ctx}) {
     const {data, setModal, user, farmsConfig = [], setFarmsConfig, mutate} = ctx;
     const farmMachines = data.farmMachines || [];
     
     const [selectedFarmName, setSelectedFarmName] = useState(null);
-    const [farmSubTab, setFarmSubTab] = useState("scan"); // Default to "scan" scanner on load!
+    const [farmSubTab, setFarmSubTab] = useState("scan"); // Default to scanner on load
     const [viewMode, setViewMode] = useState("th"); // 'th', 'temp', 'uptime', 'ip'
     const [selectedShelf, setSelectedShelf] = useState("Prateleira 1");
     
@@ -5262,14 +5025,14 @@ function DataCenterPage({ctx}) {
     if (!selectedFarmName) {
         // Fazenda Geral landing page
         return (
-            <div style={{display:"flex", flexDirection:"column", height:"calc(100vh - 80px)", background: C.bg, padding: 20, overflowY: 'auto'}}>
+            <div style={{display:"flex", flexDirection:"column", height:"calc(100vh - 80px)", background: '#11161d', padding: 20, overflowY: 'auto', fontFamily: 'system-ui, -apple-system, sans-serif'}}>
                 <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
-                    <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
+                    <div style={{fontWeight:900, fontSize:22, color:'#10b981', display:'flex', alignItems:'center', gap:10}}>
                        <span style={{fontSize:28}}>🏢</span> Fazendas Cadastradas
                        {user?.code === "019" && (
-                           <button onClick={() => ctx.setModal({content: <FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} />, title: "Configuração", hideHeader: true})} style={{background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer', marginLeft: 10}}>
+                            <button onClick={() => ctx.setModal({content: <FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} />, title: "Configuração", hideHeader: true})} style={{background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#fff', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer', marginLeft: 10}}>
                                ⚙️ Gerenciar Fazendas
-                           </button>
+                            </button>
                        )}
                     </div>
                 </div>
@@ -5278,47 +5041,46 @@ function DataCenterPage({ctx}) {
                     {listFarms.map(f => {
                         const miners = farmMachines.filter(m => (m.location || "Fazenda Principal") === f.name);
                         const onlineCount = miners.filter(m => m.hashrate > 0).length;
-                        const offlineCount = miners.filter(m => m.status === 'offline').length;
                         const totalTH = miners.reduce((sum, m) => sum + (m.hashrate || 0), 0);
 
                         return (
-                            <Card 
+                            <div 
                                 key={f.name} 
                                 onClick={() => { setSelectedFarmName(f.name); setFarmSubTab("scan"); }}
                                 style={{
                                     cursor: 'pointer', 
-                                    border: `1px solid ${C.border}`, 
-                                    background: C.card,
+                                    border: '1px solid rgba(255,255,255,0.06)', 
+                                    background: '#18202b',
                                     borderRadius: 12,
                                     transition: 'all 0.2s', 
                                     padding: 20,
-                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
                                     position: 'relative',
                                     overflow: 'hidden'
                                 }}
-                                onMouseEnter={e => e.currentTarget.style.borderColor = C.blue}
-                                onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
+                                onMouseEnter={e => e.currentTarget.style.borderColor = '#10b981'}
+                                onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
                             >
                                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12}}>
-                                    <div style={{fontWeight: 900, fontSize: 18, color: C.text}}>🏢 {f.name}</div>
-                                    <span style={{fontSize: 16, color: C.blue}}>➔</span>
+                                    <div style={{fontWeight: 900, fontSize: 18, color: '#fff'}}>🏢 {f.name}</div>
+                                    <span style={{fontSize: 16, color: '#10b981'}}>➔</span>
                                 </div>
-                                <div style={{fontSize: 12, color: C.subtle, marginBottom: 10}}>Sub-rede: <b style={{color: C.accent}}>{f.ipRange || '-'}</b></div>
+                                <div style={{fontSize: 12, color: '#8892b0', marginBottom: 10}}>Sub-rede: <b style={{color: '#ef4444'}}>{f.ipRange || '-'}</b></div>
                                 <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, textAlign: 'center', marginTop: 14}}>
-                                    <div style={{background: C.bg, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`}}>
-                                        <div style={{fontWeight: 900, color: C.text, fontSize: 14}}>{miners.length}</div>
-                                        <div style={{fontSize: 8, color: C.muted, fontWeight: 800}}>TOTAL</div>
+                                    <div style={{background: '#11161d', padding: 8, borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)'}}>
+                                        <div style={{fontWeight: 900, color: '#fff', fontSize: 14}}>{miners.length}</div>
+                                        <div style={{fontSize: 8, color: '#8892b0', fontWeight: 800}}>TOTAL</div>
                                     </div>
-                                    <div style={{background: C.bg, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`}}>
-                                        <div style={{fontWeight: 900, color: C.green, fontSize: 14}}>{onlineCount}</div>
-                                        <div style={{fontSize: 8, color: C.muted, fontWeight: 800}}>ONLINE</div>
+                                    <div style={{background: '#11161d', padding: 8, borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)'}}>
+                                        <div style={{fontWeight: 900, color: '#10b981', fontSize: 14}}>{onlineCount}</div>
+                                        <div style={{fontSize: 8, color: '#8892b0', fontWeight: 800}}>ONLINE</div>
                                     </div>
-                                    <div style={{background: C.bg, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`}}>
-                                        <div style={{fontWeight: 900, color: C.accent, fontSize: 14}}>{totalTH.toFixed(0)} T</div>
-                                        <div style={{fontSize: 8, color: C.muted, fontWeight: 800}}>HASHRATE</div>
+                                    <div style={{background: '#11161d', padding: 8, borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)'}}>
+                                        <div style={{fontWeight: 900, color: '#3b82f6', fontSize: 14}}>{totalTH.toFixed(0)} T</div>
+                                        <div style={{fontSize: 8, color: '#8892b0', fontWeight: 800}}>HASHRATE</div>
                                     </div>
                                 </div>
-                            </Card>
+                            </div>
                         );
                     })}
                 </div>
@@ -5335,6 +5097,24 @@ function DataCenterPage({ctx}) {
     
     // Ensure selectedShelf is valid
     const currentShelf = shelvesList.includes(selectedShelf) ? selectedShelf : shelvesList[0];
+    
+    // Calculate stats specifically for the virtual shelf rack overview
+    const totalRackMiners = farmData.filter(m => m.shelf === currentShelf).length;
+    const onlineRackMiners = farmData.filter(m => m.shelf === currentShelf && m.hashrate > 0).length;
+    const errorRackMiners = farmData.filter(m => m.shelf === currentShelf && (m.temp > 85 || m.status === 'offline')).length;
+    const totalRackHashrate = farmData.filter(m => m.shelf === currentShelf).reduce((sum, m) => sum + (m.hashrate || 0), 0);
+    
+    // Estimate power helper
+    const estimatePower = (modelName) => {
+        const name = String(modelName || "").toLowerCase();
+        if (name.includes("s21")) return 3500;
+        if (name.includes("s19")) return 3250;
+        if (name.includes("t19")) return 3150;
+        if (name.includes("m30")) return 3400;
+        if (name.includes("m50")) return 3300;
+        return 3200;
+    };
+    const totalRackPower = farmData.filter(m => m.shelf === currentShelf).reduce((sum, m) => sum + (estimatePower(m.model)), 0);
 
     // Load layout parameters (columns and rows count) for selectedShelf
     let colsCount = 4;
@@ -5395,8 +5175,8 @@ function DataCenterPage({ctx}) {
     const renderBoxContent = (m) => {
         if (!m) return (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.15, height: '100%' }}>
-                <span style={{ fontSize: 16, fontWeight: 900 }}>+</span>
-                <span style={{ fontSize: 7, fontWeight: 900 }}>VACANT</span>
+                <span style={{ fontSize: 16, fontWeight: 900, color: '#8892b0' }}>+</span>
+                <span style={{ fontSize: 7, fontWeight: 900, color: '#8892b0' }}>VACANT</span>
             </div>
         );
         
@@ -5404,10 +5184,10 @@ function DataCenterPage({ctx}) {
         const isError = m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown');
         const isWarning = m.temp > 75 && m.temp <= 85;
 
-        let statusLight = C.green;
-        let shadowColor = C.green;
+        let statusLight = '#10b981';
+        let shadowColor = '#10b981';
         if (isOffline) { statusLight = '#aaa'; shadowColor = '#555'; }
-        else if (isError) { statusLight = C.red; shadowColor = C.red; }
+        else if (isError) { statusLight = '#ef4444'; shadowColor = '#ef4444'; }
         else if (isWarning) { statusLight = '#ff9800'; shadowColor = '#ff9800'; }
 
         return (
@@ -5444,113 +5224,173 @@ function DataCenterPage({ctx}) {
     const getBoxColor = (m) => {
         if (!m) return 'rgba(255, 255, 255, 0.01)';
         if (m.status === 'offline') return '#1b2028';
-        if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return 'rgba(239, 68, 68, 0.25)';
-        if (m.temp > 75) return 'rgba(245, 158, 11, 0.25)';
-        if (m.hashrate > 0) return 'rgba(16, 185, 129, 0.2)';
-        return 'rgba(59, 130, 246, 0.2)';
+        if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return 'rgba(239, 68, 68, 0.15)';
+        if (m.temp > 75) return 'rgba(245, 158, 11, 0.15)';
+        if (m.hashrate > 0) return 'rgba(16, 185, 129, 0.1)';
+        return 'rgba(59, 130, 246, 0.1)';
     };
 
     const getBoxBorderColor = (m) => {
         if (!m) return 'rgba(255,255,255,0.06)';
-        if (m.status === 'offline') return C.border;
-        if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return C.red;
+        if (m.status === 'offline') return 'rgba(255,255,255,0.1)';
+        if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return '#ef4444';
         if (m.temp > 75) return '#ff9800';
-        if (m.hashrate > 0) return C.green;
-        return C.blue;
+        if (m.hashrate > 0) return '#10b981';
+        return '#3b82f6';
+    };
+
+    const getBoxShadow = (m) => {
+        if (!m) return 'none';
+        const isOffline = m.status === 'offline';
+        const isError = m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown');
+        const isWarning = m.temp > 75 && m.temp <= 85;
+
+        if (isOffline) return 'none';
+        if (isError) return '0 0 8px rgba(239,68,68,0.2)';
+        if (isWarning) return '0 0 8px rgba(245,158,11,0.2)';
+        return '0 0 8px rgba(16,185,129,0.15)';
     };
 
     return (
-        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: C.bg, padding: 20}}>
-            {/* Header com Abas Segmentadas */}
-            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 15}}>
-                <div style={{fontWeight: 900, fontSize: 20, color: C.text, display: 'flex', alignItems: 'center', gap: 10}}>
-                   <button onClick={() => setSelectedFarmName(null)} style={{background: 'none', border: 'none', color: C.blue, cursor: 'pointer', fontSize: 22, fontWeight: 900, padding: 0}}>←</button>
-                   <span>🏢 {selectedFarmName}</span>
+        <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: '#11161d', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, sans-serif'}}>
+            
+            {/* Topbar: HASHSTOCK TOOLKIT */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <button onClick={() => setSelectedFarmName(null)} style={{background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontSize: 22, fontWeight: 900, padding: 0}}>←</button>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 18, fontWeight: 900, color: '#fff' }}>🏢 {selectedFarmName}</span>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+                        </div>
+                        <span style={{ fontSize: 11, color: '#8892b0', marginTop: 2 }}>Prateleira Virtual & Scanner em alta definição</span>
+                    </div>
                 </div>
                 
-                <div style={{display:'flex', gap:10, alignItems:'center'}}>
-                    <div style={{background: C.card, borderRadius: 10, display:'flex', padding: 3, border:`1px solid ${C.border}`}}>
-                        <button 
-                            onClick={()=>setFarmSubTab('shelf')} 
-                            style={{
-                                background: farmSubTab==='shelf' ? C.blue : 'transparent', 
-                                color: farmSubTab==='shelf' ? '#fff' : C.text, 
-                                border: 'none', 
-                                padding: '8px 18px', 
-                                borderRadius: 8,
-                                fontWeight: 800, 
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                transition: 'all 0.15s'
-                            }}
-                        >
-                            📊 Prateleira Virtual
-                        </button>
-                        <button 
-                            onClick={()=>setFarmSubTab('scan')} 
-                            style={{
-                                background: farmSubTab==='scan' ? C.blue : 'transparent', 
-                                color: farmSubTab==='scan' ? '#fff' : C.text, 
-                                border: 'none', 
-                                padding: '8px 18px', 
-                                borderRadius: 8,
-                                fontWeight: 800, 
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                transition: 'all 0.15s'
-                            }}
-                        >
-                            📡 Scanner da Fazenda
-                        </button>
+                {/* Segmented controls sub-tabs (Shelf vs Scan) */}
+                <div style={{background: '#1c2430', borderRadius: 8, display:'flex', padding: 2, border:'1px solid rgba(255,255,255,0.08)'}}>
+                    <button 
+                        onClick={()=>setFarmSubTab('shelf')} 
+                        style={{
+                            background: farmSubTab==='shelf' ? 'rgba(255,255,255,0.08)' : 'transparent', 
+                            color: farmSubTab==='shelf' ? '#fff' : '#8892b0', 
+                            border: 'none', 
+                            padding: '6px 16px', 
+                            borderRadius: 6,
+                            fontWeight: 800, 
+                            fontSize: 11,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s'
+                        }}
+                    >
+                        📊 Prateleira Virtual
+                    </button>
+                    <button 
+                        onClick={()=>setFarmSubTab('scan')} 
+                        style={{
+                            background: farmSubTab==='scan' ? 'rgba(255,255,255,0.08)' : 'transparent', 
+                            color: farmSubTab==='scan' ? '#fff' : '#8892b0', 
+                            border: 'none', 
+                            padding: '6px 16px', 
+                            borderRadius: 6,
+                            fontWeight: 800, 
+                            fontSize: 11,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s'
+                        }}
+                    >
+                        📡 Scanner da Fazenda
+                    </button>
+                </div>
+            </div>
+
+            {/* Subbar: Breadcrumbs + Stats Badges */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', background: '#151b26', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#8892b0' }}>
+                    <span style={{ cursor: 'pointer' }} onClick={() => setSelectedFarmName(null)}>🏠</span>
+                    <span>&gt;</span>
+                    <span style={{ color: '#fff', fontWeight: 800 }}>{selectedShelf}</span>
+                    <span style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 900, color: '#e2e8f0' }}>Vão Ativo</span>
+                </div>
+
+                {/* Hashcore Stats Row for Shelf view */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>MINERADORES</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#fff' }}>{totalRackMiners || '--'}</span>
+                        </div>
                     </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#10b981', fontWeight: 900 }}>DESBLOQUEADOS</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#10b981' }}>{onlineRackMiners || '--'}</span>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 900 }}>ERROS</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#ef4444' }}>{errorRackMiners || '--'}</span>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 100 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#3b82f6', fontWeight: 900 }}>HASHRATE</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#3b82f6' }}>{totalRackHashrate ? totalRackHashrate.toFixed(1) + ' TH/s' : '--'}</span>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(6,182,212,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 100 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: 9, color: '#06b6d4', fontWeight: 900 }}>POTÊNCIA</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: '#06b6d4' }}>{totalRackPower ? totalRackPower.toFixed(0) + ' W' : '--'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 6 }}>
+                    <span style={{ fontSize: 10, fontWeight: 900, color: '#8892b0', alignSelf: 'center', marginRight: 4 }}>PRATELEIRA:</span>
+                    <select 
+                        value={currentShelf} 
+                        onChange={e => setSelectedShelf(e.target.value)} 
+                        style={{ background: '#1c2430', color: '#fff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                    >
+                        {shelvesList.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
                 </div>
             </div>
 
             {farmSubTab === "shelf" ? (
-                <div style={{display: 'flex', flexDirection: 'column', gap: 14, flex: 1, overflow: 'hidden'}}>
+                <div style={{display: 'flex', flexDirection: 'column', gap: 14, flex: 1, padding: 20, overflow: 'hidden'}}>
                     
-                    {/* Controles de Visualização, Seleção de Prateleira e Legenda */}
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.card, padding: '8px 14px', borderRadius: 10, border: `1px solid ${C.border}`}}>
-                        {/* Seleção de Prateleira Dinâmica */}
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <span style={{ fontSize: 10, fontWeight: 900, color: C.muted }}>SELECIONAR PRATELEIRA:</span>
-                            <select 
-                                value={currentShelf} 
-                                onChange={e => setSelectedShelf(e.target.value)} 
-                                style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 800 }}
-                            >
-                                {shelvesList.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                        </div>
-
-                        {/* Legenda de Cores */}
+                    {/* Legenda de Cores */}
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#151b26', padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.04)'}}>
                         <div style={{display: 'flex', gap: 12, alignItems: 'center', fontSize: 10, fontWeight: 800}}>
-                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: C.green}}/> Online</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#10b981'}}/> Online</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#ff9800'}}/> Alerta</span>
-                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: C.red}}/> Defeito</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#ef4444'}}/> Defeito</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#aaa'}}/> Offline</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', border: '1px dashed #aaa'}}/> Vazio</span>
                         </div>
 
                         {/* Segmented Selector for Telemetry values */}
-                        <div style={{background: C.bg, borderRadius: 8, display: 'flex', padding: 2, border: `1px solid ${C.border}`}}>
-                            <button onClick={()=>setViewMode('th')} style={{background: viewMode==='th' ? C.blue : 'transparent', color: viewMode==='th' ? '#fff' : C.text, border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>TH/s</button>
-                            <button onClick={()=>setViewMode('temp')} style={{background: viewMode==='temp' ? C.blue : 'transparent', color: viewMode==='temp' ? '#fff' : C.text, border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Temp</button>
-                            <button onClick={()=>setViewMode('uptime')} style={{background: viewMode==='uptime' ? C.blue : 'transparent', color: viewMode==='uptime' ? '#fff' : C.text, border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Uptime</button>
-                            <button onClick={()=>setViewMode('ip')} style={{background: viewMode==='ip' ? C.blue : 'transparent', color: viewMode==='ip' ? '#fff' : C.text, border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Final IP</button>
+                        <div style={{background: '#11161d', borderRadius: 8, display: 'flex', padding: 2, border: '1px solid rgba(255,255,255,0.08)'}}>
+                            <button onClick={()=>setViewMode('th')} style={{background: viewMode==='th' ? 'rgba(255,255,255,0.08)' : 'transparent', color: viewMode==='th' ? '#fff' : '#8892b0', border: 'none', padding: '4px 10px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>TH/s</button>
+                            <button onClick={()=>setViewMode('temp')} style={{background: viewMode==='temp' ? 'rgba(255,255,255,0.08)' : 'transparent', color: viewMode==='temp' ? '#fff' : '#8892b0', border: 'none', padding: '4px 10px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Temp</button>
+                            <button onClick={()=>setViewMode('uptime')} style={{background: viewMode==='uptime' ? 'rgba(255,255,255,0.08)' : 'transparent', color: viewMode==='uptime' ? '#fff' : '#8892b0', border: 'none', padding: '4px 10px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Uptime</button>
+                            <button onClick={()=>setViewMode('ip')} style={{background: viewMode==='ip' ? 'rgba(255,255,255,0.08)' : 'transparent', color: viewMode==='ip' ? '#fff' : '#8892b0', border: 'none', padding: '4px 10px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Final IP</button>
                         </div>
                     </div>
 
-                    {/* Grid do Rack de Mineração (Organizado de baixo para cima) */}
-                    <div style={{flex: 1, overflow: "auto", background: C.card2, borderRadius: 12, border: `1px solid ${C.border}`, padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start'}}>
+                    {/* Grid do Rack de Mineração (Design de Alta Definição) */}
+                    <div style={{flex: 1, overflow: "auto", background: '#151b26', borderRadius: 12, border: '1px solid rgba(255,255,255,0.05)', padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start'}}>
                         {displayLevels.map(level => (
-                            <div key={level} style={{display:'flex', gap:10, marginBottom:10}}>
-                                {/* Rótulo do Nível/Andar (Nível 1 na base) */}
-                                <div style={{width: 50, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:900, color: C.muted, fontSize: 11}}>
+                            <div key={level} style={{display:'flex', gap:12, marginBottom:12}}>
+                                {/* Rótulo do Nível/Andar */}
+                                <div style={{width: 50, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:900, color: '#8892b0', fontSize: 10, letterSpacing: '0.5px' }}>
                                     NÍVEL {level}
                                 </div>
                                 
-                                {/* Lista de Slots */}
+                                {/* Lista de Slots - Styled as rack pockets */}
                                 {displayPositions.map(pos => {
                                     const m = getMachineByGrid(level, pos);
                                     return (
@@ -5559,8 +5399,8 @@ function DataCenterPage({ctx}) {
                                             onClick={() => handleBoxClick(level, pos)}
                                             onDoubleClick={() => handleDoubleClick(level, pos)}
                                             style={{
-                                                width: 58, 
-                                                height: 58, 
+                                                width: 68, 
+                                                height: 68, 
                                                 background: getBoxColor(m),
                                                 borderRadius: 10, 
                                                 display:'flex', 
@@ -5569,16 +5409,17 @@ function DataCenterPage({ctx}) {
                                                 cursor:'pointer',
                                                 color: '#fff',
                                                 border: `1px solid ${getBoxBorderColor(m)}`,
+                                                boxShadow: getBoxShadow(m),
                                                 transition: 'all 0.15s ease',
                                                 userSelect: 'none'
                                             }}
                                             onMouseEnter={e => {
-                                                e.currentTarget.style.transform = 'scale(1.05)';
-                                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+                                                e.currentTarget.style.transform = 'scale(1.08)';
+                                                e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.5)';
                                             }}
                                             onMouseLeave={e => {
                                                 e.currentTarget.style.transform = 'scale(1)';
-                                                e.currentTarget.style.boxShadow = 'none';
+                                                e.currentTarget.style.boxShadow = getBoxShadow(m);
                                             }}
                                             title={m ? `Nível ${level} - Posição ${pos} (Slot #${(level - 1) * colsCount + pos}) - IP: ${m.ip}` : `Nível ${level} - Posição ${pos} (Slot #${(level - 1) * colsCount + pos}) - Vazio`}
                                         >
@@ -5598,6 +5439,7 @@ function DataCenterPage({ctx}) {
         </div>
     );
 }
+
 
 
 function ScannerPage({ctx}) {
