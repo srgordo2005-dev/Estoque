@@ -1,6 +1,7 @@
 services:
   - type: web
     name: hashstock-helper
+    plan: free
     runtime: node
     buildCommand: npm install
     startCommand: node local-helper.cjs
