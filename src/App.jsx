@@ -4057,7 +4057,49 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
   );
 }
 
-function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machine }) {
+function ScannerSettingsModal({ pools, setPools, overclockEnabled, setOverclockEnabled, ocModel, setOcModel, ocMode, setOcMode, ocOption, setOcOption, onlySuccessMiners, setOnlySuccessMiners, reOverclocking, setReOverclocking, powerControl, setPowerControl, lpmType, setLpmType, onClose }) {
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 400, padding: 12 }}>
+            <div style={{ background: C.card2, borderRadius: 8, padding: 12, border: `1px solid ${C.border}` }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: C.accent, marginBottom: 8 }}>🧱 Configurações de Pool</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {pools.map((p, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.card, padding: 6, borderRadius: 6, border: `1px solid ${C.border}` }}>
+                            <input type="checkbox" checked={p.enabled} onChange={() => setPools(pools.map((x, i) => i === idx ? { ...x, enabled: !x.enabled } : x))} style={{ cursor: 'pointer' }} />
+                            <span style={{ fontSize: 10, fontWeight: 800, color: C.subtle, width: 35 }}>Pool {idx+1}:</span>
+                            <input type="text" value={p.url} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, url: e.target.value } : x))} style={{ ...inp, flex: 2, fontSize: 10, padding: '2px 4px', background: C.bg }} placeholder="URL" />
+                            <input type="text" value={p.user} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, user: e.target.value } : x))} style={{ ...inp, flex: 1, fontSize: 10, padding: '2px 4px', background: C.bg }} placeholder="Worker" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div style={{ background: C.card2, borderRadius: 8, padding: 12, border: `1px solid ${C.border}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <input type="checkbox" id="oc_enable_modal" checked={overclockEnabled} onChange={e => setOverclockEnabled(e.target.checked)} style={{ cursor: 'pointer' }} />
+                    <label htmlFor="oc_enable_modal" style={{ fontSize: 12, fontWeight: 900, color: overclockEnabled ? C.accent : C.muted, cursor: 'pointer' }}>⚡ Overclock / Mode</label>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, opacity: overclockEnabled ? 1 : 0.5, pointerEvents: overclockEnabled ? 'auto' : 'none' }}>
+                    <select value={ocModel} onChange={e => setOcModel(e.target.value)} style={{ ...inp, background: C.card, fontSize: 11, padding: '4px 6px' }}>
+                        <option value="Antminer S19">Antminer S19</option>
+                        <option value="Antminer S19 Pro">Antminer S19 Pro</option>
+                        <option value="Antminer S19j Pro">Antminer S19j Pro</option>
+                        <option value="Antminer T19">Antminer T19</option>
+                    </select>
+                    <select value={ocMode} onChange={e => setOcMode(e.target.value)} style={{ ...inp, background: C.card, fontSize: 11, padding: '4px 6px' }}>
+                        <option value="Normal">Normal</option>
+                        <option value="Low Power">Low Power (LPM)</option>
+                        <option value="High Performance">High Performance</option>
+                    </select>
+                </div>
+            </div>
+
+            <Btn onClick={onClose} style={{ alignSelf: 'flex-end', background: C.blue, color: '#fff', fontWeight: 900, padding: '6px 16px' }}>Salvar & Fechar</Btn>
+        </div>
+    );
+}
+
+function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRange, onClose, machine }) {
     const { data, mutate, user, webhookUrl } = ctx;
     
     // State for removing old machine
@@ -4069,35 +4111,55 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
     const [newSN, setNewSN] = useState("");
     const [newIP, setNewIP] = useState("");
     const [isListening, setIsListening] = useState(false);
-    const [listeningMsg, setListeningMsg] = useState("");
+    const [detectedIps, setDetectedIps] = useState([]); // Collision fix list
+
+    const getSubnetPrefix = (range) => {
+        if (!range) return "";
+        const parts = range.split('-');
+        const startIp = parts[0].trim();
+        const octets = startIp.split('.');
+        if (octets.length === 4) {
+            return octets.slice(0, 3).join('.') + '.';
+        }
+        return "";
+    };
+
+    const subnetPrefix = getSubnetPrefix(selectedFarmRange);
 
     // Listen to IP Report when active
     useEffect(() => {
         if (!isListening) return;
-        setListeningMsg("Aguardando IP Report (aperte o botão físico na mineradora)...");
         const interval = setInterval(async () => {
             try {
                 const res = await fetch('http://localhost:3001/api/ipreport');
                 if (res.ok) {
                     const reports = await res.json();
-                    const report = Array.isArray(reports) ? reports[0] : reports;
-                    if (report && report.ip) {
-                        setNewIP(report.ip);
-                        // Lookup S/N inside inventory by IP
-                        const found = data.machines.find(x => x.ip === report.ip);
-                        if (found) {
-                            setNewSN(found.sn);
-                            setListeningMsg(`⚡ IP ${report.ip} e S/N ${found.sn} detectados!`);
-                        } else {
-                            setListeningMsg(`⚡ IP ${report.ip} detectado!`);
+                    const list = Array.isArray(reports) ? reports : (reports ? [reports] : []);
+                    
+                    // Filter reports by current subnet prefix to avoid VPN/WireGuard collision
+                    const filtered = list.filter(r => r.ip && r.ip.startsWith(subnetPrefix));
+                    if (filtered.length > 0) {
+                        setDetectedIps(filtered);
+                        // If only one matches, auto-fill it
+                        if (filtered.length === 1) {
+                            setNewIP(filtered[0].ip);
+                            const found = data.machines.find(x => x.ip === filtered[0].ip);
+                            if (found) setNewSN(found.sn);
                         }
-                        setIsListening(false);
                     }
                 }
             } catch(e) {}
         }, 1000);
         return () => clearInterval(interval);
-    }, [isListening]);
+    }, [isListening, subnetPrefix]);
+
+    const handleSelectDetectedIp = (item) => {
+        setNewIP(item.ip);
+        const found = data.machines.find(x => x.ip === item.ip);
+        if (found) setNewSN(found.sn);
+        setDetectedIps([]);
+        setIsListening(false);
+    };
 
     const handleRemoveOld = async () => {
         if (!machine) return;
@@ -4110,7 +4172,6 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
         if (!confirm(confirmMsg)) return;
 
         try {
-            // Find machine in inventory to update its status & location
             const dbMac = data.machines.find(x => x.sn === machine.sn || x._id === machine._id);
             if (dbMac) {
                 const updatedSituacao = targetDest === "REPARO" ? "ENTRADA OFICINA" : "STOCK";
@@ -4124,7 +4185,6 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
                     notes: `Retirada da Prateleira. Motivo: ${removalReason || 'Nenhum'}`
                 };
 
-                // Sync sheet for inventory
                 const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
                 if (wUrl) {
                     syncSheet(wUrl, "updateMachine", {
@@ -4143,10 +4203,8 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
                     });
                 }
 
-                // Update Supabase
                 await fbSet("machines", dbMac._id, updatedObj);
                 
-                // Add Audit log
                 await fbSet("audit", crypto.randomUUID(), { 
                     coll: "machines", 
                     docId: dbMac._id, 
@@ -4158,7 +4216,6 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
                 });
             }
 
-            // Remove association from farmMachines
             mutate("farmMachines", prev => prev.filter(x => x._id !== machine._id));
             await fbDelete("farmMachines", machine._id);
 
@@ -4177,13 +4234,11 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
         const finalSN = newSN.trim().toUpperCase() || `FARM-${Date.now()}`;
         const finalIP = newIP.trim();
 
-        // Check if there is an existing machine in inventory with this SN
         const dbMac = data.machines.find(x => x.sn === finalSN);
         const locString = `${selectedFarmName} - PRAT. VÃO ${vao} - POS. ${slot}`;
         
         try {
             if (dbMac) {
-                // Update its location and situacao to LIGADA
                 const updatedObj = {
                     ...dbMac,
                     situacao: "LIGADA",
@@ -4203,7 +4258,6 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
                 }
                 await fbSet("machines", dbMac._id, updatedObj);
             } else if (newSN.trim()) {
-                // If typed new SN that doesn't exist, create it in inventory!
                 const newId = "M-" + crypto.randomUUID();
                 const newDbObj = {
                     _id: newId,
@@ -4218,12 +4272,14 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
                 await fbSet("machines", newId, newDbObj);
             }
 
-            // Upsert in farmMachines
+            // The position notes column contains the global slot number mapping!
+            const globalSlotNumber = String((vao - 1) * 4 + slot); // Dynamically calculated from row and col
+
             const newFarmMachine = {
                 _id: machine?._id || 'farm_' + Date.now().toString(),
                 location: selectedFarmName,
-                shelf: String(vao),
-                notes: String(slot),
+                shelf: "Prateleira 1", // Will be dynamic below
+                notes: globalSlotNumber,
                 ip: finalIP,
                 sn: finalSN,
                 status: 'unknown',
@@ -4240,7 +4296,6 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
             });
             await fbSet("farmMachines", newFarmMachine._id, newFarmMachine);
 
-            // Clear IP reports
             try { await fetch('http://localhost:3001/api/ipreport?clear=true'); } catch(e) {}
 
             alert("Nova máquina adicionada com sucesso!");
@@ -4335,7 +4390,7 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
                                 style={{ ...inp, flex: 1, fontSize: 11, padding: '5px 8px', fontWeight: 'bold', color: newIP ? C.green : C.text }} 
                             />
                             <button 
-                                onClick={() => setIsListening(!isListening)} 
+                                onClick={() => { setIsListening(!isListening); setDetectedIps([]); }} 
                                 style={{ 
                                     background: isListening ? C.accent : C.blue, 
                                     color: '#fff', 
@@ -4352,9 +4407,24 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machi
                         </div>
                     </div>
 
-                    {listeningMsg && (
+                    {isListening && detectedIps.length === 0 && (
                         <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, textAlign: 'center', marginTop: 2 }}>
-                            {listeningMsg}
+                            ⏳ Aguardando IP Report da sub-rede {subnetPrefix}X...
+                        </div>
+                    )}
+
+                    {detectedIps.length > 0 && (
+                        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ fontSize: 9, fontWeight: 900, color: C.muted }}>SELECIONE O DISPOSITIVO DETECTADO:</div>
+                            {detectedIps.map((item, idx) => (
+                                <button 
+                                    key={idx} 
+                                    onClick={() => handleSelectDetectedIp(item)}
+                                    style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, padding: '4px 8px', fontSize: 10, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}
+                                >
+                                    🖥️ IP: {item.ip} (MAC: {item.mac || 'Desconhecido'})
+                                </button>
+                            ))}
                         </div>
                     )}
 
@@ -4385,7 +4455,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const [firmwareModal, setFirmwareModal] = useState(false);
     const [selectedMiner, setSelectedMiner] = useState(null); // Side Drawer
     const [showExportMenu, setShowExportMenu] = useState(false);
-    const [configExpanded, setConfigExpanded] = useState(false); // Collapsible Parameters
     
     // Pool configuration settings matching the BTC Tools screenshot
     const [pools, setPools] = useState([
@@ -4741,7 +4810,29 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
             </div>
 
             {/* Linha de Botões de Ação (Actions Bar) */}
-            <div style={{ background: C.card2, padding: 8, borderRadius: 10, border: `1px solid ${C.border}`, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', position: 'relative' }}>
+            <div style={{ background: C.card2, padding: 8, borderRadius: 10, border: `1px solid ${C.border}`, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.card, padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}` }}>
+                    <span style={{ fontSize: 10, color: C.muted, fontWeight: 700 }}>IP RANGE:</span>
+                    <input 
+                        type="text" 
+                        value={ipRanges[0]?.range || ""} 
+                        onChange={e => setIpRanges([{ ...ipRanges[0], range: e.target.value }])}
+                        style={{ background: 'transparent', border: 'none', color: C.text, fontSize: 10, fontWeight: 700, width: 130, outline: 'none' }}
+                    />
+                </div>
+
+                <button 
+                    onClick={() => ctx.setModal({
+                        title: "Configurações de Pools & Overclock",
+                        content: <ScannerSettingsModal pools={pools} setPools={setPools} overclockEnabled={overclockEnabled} setOverclockEnabled={setOverclockEnabled} ocModel={ocModel} setOcModel={setOcModel} ocMode={ocMode} setOcMode={setOcMode} ocOption={ocOption} setOcOption={setOcOption} onlySuccessMiners={onlySuccessMiners} setOnlySuccessMiners={setOnlySuccessMiners} reOverclocking={reOverclocking} setReOverclocking={setReOverclocking} powerControl={powerControl} setPowerControl={setPowerControl} lpmType={lpmType} setLpmType={setLpmType} onClose={() => ctx.setModal(null)} />
+                    })}
+                    style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                >
+                    ⚙️ Configs
+                </button>
+
+                <div style={{ width: 1, height: 16, background: C.border, margin: '0 2px' }} />
+
                 <Btn onClick={doScan} disabled={scanning} style={{ background: C.blue, color: '#fff', fontWeight: 900, padding: '6px 14px', fontSize: 12 }}>
                     {scanning ? "Escaneando..." : "🔍 SCAN"}
                 </Btn>
@@ -4764,13 +4855,9 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                     {monitoring ? "🟢 Monitor: ON" : "⏸️ Monitor: OFF"}
                 </button>
                 
-                <div style={{ width: 1, height: 16, background: C.border, margin: '0 2px' }} />
-
                 <Btn v="s" onClick={() => applyConfig(selectedIps)} disabled={selectedIps.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>⚙️ CONFIG SELECTED</Btn>
-                <Btn v="s" onClick={() => applyConfig(miners.map(m => m.ip))} disabled={miners.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>⚙️ CONFIG ALL</Btn>
                 
                 <Btn v="r" onClick={() => runAction(selectedIps, "reboot")} disabled={selectedIps.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>🔄 REBOOT SELECTED</Btn>
-                <Btn v="r" onClick={() => runAction(miners.map(m => m.ip), "reboot")} disabled={miners.length === 0} style={{ fontSize: 10, padding: '5px 10px' }}>🔄 REBOOT ALL</Btn>
                 
                 <Btn v="y" onClick={() => setFirmwareModal(true)} style={{ fontSize: 10, padding: '5px 10px' }}>💾 FIRMWARE UPGRADE</Btn>
                 
@@ -4846,86 +4933,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                         </div>
                     )}
                 </div>
-            </div>
-
-            {/* Collapsible Config Trigger to preserve screen space */}
-            <div style={{ background: C.card2, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
-                <button 
-                    onClick={() => setConfigExpanded(!configExpanded)} 
-                    style={{ 
-                        width: '100%', 
-                        background: 'transparent', 
-                        border: 'none', 
-                        color: C.accent, 
-                        padding: '10px 14px', 
-                        fontWeight: 900, 
-                        fontSize: 11, 
-                        textAlign: 'left', 
-                        cursor: 'pointer', 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center' 
-                    }}
-                >
-                    <span>⚙️ CONFIGURAÇÕES DE ESCANEAMENTO & POOLS (FAIXAS IP / POOLS / OVERCLOCK)</span>
-                    <span style={{ fontSize: 10 }}>{configExpanded ? "▲ RECOLHER" : "▼ EXPANDIR"}</span>
-                </button>
-                
-                {configExpanded && (
-                    <div style={{ padding: '0 14px 14px 14px', borderTop: `1px solid ${C.border}`, display: 'grid', gridTemplateColumns: '230px 1fr 1fr', gap: 10, marginTop: 10 }}>
-                        {/* 1. Faixas IP */}
-                        <div style={{ background: C.card, borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <span style={{ fontSize: 10, fontWeight: 900, color: C.accent }}>FAIXAS IP (Ranges)</span>
-                                <div style={{ display: 'flex', gap: 3 }}>
-                                    <button onClick={handleAddIpRange} style={{ background: C.blue, border: 'none', color: '#fff', width: 16, height: 16, borderRadius: 3, cursor: 'pointer', fontSize: 10, fontWeight: 900 }}>+</button>
-                                    <button onClick={handleRemoveSelectedRanges} style={{ background: C.red, border: 'none', color: '#fff', width: 16, height: 16, borderRadius: 3, cursor: 'pointer', fontSize: 10, fontWeight: 900 }}>-</button>
-                                </div>
-                            </div>
-                            <div style={{ flex: 1, overflowY: 'auto', background: C.bg, borderRadius: 6, border: `1px solid ${C.border}`, padding: 4, minHeight: 60 }}>
-                                {ipRanges.map(r => (
-                                    <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px', cursor: 'pointer' }}>
-                                        <input type="checkbox" checked={r.checked} onChange={() => toggleRangeCheck(r.id)} />
-                                        <span style={{ fontSize: 10, color: C.text }}>{r.range}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 2. Configurações de Pool */}
-                        <div style={{ background: C.card, borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div style={{ fontSize: 10, fontWeight: 900, color: C.accent }}>🧱 CONFIGURAÇÕES DE POOL</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', maxHeight: 80 }}>
-                                {pools.map((p, idx) => (
-                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.card2, padding: '2px 4px', borderRadius: 4, border: `1px solid ${C.border}` }}>
-                                        <input type="checkbox" checked={p.enabled} onChange={() => setPools(pools.map((x, i) => i === idx ? { ...x, enabled: !x.enabled } : x))} />
-                                        <span style={{ fontSize: 8, fontWeight: 800, color: C.subtle, width: 25 }}>P${idx + 1}</span>
-                                        <input type="text" value={p.url} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, url: e.target.value } : x))} style={{ flex: 2, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 3, padding: '1px 2px', fontSize: 8 }} />
-                                        <input type="text" value={p.user} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, user: e.target.value } : x))} style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 3, padding: '1px 2px', fontSize: 8 }} />
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 3. Overclock / Opções */}
-                        <div style={{ background: C.card, borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <input type="checkbox" id="oc_enable" checked={overclockEnabled} onChange={e => setOverclockEnabled(e.target.checked)} />
-                                <label htmlFor="oc_enable" style={{ fontSize: 10, fontWeight: 900, color: overclockEnabled ? C.accent : C.muted, cursor: 'pointer' }}>⚡ OVERCLOCK / MODE</label>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, opacity: overclockEnabled ? 1 : 0.5, pointerEvents: overclockEnabled ? 'auto' : 'none' }}>
-                                <select value={ocModel} onChange={e => setOcModel(e.target.value)} style={{ background: C.card2, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 8, padding: '2px 4px' }}>
-                                    <option value="Antminer S19">S19</option>
-                                    <option value="Antminer S19 Pro">S19 Pro</option>
-                                </select>
-                                <select value={ocMode} onChange={e => setOcMode(e.target.value)} style={{ background: C.card2, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 8, padding: '2px 4px' }}>
-                                    <option value="Normal">Normal</option>
-                                    <option value="Low Power">LPM</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                )}
             </div>
 
             {/* Tabela de Dispositivos Simplificada e Mais Limpa */}
@@ -5202,8 +5209,9 @@ function DataCenterPage({ctx}) {
     const farmMachines = data.farmMachines || [];
     
     const [selectedFarmName, setSelectedFarmName] = useState(null);
-    const [farmSubTab, setFarmSubTab] = useState("shelf"); // "shelf", "scan"
+    const [farmSubTab, setFarmSubTab] = useState("scan"); // Default to "scan" scanner on load!
     const [viewMode, setViewMode] = useState("th"); // 'th', 'temp', 'uptime', 'ip'
+    const [selectedShelf, setSelectedShelf] = useState("Prateleira 1");
     
     const getFarmsList = () => {
         const list = [{ id: "f1", name: "Fazenda Principal", ipRange: "192.168.1.1-255" }];
@@ -5242,7 +5250,7 @@ function DataCenterPage({ctx}) {
                         return (
                             <Card 
                                 key={f.name} 
-                                onClick={() => { setSelectedFarmName(f.name); setFarmSubTab("shelf"); }}
+                                onClick={() => { setSelectedFarmName(f.name); setFarmSubTab("scan"); }}
                                 style={{
                                     cursor: 'pointer', 
                                     border: `1px solid ${C.border}`, 
@@ -5287,19 +5295,51 @@ function DataCenterPage({ctx}) {
     const farm = listFarms.find(f => f.name === selectedFarmName) || listFarms[0];
     const farmData = farmMachines.filter(m => (m.location || "Fazenda Principal") === selectedFarmName);
     
-    const getMachine = (vao, slot) => {
-        return farmData.find(m => m.shelf === String(vao) && m.notes === String(slot));
+    // Find all shelves names under this farm
+    const shelvesList = Array.from(new Set(farmData.map(m => m.shelf).filter(Boolean)));
+    if (shelvesList.length === 0) shelvesList.push("Prateleira 1");
+    
+    // Ensure selectedShelf is valid
+    const currentShelf = shelvesList.includes(selectedShelf) ? selectedShelf : shelvesList[0];
+
+    // Load layout parameters (columns and rows count) for selectedShelf
+    let colsCount = 4;
+    let rowsCount = 4;
+    try {
+        const meta = JSON.parse(localStorage.getItem("hs_layout_" + currentShelf));
+        if (meta) {
+            colsCount = meta.machinesPerLevel || 4;
+            rowsCount = meta.levelsCount || 4;
+        } else {
+            // Auto detect based on maximum notes slot index
+            let maxSlotNum = 1;
+            farmData.filter(m => m.shelf === currentShelf).forEach(m => {
+                const num = parseInt(m.notes) || 0;
+                if (num > maxSlotNum) maxSlotNum = num;
+            });
+            if (maxSlotNum > 16) {
+                colsCount = 4;
+                rowsCount = Math.ceil(maxSlotNum / 4);
+            }
+        }
+    } catch(e) {}
+
+    const getMachineByGrid = (level, pos) => {
+        // Slot formula: Level 1 is at the bottom, increasing left-to-right, then Level 2 above it
+        const slotNum = (level - 1) * colsCount + pos;
+        return farmData.find(m => m.shelf === currentShelf && String(m.notes) === String(slotNum));
     };
 
-    const handleBoxClick = (vao, slot) => {
-        const m = getMachine(vao, slot);
+    const handleBoxClick = (level, pos) => {
+        const m = getMachineByGrid(level, pos);
         setModal(
-            <Modal title={`Alterar Posição - Vão ${vao} / Posição ${slot}`} onClose={() => setModal(null)}>
+            <Modal title={`Alterar Posição - Nível ${level} / Posição ${pos}`} onClose={() => setModal(null)}>
                 <SlotSwapModalContent 
                     ctx={ctx} 
-                    vao={vao} 
-                    slot={slot} 
+                    vao={level} 
+                    slot={pos} 
                     selectedFarmName={selectedFarmName} 
+                    selectedFarmRange={farm.ipRange}
                     onClose={() => setModal(null)} 
                     machine={m} 
                 />
@@ -5307,24 +5347,16 @@ function DataCenterPage({ctx}) {
         );
     };
 
-    const handleDoubleClick = (vao, slot) => {
-        const m = getMachine(vao, slot);
+    const handleDoubleClick = (level, pos) => {
+        const m = getMachineByGrid(level, pos);
         if (m && m.ip) {
             window.open(`http://${m.ip}`, '_blank');
         }
     };
 
-    let maxVao = 10;
-    let maxSlot = 10;
-    farmData.forEach(m => {
-        const v = parseInt(m.shelf) || 0;
-        const s = parseInt(m.notes) || 0;
-        if(v > maxVao) maxVao = v;
-        if(s > maxSlot) maxSlot = s;
-    });
-
-    const rows = Array.from({length: maxVao}, (_, i) => i + 1);
-    const cols = Array.from({length: maxSlot}, (_, i) => i + 1);
+    // The display rows are looped in reverse order (bottom-up: rowsCount down to 1) so level 1 is rendered at the bottom!
+    const displayLevels = Array.from({length: rowsCount}, (_, i) => rowsCount - i);
+    const displayPositions = Array.from({length: colsCount}, (_, i) => i + 1);
 
     const renderBoxContent = (m) => {
         if (!m) return (
@@ -5443,14 +5475,25 @@ function DataCenterPage({ctx}) {
             {farmSubTab === "shelf" ? (
                 <div style={{display: 'flex', flexDirection: 'column', gap: 14, flex: 1, overflow: 'hidden'}}>
                     
-                    {/* Controles de Visualização e Legenda */}
+                    {/* Controles de Visualização, Seleção de Prateleira e Legenda */}
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.card, padding: '8px 14px', borderRadius: 10, border: `1px solid ${C.border}`}}>
+                        {/* Seleção de Prateleira Dinâmica */}
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontSize: 10, fontWeight: 900, color: C.muted }}>SELECIONAR PRATELEIRA:</span>
+                            <select 
+                                value={currentShelf} 
+                                onChange={e => setSelectedShelf(e.target.value)} 
+                                style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 800 }}
+                            >
+                                {shelvesList.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+
                         {/* Legenda de Cores */}
                         <div style={{display: 'flex', gap: 12, alignItems: 'center', fontSize: 10, fontWeight: 800}}>
-                            <span style={{color: C.muted}}>LEGENDA:</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: C.green}}/> Online</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#ff9800'}}/> Alerta</span>
-                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: C.red}}/> Defeito / Alto</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: C.red}}/> Defeito</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#aaa'}}/> Offline</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', border: '1px dashed #aaa'}}/> Vazio</span>
                         </div>
@@ -5464,23 +5507,23 @@ function DataCenterPage({ctx}) {
                         </div>
                     </div>
 
-                    {/* Grid do Rack de Mineração */}
+                    {/* Grid do Rack de Mineração (Organizado de baixo para cima) */}
                     <div style={{flex: 1, overflow: "auto", background: C.card2, borderRadius: 12, border: `1px solid ${C.border}`, padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start'}}>
-                        {rows.map(vao => (
-                            <div key={vao} style={{display:'flex', gap:10, marginBottom:10}}>
-                                {/* Rótulo do Andar */}
-                                <div style={{width: 45, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:900, color: C.muted, fontSize: 11}}>
-                                    ANDAR {vao}
+                        {displayLevels.map(level => (
+                            <div key={level} style={{display:'flex', gap:10, marginBottom:10}}>
+                                {/* Rótulo do Nível/Andar (Nível 1 na base) */}
+                                <div style={{width: 50, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:900, color: C.muted, fontSize: 11}}>
+                                    NÍVEL {level}
                                 </div>
                                 
                                 {/* Lista de Slots */}
-                                {cols.map(slot => {
-                                    const m = getMachine(vao, slot);
+                                {displayPositions.map(pos => {
+                                    const m = getMachineByGrid(level, pos);
                                     return (
                                         <div 
-                                            key={slot} 
-                                            onClick={() => handleBoxClick(vao, slot)}
-                                            onDoubleClick={() => handleDoubleClick(vao, slot)}
+                                            key={pos} 
+                                            onClick={() => handleBoxClick(level, pos)}
+                                            onDoubleClick={() => handleDoubleClick(level, pos)}
                                             style={{
                                                 width: 58, 
                                                 height: 58, 
@@ -5503,7 +5546,7 @@ function DataCenterPage({ctx}) {
                                                 e.currentTarget.style.transform = 'scale(1)';
                                                 e.currentTarget.style.boxShadow = 'none';
                                             }}
-                                            title={m ? `Andar ${vao} - Slot ${slot} (${m.ip})` : `Andar ${vao} - Slot ${slot} (Vazio)`}
+                                            title={m ? `Nível ${level} - Posição ${pos} (Slot #${(level - 1) * colsCount + pos}) - IP: ${m.ip}` : `Nível ${level} - Posição ${pos} (Slot #${(level - 1) * colsCount + pos}) - Vazio`}
                                         >
                                             {renderBoxContent(m)}
                                         </div>
