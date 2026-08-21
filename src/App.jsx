@@ -4385,6 +4385,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const [firmwareModal, setFirmwareModal] = useState(false);
     const [selectedMiner, setSelectedMiner] = useState(null); // Side Drawer
     const [showExportMenu, setShowExportMenu] = useState(false);
+    const [configExpanded, setConfigExpanded] = useState(false); // Collapsible Parameters
     
     // Pool configuration settings matching the BTC Tools screenshot
     const [pools, setPools] = useState([
@@ -4461,7 +4462,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         
         setScanning(true);
         setSelectedIps([]);
-        // We do NOT clear miners anymore to keep list persistent!
         
         for (const rangeObj of checkedRanges) {
             const parsed = parseRange(rangeObj.range);
@@ -4666,7 +4666,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', background: C.bg, position: 'relative' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%', background: C.bg, position: 'relative' }}>
             
             {/* Banner de download do helper se offline */}
             {!localConnected && (
@@ -4702,40 +4702,40 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
             )}
 
             {/* Hashcore Toolkit Summary Badges Bar */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', background: C.card, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}` }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16, borderRight: `1px solid ${C.border}` }}>
-                    <span style={{ fontSize: 16 }}>📊</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, background: C.card, padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.blue}` }}>
+                    <span style={{ fontSize: 18 }}>📊</span>
                     <div>
-                        <div style={{ fontSize: 13, fontWeight: 900, color: C.text }}>{totalMiners}</div>
-                        <div style={{ fontSize: 9, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Mineradores</div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: C.text }}>{totalMiners}</div>
+                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Mineradores</div>
                     </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16, borderRight: `1px solid ${C.border}` }}>
-                    <span style={{ color: C.green, fontSize: 16 }}>🟢</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.green}` }}>
+                    <span style={{ color: C.green, fontSize: 18 }}>🟢</span>
                     <div>
-                        <div style={{ fontSize: 13, fontWeight: 900, color: C.green }}>{onlineMiners}</div>
-                        <div style={{ fontSize: 9, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Desbloqueados</div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: C.green }}>{onlineMiners}</div>
+                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Desbloqueados</div>
                     </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16, borderRight: `1px solid ${C.border}` }}>
-                    <span style={{ color: C.red, fontSize: 16 }}>🔴</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.red}` }}>
+                    <span style={{ color: C.red, fontSize: 18 }}>🔴</span>
                     <div>
-                        <div style={{ fontSize: 13, fontWeight: 900, color: C.red }}>{errorMiners}</div>
-                        <div style={{ fontSize: 9, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Com Erro</div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: C.red }}>{errorMiners}</div>
+                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Com Erro</div>
                     </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 16, borderRight: `1px solid ${C.border}` }}>
-                    <span style={{ color: C.accent, fontSize: 16 }}>⚡</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.accent}` }}>
+                    <span style={{ color: C.accent, fontSize: 18 }}>⚡</span>
                     <div>
-                        <div style={{ fontSize: 13, fontWeight: 900, color: C.accent }}>{totalHashrate.toFixed(1)} TH/s</div>
-                        <div style={{ fontSize: 9, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Hashrate Total</div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: C.accent }}>{totalHashrate.toFixed(1)} TH/s</div>
+                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Hashrate Total</div>
                     </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ color: C.blue, fontSize: 16 }}>🔌</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: C.card2, borderRadius: 8, borderLeft: `3px solid ${C.blue}` }}>
+                    <span style={{ color: C.blue, fontSize: 18 }}>🔌</span>
                     <div>
-                        <div style={{ fontSize: 13, fontWeight: 900, color: C.blue }}>{totalPower.toLocaleString()} W</div>
-                        <div style={{ fontSize: 9, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Potência Total</div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: C.blue }}>{totalPower.toLocaleString()} W</div>
+                        <div style={{ fontSize: 8, fontWeight: 800, color: C.muted, textTransform: 'uppercase' }}>Potência Total</div>
                     </div>
                 </div>
             </div>
@@ -4848,104 +4848,84 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                 </div>
             </div>
 
-            {/* Config Grid (Horizontal: Faixas IP + Pools + Overclock) */}
-            <div style={{ display: 'grid', gridTemplateColumns: '230px 1fr 1fr', gap: 10, height: 135, minHeight: 135 }}>
+            {/* Collapsible Config Trigger to preserve screen space */}
+            <div style={{ background: C.card2, borderRadius: 10, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+                <button 
+                    onClick={() => setConfigExpanded(!configExpanded)} 
+                    style={{ 
+                        width: '100%', 
+                        background: 'transparent', 
+                        border: 'none', 
+                        color: C.accent, 
+                        padding: '10px 14px', 
+                        fontWeight: 900, 
+                        fontSize: 11, 
+                        textAlign: 'left', 
+                        cursor: 'pointer', 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center' 
+                    }}
+                >
+                    <span>⚙️ CONFIGURAÇÕES DE ESCANEAMENTO & POOLS (FAIXAS IP / POOLS / OVERCLOCK)</span>
+                    <span style={{ fontSize: 10 }}>{configExpanded ? "▲ RECOLHER" : "▼ EXPANDIR"}</span>
+                </button>
                 
-                {/* 1. Faixas IP */}
-                <div style={{ background: C.card2, borderRadius: 10, border: `1px solid ${C.border}`, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, height: '100%', minHeight: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, fontWeight: 900, color: C.accent }}>📁 FAIXAS IP (Ranges)</span>
-                        <div style={{ display: 'flex', gap: 3 }}>
-                            <button onClick={handleAddIpRange} title="Adicionar Faixa" style={{ background: C.blue, border: 'none', color: '#fff', width: 18, height: 18, borderRadius: 3, cursor: 'pointer', fontWeight: 900, fontSize: 10 }}>+</button>
-                            <button onClick={handleRemoveSelectedRanges} title="Remover Faixas Marcadas" style={{ background: C.red, border: 'none', color: '#fff', width: 18, height: 18, borderRadius: 3, cursor: 'pointer', fontWeight: 900, fontSize: 10 }}>-</button>
+                {configExpanded && (
+                    <div style={{ padding: '0 14px 14px 14px', borderTop: `1px solid ${C.border}`, display: 'grid', gridTemplateColumns: '230px 1fr 1fr', gap: 10, marginTop: 10 }}>
+                        {/* 1. Faixas IP */}
+                        <div style={{ background: C.card, borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: 10, fontWeight: 900, color: C.accent }}>FAIXAS IP (Ranges)</span>
+                                <div style={{ display: 'flex', gap: 3 }}>
+                                    <button onClick={handleAddIpRange} style={{ background: C.blue, border: 'none', color: '#fff', width: 16, height: 16, borderRadius: 3, cursor: 'pointer', fontSize: 10, fontWeight: 900 }}>+</button>
+                                    <button onClick={handleRemoveSelectedRanges} style={{ background: C.red, border: 'none', color: '#fff', width: 16, height: 16, borderRadius: 3, cursor: 'pointer', fontSize: 10, fontWeight: 900 }}>-</button>
+                                </div>
+                            </div>
+                            <div style={{ flex: 1, overflowY: 'auto', background: C.bg, borderRadius: 6, border: `1px solid ${C.border}`, padding: 4, minHeight: 60 }}>
+                                {ipRanges.map(r => (
+                                    <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px', cursor: 'pointer' }}>
+                                        <input type="checkbox" checked={r.checked} onChange={() => toggleRangeCheck(r.id)} />
+                                        <span style={{ fontSize: 10, color: C.text }}>{r.range}</span>
+                                    </label>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                    <div style={{ flex: 1, overflowY: 'auto', background: C.bg, borderRadius: 6, border: `1px solid ${C.border}`, padding: 4 }}>
-                        {ipRanges.length === 0 ? (
-                            <div style={{ fontSize: 10, color: C.muted, textAlign: 'center', marginTop: 10 }}>Nenhuma faixa.</div>
-                        ) : (
-                            ipRanges.map(r => (
-                                <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', transition: 'background 0.2s' }}>
-                                    <input type="checkbox" checked={r.checked} onChange={() => toggleRangeCheck(r.id)} style={{ cursor: 'pointer' }} />
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: C.text }}>{r.range}</span>
-                                </label>
-                            ))
-                        )}
-                    </div>
-                </div>
 
-                {/* 2. Configurações de Pool */}
-                <div style={{ background: C.card2, borderRadius: 10, border: `1px solid ${C.border}`, padding: 8, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ fontSize: 11, fontWeight: 900, color: C.accent, letterSpacing: 0.5 }}>🧱 CONFIGURAÇÕES DE POOL</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, overflowY: 'auto' }}>
-                        {pools.map((p, idx) => (
-                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.card, padding: '3px 6px', borderRadius: 6, border: `1px solid ${C.border}` }}>
-                                <input type="checkbox" checked={p.enabled} onChange={() => setPools(pools.map((x, i) => i === idx ? { ...x, enabled: !x.enabled } : x))} style={{ cursor: 'pointer' }} />
-                                <span style={{ fontSize: 10, fontWeight: 800, color: C.subtle, width: 38 }}>P${idx + 1}:</span>
-                                <input type="text" value={p.url} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, url: e.target.value } : x))} style={{ flex: 2, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '2px 4px', fontSize: 9 }} placeholder="URL" />
-                                <input type="text" value={p.user} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, user: e.target.value } : x))} style={{ flex: 1.2, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '2px 4px', fontSize: 9 }} placeholder="Worker" />
-                                <input type="text" value={p.pass} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, pass: e.target.value } : x))} style={{ width: 30, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 4, padding: '2px 4px', fontSize: 9 }} placeholder="PWD" />
-                                <select value={p.suffix} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, suffix: e.target.value } : x))} style={{ background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 8, padding: '1px 2px' }}>
-                                    <option value="IP">IP</option>
-                                    <option value="None">None</option>
-                                    <option value="Empty">Empty</option>
+                        {/* 2. Configurações de Pool */}
+                        <div style={{ background: C.card, borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ fontSize: 10, fontWeight: 900, color: C.accent }}>🧱 CONFIGURAÇÕES DE POOL</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', maxHeight: 80 }}>
+                                {pools.map((p, idx) => (
+                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.card2, padding: '2px 4px', borderRadius: 4, border: `1px solid ${C.border}` }}>
+                                        <input type="checkbox" checked={p.enabled} onChange={() => setPools(pools.map((x, i) => i === idx ? { ...x, enabled: !x.enabled } : x))} />
+                                        <span style={{ fontSize: 8, fontWeight: 800, color: C.subtle, width: 25 }}>P${idx + 1}</span>
+                                        <input type="text" value={p.url} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, url: e.target.value } : x))} style={{ flex: 2, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 3, padding: '1px 2px', fontSize: 8 }} />
+                                        <input type="text" value={p.user} onChange={e => setPools(pools.map((x, i) => i === idx ? { ...x, user: e.target.value } : x))} style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, color: C.text, borderRadius: 3, padding: '1px 2px', fontSize: 8 }} />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 3. Overclock / Opções */}
+                        <div style={{ background: C.card, borderRadius: 8, border: `1px solid ${C.border}`, padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <input type="checkbox" id="oc_enable" checked={overclockEnabled} onChange={e => setOverclockEnabled(e.target.checked)} />
+                                <label htmlFor="oc_enable" style={{ fontSize: 10, fontWeight: 900, color: overclockEnabled ? C.accent : C.muted, cursor: 'pointer' }}>⚡ OVERCLOCK / MODE</label>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, opacity: overclockEnabled ? 1 : 0.5, pointerEvents: overclockEnabled ? 'auto' : 'none' }}>
+                                <select value={ocModel} onChange={e => setOcModel(e.target.value)} style={{ background: C.card2, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 8, padding: '2px 4px' }}>
+                                    <option value="Antminer S19">S19</option>
+                                    <option value="Antminer S19 Pro">S19 Pro</option>
+                                </select>
+                                <select value={ocMode} onChange={e => setOcMode(e.target.value)} style={{ background: C.card2, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 8, padding: '2px 4px' }}>
+                                    <option value="Normal">Normal</option>
+                                    <option value="Low Power">LPM</option>
                                 </select>
                             </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* 3. Overclock / Opções */}
-                <div style={{ background: C.card2, borderRadius: 10, border: `1px solid ${C.border}`, padding: 8, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <input type="checkbox" id="oc_enable" checked={overclockEnabled} onChange={e => setOverclockEnabled(e.target.checked)} style={{ cursor: 'pointer' }} />
-                        <label htmlFor="oc_enable" style={{ fontSize: 11, fontWeight: 900, color: overclockEnabled ? C.accent : C.muted, cursor: 'pointer', letterSpacing: 0.5 }}>⚡ OVERCLOCK / MODE</label>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, opacity: overclockEnabled ? 1 : 0.5, pointerEvents: overclockEnabled ? 'auto' : 'none' }}>
-                        <div>
-                            <select value={ocModel} onChange={e => setOcModel(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 4px', fontSize: 9, width: '100%', fontWeight: 700 }}>
-                                <option value="Antminer S19">S19</option>
-                                <option value="Antminer S19 Pro">S19 Pro</option>
-                                <option value="Antminer S19j Pro">S19j Pro</option>
-                                <option value="Antminer T19">T19</option>
-                                <option value="All Models">Todos</option>
-                            </select>
-                        </div>
-                        <div>
-                            <select value={ocMode} onChange={e => setOcMode(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 4px', fontSize: 9, width: '100%', fontWeight: 700 }}>
-                                <option value="Normal">Normal</option>
-                                <option value="Low Power">LPM</option>
-                                <option value="High Performance">High</option>
-                            </select>
-                        </div>
-                        <div>
-                            <select value={ocOption} onChange={e => setOcOption(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 4, padding: '2px 4px', fontSize: 9, width: '100%', fontWeight: 700 }}>
-                                <option value="None">Nenhuma</option>
-                                <option value="Eco Mode">Eco</option>
-                                <option value="Dynamic LDO">LDO</option>
-                            </select>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', fontSize: 8, color: C.text, marginTop: 2 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={onlySuccessMiners} onChange={e => setOnlySuccessMiners(e.target.checked)} />
-                            Only Success
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={reOverclocking} onChange={e => setReOverclocking(e.target.checked)} />
-                            Re-oc
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={powerControl} onChange={e => setPowerControl(e.target.checked)} />
-                            Power:
-                            <select value={lpmType} onChange={e => setLpmType(e.target.value)} style={{ background: C.card, color: C.text, border: `1px solid ${C.border}`, borderRadius: 3, fontSize: 8, padding: '1px 2px' }} disabled={!powerControl}>
-                                <option value="LPM">LPM</option>
-                                <option value="Enhanced LPM">ELPM</option>
-                            </select>
-                        </label>
-                    </div>
-                </div>
-
+                )}
             </div>
 
             {/* Tabela de Dispositivos Simplificada e Mais Limpa */}
@@ -5223,7 +5203,7 @@ function DataCenterPage({ctx}) {
     
     const [selectedFarmName, setSelectedFarmName] = useState(null);
     const [farmSubTab, setFarmSubTab] = useState("shelf"); // "shelf", "scan"
-    const [viewMode, setViewMode] = useState("th"); // 'th', 'temp', 'uptime', 'status'
+    const [viewMode, setViewMode] = useState("th"); // 'th', 'temp', 'uptime', 'ip'
     
     const getFarmsList = () => {
         const list = [{ id: "f1", name: "Fazenda Principal", ipRange: "192.168.1.1-255" }];
@@ -5243,16 +5223,16 @@ function DataCenterPage({ctx}) {
             <div style={{display:"flex", flexDirection:"column", height:"calc(100vh - 80px)", background: C.bg, padding: 20, overflowY: 'auto'}}>
                 <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
                     <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
-                       <span style={{fontSize:28}}>🏢</span> Fazenda Geral
+                       <span style={{fontSize:28}}>🏢</span> Fazendas Cadastradas
                        {user?.code === "019" && (
-                           <button onClick={() => ctx.setModal({content: <FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} />, title: "Configuração", hideHeader: true})} style={{background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: '4px 8px', borderRadius: 6, fontSize: 14, cursor: 'pointer', marginLeft: 10}}>
-                               ⚙️ Config
+                           <button onClick={() => ctx.setModal({content: <FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} />, title: "Configuração", hideHeader: true})} style={{background: C.card2, border: `1px solid ${C.border}`, color: C.text, padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer', marginLeft: 10}}>
+                               ⚙️ Gerenciar Fazendas
                            </button>
                        )}
                     </div>
                 </div>
 
-                <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20}}>
+                <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20}}>
                     {listFarms.map(f => {
                         const miners = farmMachines.filter(m => (m.location || "Fazenda Principal") === f.name);
                         const onlineCount = miners.filter(m => m.hashrate > 0).length;
@@ -5263,25 +5243,37 @@ function DataCenterPage({ctx}) {
                             <Card 
                                 key={f.name} 
                                 onClick={() => { setSelectedFarmName(f.name); setFarmSubTab("shelf"); }}
-                                style={{cursor: 'pointer', border: `1px solid ${C.border}`, hover: {borderColor: C.blue}, transition: 'all 0.2s', padding: 20}}
+                                style={{
+                                    cursor: 'pointer', 
+                                    border: `1px solid ${C.border}`, 
+                                    background: C.card,
+                                    borderRadius: 12,
+                                    transition: 'all 0.2s', 
+                                    padding: 20,
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                    position: 'relative',
+                                    overflow: 'hidden'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.borderColor = C.blue}
+                                onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
                             >
                                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12}}>
-                                    <div style={{fontWeight: 900, fontSize: 18, color: C.accent}}>🏢 {f.name}</div>
-                                    <span style={{fontSize: 16, color: C.subtle}}>➔</span>
+                                    <div style={{fontWeight: 900, fontSize: 18, color: C.text}}>🏢 {f.name}</div>
+                                    <span style={{fontSize: 16, color: C.blue}}>➔</span>
                                 </div>
-                                <div style={{fontSize: 12, color: C.subtle, marginBottom: 10}}>Faixa: <b>{f.ipRange || '-'}</b></div>
-                                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, textAlign: 'center', marginTop: 10}}>
-                                    <div style={{background: C.card2, padding: 8, borderRadius: 8}}>
-                                        <div style={{fontWeight: 900, color: C.text}}>{miners.length}</div>
-                                        <div style={{fontSize: 9, color: C.muted}}>MÁQUINAS</div>
+                                <div style={{fontSize: 12, color: C.subtle, marginBottom: 10}}>Sub-rede: <b style={{color: C.accent}}>{f.ipRange || '-'}</b></div>
+                                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, textAlign: 'center', marginTop: 14}}>
+                                    <div style={{background: C.bg, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`}}>
+                                        <div style={{fontWeight: 900, color: C.text, fontSize: 14}}>{miners.length}</div>
+                                        <div style={{fontSize: 8, color: C.muted, fontWeight: 800}}>TOTAL</div>
                                     </div>
-                                    <div style={{background: C.card2, padding: 8, borderRadius: 8}}>
-                                        <div style={{fontWeight: 900, color: C.green}}>{onlineCount}</div>
-                                        <div style={{fontSize: 9, color: C.muted}}>ONLINE</div>
+                                    <div style={{background: C.bg, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`}}>
+                                        <div style={{fontWeight: 900, color: C.green, fontSize: 14}}>{onlineCount}</div>
+                                        <div style={{fontSize: 8, color: C.muted, fontWeight: 800}}>ONLINE</div>
                                     </div>
-                                    <div style={{background: C.card2, padding: 8, borderRadius: 8}}>
-                                        <div style={{fontWeight: 900, color: totalTH > 0 ? C.green : C.text}}>{totalTH.toFixed(0)}T</div>
-                                        <div style={{fontSize: 9, color: C.muted}}>TH/S TOTAL</div>
+                                    <div style={{background: C.bg, padding: 8, borderRadius: 8, border: `1px solid ${C.border}`}}>
+                                        <div style={{fontWeight: 900, color: C.accent, fontSize: 14}}>{totalTH.toFixed(0)} T</div>
+                                        <div style={{fontSize: 8, color: C.muted, fontWeight: 800}}>HASHRATE</div>
                                     </div>
                                 </div>
                             </Card>
@@ -5335,20 +5327,66 @@ function DataCenterPage({ctx}) {
     const cols = Array.from({length: maxSlot}, (_, i) => i + 1);
 
     const renderBoxContent = (m) => {
-        if (!m) return <div style={{opacity:0.3, fontSize:10}}>Vazio</div>;
-        if (m.status === 'error' || m.status === 'abnormal') return <span style={{fontSize:18}}>⚠️</span>;
+        if (!m) return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.15, height: '100%' }}>
+                <span style={{ fontSize: 16, fontWeight: 900 }}>+</span>
+                <span style={{ fontSize: 7, fontWeight: 900 }}>VACANT</span>
+            </div>
+        );
         
-        switch (viewMode) {
-            case 'th': return <div style={{fontWeight:800}}>{m.hashrate ? m.hashrate.toFixed(0) + 'T' : '0T'}</div>;
-            case 'temp': return <div style={{fontWeight:800, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : 'inherit')}}>{m.temp ? m.temp + '°' : '-'}</div>;
-            case 'uptime': return <div style={{fontWeight:800, fontSize:11}}>{m.uptime ? Math.floor(m.uptime / 60) + 'm' : '-'}</div>;
-            default: return <div style={{fontWeight:800, fontSize:11}}>{m.ip.split('.').pop()}</div>;
-        }
+        const isOffline = m.status === 'offline';
+        const isError = m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown');
+        const isWarning = m.temp > 75 && m.temp <= 85;
+
+        let statusLight = C.green;
+        let shadowColor = C.green;
+        if (isOffline) { statusLight = '#aaa'; shadowColor = '#555'; }
+        else if (isError) { statusLight = C.red; shadowColor = C.red; }
+        else if (isWarning) { statusLight = '#ff9800'; shadowColor = '#ff9800'; }
+
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', padding: '6px', justifyContent: 'space-between', position: 'relative' }}>
+                {/* Glowing Indicator Dot */}
+                <div style={{
+                    position: 'absolute',
+                    top: 6,
+                    right: 6,
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background: statusLight,
+                    boxShadow: `0 0 6px ${shadowColor}`,
+                    animation: isError ? 'pulse 1s infinite alternate' : 'none'
+                }} />
+                
+                {/* IP suffix */}
+                <div style={{ fontSize: 11, fontWeight: 900, color: '#fff', textAlign: 'left', fontFamily: 'monospace' }}>
+                    .{m.ip.split('.').pop()}
+                </div>
+                
+                {/* Telemetry view */}
+                <div style={{ fontSize: 8, fontWeight: 900, color: 'rgba(255,255,255,0.6)', textAlign: 'right', marginTop: 'auto' }}>
+                    {viewMode === 'th' && (m.hashrate ? m.hashrate.toFixed(0) + 'T' : '0T')}
+                    {viewMode === 'temp' && (m.temp ? m.temp + '°C' : '-')}
+                    {viewMode === 'uptime' && (m.uptime ? Math.floor(m.uptime / 60) + 'm' : '-')}
+                    {viewMode === 'ip' && m.ip.split('.').pop()}
+                </div>
+            </div>
+        );
     };
 
     const getBoxColor = (m) => {
-        if (!m) return C.card2;
-        if (m.status === 'offline') return '#555';
+        if (!m) return 'rgba(255, 255, 255, 0.01)';
+        if (m.status === 'offline') return '#1b2028';
+        if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return 'rgba(239, 68, 68, 0.25)';
+        if (m.temp > 75) return 'rgba(245, 158, 11, 0.25)';
+        if (m.hashrate > 0) return 'rgba(16, 185, 129, 0.2)';
+        return 'rgba(59, 130, 246, 0.2)';
+    };
+
+    const getBoxBorderColor = (m) => {
+        if (!m) return 'rgba(255,255,255,0.06)';
+        if (m.status === 'offline') return C.border;
         if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return C.red;
         if (m.temp > 75) return '#ff9800';
         if (m.hashrate > 0) return C.green;
@@ -5357,36 +5395,85 @@ function DataCenterPage({ctx}) {
 
     return (
         <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 80px)", background: C.bg, padding: 20}}>
-            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
-                <div style={{fontWeight:900, fontSize:22, color:C.blue, display:'flex', alignItems:'center', gap:10}}>
+            {/* Header com Abas Segmentadas */}
+            <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 15}}>
+                <div style={{fontWeight: 900, fontSize: 20, color: C.text, display: 'flex', alignItems: 'center', gap: 10}}>
                    <button onClick={() => setSelectedFarmName(null)} style={{background: 'none', border: 'none', color: C.blue, cursor: 'pointer', fontSize: 22, fontWeight: 900, padding: 0}}>←</button>
                    <span>🏢 {selectedFarmName}</span>
                 </div>
                 
                 <div style={{display:'flex', gap:10, alignItems:'center'}}>
-                    <div style={{background:C.card, borderRadius:8, display:'flex', overflow:'hidden', border:`1px solid ${C.border}`}}>
-                        <button onClick={()=>setFarmSubTab('shelf')} style={{background:farmSubTab==='shelf'?C.blue:'transparent', color:farmSubTab==='shelf'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>📊 Prateleira Virtual</button>
-                        <button onClick={()=>setFarmSubTab('scan')} style={{background:farmSubTab==='scan'?C.blue:'transparent', color:farmSubTab==='scan'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>📡 Scanner da Fazenda</button>
+                    <div style={{background: C.card, borderRadius: 10, display:'flex', padding: 3, border:`1px solid ${C.border}`}}>
+                        <button 
+                            onClick={()=>setFarmSubTab('shelf')} 
+                            style={{
+                                background: farmSubTab==='shelf' ? C.blue : 'transparent', 
+                                color: farmSubTab==='shelf' ? '#fff' : C.text, 
+                                border: 'none', 
+                                padding: '8px 18px', 
+                                borderRadius: 8,
+                                fontWeight: 800, 
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s'
+                            }}
+                        >
+                            📊 Prateleira Virtual
+                        </button>
+                        <button 
+                            onClick={()=>setFarmSubTab('scan')} 
+                            style={{
+                                background: farmSubTab==='scan' ? C.blue : 'transparent', 
+                                color: farmSubTab==='scan' ? '#fff' : C.text, 
+                                border: 'none', 
+                                padding: '8px 18px', 
+                                borderRadius: 8,
+                                fontWeight: 800, 
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s'
+                            }}
+                        >
+                            📡 Scanner da Fazenda
+                        </button>
                     </div>
                 </div>
             </div>
 
             {farmSubTab === "shelf" ? (
-                <div style={{display: 'flex', flexDirection: 'column', gap: 14, flex: 1}}>
-                    <div style={{display: 'flex', justifyContent: 'flex-end'}}>
-                        <div style={{background:C.card, borderRadius:8, display:'flex', overflow:'hidden', border:`1px solid ${C.border}`}}>
-                            <button onClick={()=>setViewMode('th')} style={{background:viewMode==='th'?C.blue:'transparent', color:viewMode==='th'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>TH/s</button>
-                            <button onClick={()=>setViewMode('temp')} style={{background:viewMode==='temp'?C.blue:'transparent', color:viewMode==='temp'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Temp</button>
-                            <button onClick={()=>setViewMode('uptime')} style={{background:viewMode==='uptime'?C.blue:'transparent', color:viewMode==='uptime'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Uptime</button>
-                            <button onClick={()=>setViewMode('ip')} style={{background:viewMode==='ip'?C.blue:'transparent', color:viewMode==='ip'?'#fff':C.text, border:'none', padding:'10px 14px', fontWeight:800, cursor:'pointer'}}>Fim IP</button>
+                <div style={{display: 'flex', flexDirection: 'column', gap: 14, flex: 1, overflow: 'hidden'}}>
+                    
+                    {/* Controles de Visualização e Legenda */}
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.card, padding: '8px 14px', borderRadius: 10, border: `1px solid ${C.border}`}}>
+                        {/* Legenda de Cores */}
+                        <div style={{display: 'flex', gap: 12, alignItems: 'center', fontSize: 10, fontWeight: 800}}>
+                            <span style={{color: C.muted}}>LEGENDA:</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: C.green}}/> Online</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#ff9800'}}/> Alerta</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: C.red}}/> Defeito / Alto</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#aaa'}}/> Offline</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', border: '1px dashed #aaa'}}/> Vazio</span>
+                        </div>
+
+                        {/* Segmented Selector for Telemetry values */}
+                        <div style={{background: C.bg, borderRadius: 8, display: 'flex', padding: 2, border: `1px solid ${C.border}`}}>
+                            <button onClick={()=>setViewMode('th')} style={{background: viewMode==='th' ? C.blue : 'transparent', color: viewMode==='th' ? '#fff' : C.text, border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>TH/s</button>
+                            <button onClick={()=>setViewMode('temp')} style={{background: viewMode==='temp' ? C.blue : 'transparent', color: viewMode==='temp' ? '#fff' : C.text, border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Temp</button>
+                            <button onClick={()=>setViewMode('uptime')} style={{background: viewMode==='uptime' ? C.blue : 'transparent', color: viewMode==='uptime' ? '#fff' : C.text, border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Uptime</button>
+                            <button onClick={()=>setViewMode('ip')} style={{background: viewMode==='ip' ? C.blue : 'transparent', color: viewMode==='ip' ? '#fff' : C.text, border: 'none', padding: '6px 12px', borderRadius: 6, fontSize: 10, fontWeight: 800, cursor: 'pointer'}}>Final IP</button>
                         </div>
                     </div>
-                    <div style={{flex:1, overflow:"auto", background:C.card, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:'0 4px 20px rgba(0,0,0,0.2)', padding: 20, display:'flex', flexDirection:'column', alignItems:'center'}}>
+
+                    {/* Grid do Rack de Mineração */}
+                    <div style={{flex: 1, overflow: "auto", background: C.card2, borderRadius: 12, border: `1px solid ${C.border}`, padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start'}}>
                         {rows.map(vao => (
                             <div key={vao} style={{display:'flex', gap:10, marginBottom:10}}>
-                                <div style={{width: 40, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:800, color:C.subtle}}>
-                                    V{vao}
+                                {/* Rótulo do Andar */}
+                                <div style={{width: 45, display:'flex', alignItems:'center', justifyContent:'flex-end', fontWeight:900, color: C.muted, fontSize: 11}}>
+                                    ANDAR {vao}
                                 </div>
+                                
+                                {/* Lista de Slots */}
                                 {cols.map(slot => {
                                     const m = getMachine(vao, slot);
                                     return (
@@ -5395,17 +5482,28 @@ function DataCenterPage({ctx}) {
                                             onClick={() => handleBoxClick(vao, slot)}
                                             onDoubleClick={() => handleDoubleClick(vao, slot)}
                                             style={{
-                                                width: 50, height: 50, 
+                                                width: 58, 
+                                                height: 58, 
                                                 background: getBoxColor(m),
-                                                borderRadius: 8, 
-                                                display:'flex', alignItems:'center', justifyContent:'center',
+                                                borderRadius: 10, 
+                                                display:'flex', 
+                                                alignItems:'center', 
+                                                justifyContent:'center',
                                                 cursor:'pointer',
                                                 color: '#fff',
-                                                boxShadow: m ? '0 2px 8px rgba(0,0,0,0.3)' : 'none',
-                                                border: m ? 'none' : `1px dashed ${C.border}`,
+                                                border: `1px solid ${getBoxBorderColor(m)}`,
+                                                transition: 'all 0.15s ease',
                                                 userSelect: 'none'
                                             }}
-                                            title={m ? `Vão ${vao} - Slot ${slot} (${m.ip})` : `Vão ${vao} - Slot ${slot} (Vazio)`}
+                                            onMouseEnter={e => {
+                                                e.currentTarget.style.transform = 'scale(1.05)';
+                                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+                                            }}
+                                            onMouseLeave={e => {
+                                                e.currentTarget.style.transform = 'scale(1)';
+                                                e.currentTarget.style.boxShadow = 'none';
+                                            }}
+                                            title={m ? `Andar ${vao} - Slot ${slot} (${m.ip})` : `Andar ${vao} - Slot ${slot} (Vazio)`}
                                         >
                                             {renderBoxContent(m)}
                                         </div>
@@ -5423,6 +5521,7 @@ function DataCenterPage({ctx}) {
         </div>
     );
 }
+
 
 function ScannerPage({ctx}) {
     const { user } = ctx;
