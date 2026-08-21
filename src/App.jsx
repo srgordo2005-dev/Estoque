@@ -109,6 +109,7 @@ function ServerSelfUpdateModal({ctx, updateInfo, onClose}) {
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
 import GuiaTecnicoPage from './GuiaTecnicoPage.jsx';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { DecodeHintType, BarcodeFormat } from '@zxing/library';
@@ -4056,8 +4057,324 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
   );
 }
 
+function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, onClose, machine }) {
+    const { data, mutate, user, webhookUrl } = ctx;
+    
+    // State for removing old machine
+    const [removalReason, setRemovalReason] = useState("");
+    const [removalDest, setRemovalDest] = useState("REPARO");
+    const [customDest, setCustomDest] = useState("");
+    
+    // State for adding new machine
+    const [newSN, setNewSN] = useState("");
+    const [newIP, setNewIP] = useState("");
+    const [isListening, setIsListening] = useState(false);
+    const [listeningMsg, setListeningMsg] = useState("");
+
+    // Listen to IP Report when active
+    useEffect(() => {
+        if (!isListening) return;
+        setListeningMsg("Aguardando IP Report (aperte o botão físico na mineradora)...");
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch('http://localhost:3001/api/ipreport');
+                if (res.ok) {
+                    const reports = await res.json();
+                    const report = Array.isArray(reports) ? reports[0] : reports;
+                    if (report && report.ip) {
+                        setNewIP(report.ip);
+                        // Lookup S/N inside inventory by IP
+                        const found = data.machines.find(x => x.ip === report.ip);
+                        if (found) {
+                            setNewSN(found.sn);
+                            setListeningMsg(`⚡ IP ${report.ip} e S/N ${found.sn} detectados!`);
+                        } else {
+                            setListeningMsg(`⚡ IP ${report.ip} detectado!`);
+                        }
+                        setIsListening(false);
+                    }
+                }
+            } catch(e) {}
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [isListening]);
+
+    const handleRemoveOld = async () => {
+        if (!machine) return;
+        const targetDest = removalDest === "OUTRO" ? customDest : removalDest;
+        if (!targetDest) {
+            return alert("Por favor, informe para onde a máquina está indo.");
+        }
+
+        const confirmMsg = `Tem certeza que deseja retirar a máquina S/N ${machine.sn || 'Sem SN'} da prateleira?\nDestino: ${targetDest}`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            // Find machine in inventory to update its status & location
+            const dbMac = data.machines.find(x => x.sn === machine.sn || x._id === machine._id);
+            if (dbMac) {
+                const updatedSituacao = targetDest === "REPARO" ? "ENTRADA OFICINA" : "STOCK";
+                const updatedLoc = targetDest;
+                
+                const updatedObj = {
+                    ...dbMac,
+                    situacao: updatedSituacao,
+                    location: updatedLoc,
+                    destino: targetDest,
+                    notes: `Retirada da Prateleira. Motivo: ${removalReason || 'Nenhum'}`
+                };
+
+                // Sync sheet for inventory
+                const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
+                if (wUrl) {
+                    syncSheet(wUrl, "updateMachine", {
+                        sn: dbMac.sn,
+                        field: "situacao",
+                        to: updatedSituacao,
+                        employeeName: user.name,
+                        employeeCode: user.code
+                    });
+                    syncSheet(wUrl, "updateMachine", {
+                        sn: dbMac.sn,
+                        field: "destino",
+                        to: targetDest,
+                        employeeName: user.name,
+                        employeeCode: user.code
+                    });
+                }
+
+                // Update Supabase
+                await fbSet("machines", dbMac._id, updatedObj);
+                
+                // Add Audit log
+                await fbSet("audit", crypto.randomUUID(), { 
+                    coll: "machines", 
+                    docId: dbMac._id, 
+                    by: user.email || user.name, 
+                    at: Date.now(), 
+                    from: dbMac.location || "Prateleira", 
+                    to: targetDest, 
+                    label: `Retirada: ${removalReason || 'Não informado'}` 
+                });
+            }
+
+            // Remove association from farmMachines
+            mutate("farmMachines", prev => prev.filter(x => x._id !== machine._id));
+            await fbDelete("farmMachines", machine._id);
+
+            alert("Máquina retirada com sucesso!");
+            onClose();
+        } catch (err) {
+            alert("Erro ao retirar máquina: " + err.message);
+        }
+    };
+
+    const handleAddNew = async () => {
+        if (!newSN.trim() && !newIP.trim()) {
+            return alert("Por favor, informe pelo menos o S/N da carcaça ou o IP.");
+        }
+
+        const finalSN = newSN.trim().toUpperCase() || `FARM-${Date.now()}`;
+        const finalIP = newIP.trim();
+
+        // Check if there is an existing machine in inventory with this SN
+        const dbMac = data.machines.find(x => x.sn === finalSN);
+        const locString = `${selectedFarmName} - PRAT. VÃO ${vao} - POS. ${slot}`;
+        
+        try {
+            if (dbMac) {
+                // Update its location and situacao to LIGADA
+                const updatedObj = {
+                    ...dbMac,
+                    situacao: "LIGADA",
+                    location: locString,
+                    ip: finalIP || dbMac.ip
+                };
+
+                const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
+                if (wUrl) {
+                    syncSheet(wUrl, "updateMachine", {
+                        sn: dbMac.sn,
+                        field: "situacao",
+                        to: "LIGADA",
+                        employeeName: user.name,
+                        employeeCode: user.code
+                    });
+                }
+                await fbSet("machines", dbMac._id, updatedObj);
+            } else if (newSN.trim()) {
+                // If typed new SN that doesn't exist, create it in inventory!
+                const newId = "M-" + crypto.randomUUID();
+                const newDbObj = {
+                    _id: newId,
+                    sn: finalSN,
+                    model: "Antminer S19",
+                    situacao: "LIGADA",
+                    location: locString,
+                    ip: finalIP,
+                    type: "complete",
+                    addedAt: TODAY()
+                };
+                await fbSet("machines", newId, newDbObj);
+            }
+
+            // Upsert in farmMachines
+            const newFarmMachine = {
+                _id: machine?._id || 'farm_' + Date.now().toString(),
+                location: selectedFarmName,
+                shelf: String(vao),
+                notes: String(slot),
+                ip: finalIP,
+                sn: finalSN,
+                status: 'unknown',
+                temp: 0,
+                hashrate: 0,
+                uptime: 0,
+                model: dbMac ? dbMac.model : "Antminer S19",
+                updatedAt: stamp()
+            };
+
+            mutate("farmMachines", prev => {
+                const filtered = prev.filter(x => x._id !== newFarmMachine._id);
+                return [...filtered, newFarmMachine];
+            });
+            await fbSet("farmMachines", newFarmMachine._id, newFarmMachine);
+
+            // Clear IP reports
+            try { await fetch('http://localhost:3001/api/ipreport?clear=true'); } catch(e) {}
+
+            alert("Nova máquina adicionada com sucesso!");
+            onClose();
+        } catch (err) {
+            alert("Erro ao adicionar máquina: " + err.message);
+        }
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 350 }}>
+            <div style={{ background: C.accent + '11', padding: 8, borderRadius: 6, fontSize: 12, fontWeight: 800, color: C.accent, textAlign: 'center' }}>
+                📍 Fazenda: {selectedFarmName} • Vão: {vao} • Posição: {slot}
+            </div>
+
+            {machine && (
+                <div style={{ background: C.card2, border: `1px solid ${C.red}33`, padding: 12, borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontWeight: 900, color: C.red, fontSize: 12 }}>🔴 MÁQUINA ATUAL NO SLOT</div>
+                    <div style={{ fontSize: 11, color: C.text }}>
+                        <div>IP: <b>{machine.ip}</b></div>
+                        <div>S/N Carcaça: <b>{machine.sn || 'Sem S/N'}</b></div>
+                        {machine.model && <div>Modelo: <b>{machine.model}</b></div>}
+                    </div>
+
+                    <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div>
+                            <label style={{ fontSize: 10, color: C.subtle, fontWeight: 800 }}>Motivo da Retirada (Opcional):</label>
+                            <input 
+                                type="text" 
+                                value={removalReason} 
+                                onChange={e => setRemovalReason(e.target.value)} 
+                                placeholder="Ex: placa queimada, revisão, etc." 
+                                style={{ ...inp, width: '100%', fontSize: 11, padding: '4px 6px', marginTop: 2 }} 
+                            />
+                        </div>
+
+                        <div>
+                            <label style={{ fontSize: 10, color: C.subtle, fontWeight: 800 }}>Para onde está indo a máquina? (Destino):</label>
+                            <select 
+                                value={removalDest} 
+                                onChange={e => setRemovalDest(e.target.value)} 
+                                style={{ ...inp, width: '100%', fontSize: 11, padding: '4px 6px', marginTop: 2, background: C.bg }}
+                            >
+                                <option value="REPARO">Oficina de Reparo (Status: RUIM)</option>
+                                <option value="ESTOQUE">Estoque Geral (Status: STOCK)</option>
+                                <option value="REVISÃO">Bancada de Revisão</option>
+                                <option value="CLIENTE">Enviada para Cliente</option>
+                                <option value="OUTRO">Outro Local...</option>
+                            </select>
+                        </div>
+
+                        {removalDest === "OUTRO" && (
+                            <input 
+                                type="text" 
+                                value={customDest} 
+                                onChange={e => setCustomDest(e.target.value)} 
+                                placeholder="Digite o local de destino..." 
+                                style={{ ...inp, width: '100%', fontSize: 11, padding: '4px 6px' }} 
+                            />
+                        )}
+
+                        <Btn onClick={handleRemoveOld} style={{ background: C.red, color: '#fff', fontSize: 11, fontWeight: 900, marginTop: 4 }}>
+                            Retirar Máquina do Slot
+                        </Btn>
+                    </div>
+                </div>
+            )}
+
+            <div style={{ background: C.card2, border: `1px solid ${C.blue}33`, padding: 12, borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontWeight: 900, color: C.blue, fontSize: 12 }}>🟢 ADICIONAR / SUBSTITUIR DISPOSITIVO</div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div>
+                        <label style={{ fontSize: 10, color: C.subtle, fontWeight: 800 }}>1. S/N da Carcaça:</label>
+                        <input 
+                            type="text" 
+                            value={newSN} 
+                            onChange={e => setNewSN(e.target.value.toUpperCase())} 
+                            placeholder="Bipe ou digite o S/N..." 
+                            style={{ ...inp, width: '100%', fontSize: 11, padding: '5px 8px', marginTop: 2, fontWeight: 'bold' }} 
+                        />
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: 10, color: C.subtle, fontWeight: 800 }}>2. IP da Máquina:</label>
+                        <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+                            <input 
+                                type="text" 
+                                value={newIP} 
+                                onChange={e => setNewIP(e.target.value.trim())} 
+                                placeholder="Digite o IP ou clique ao lado..." 
+                                style={{ ...inp, flex: 1, fontSize: 11, padding: '5px 8px', fontWeight: 'bold', color: newIP ? C.green : C.text }} 
+                            />
+                            <button 
+                                onClick={() => setIsListening(!isListening)} 
+                                style={{ 
+                                    background: isListening ? C.accent : C.blue, 
+                                    color: '#fff', 
+                                    border: 'none', 
+                                    borderRadius: 4, 
+                                    padding: '0 8px', 
+                                    fontSize: 10, 
+                                    fontWeight: 900, 
+                                    cursor: 'pointer' 
+                                }}
+                            >
+                                {isListening ? "⏹️ Parar" : "⚡ IP Report"}
+                            </button>
+                        </div>
+                    </div>
+
+                    {listeningMsg && (
+                        <div style={{ fontSize: 10, color: C.accent, fontWeight: 700, textAlign: 'center', marginTop: 2 }}>
+                            {listeningMsg}
+                        </div>
+                    )}
+
+                    <Btn onClick={handleAddNew} style={{ background: C.blue, color: '#fff', fontSize: 11, fontWeight: 900, marginTop: 6 }}>
+                        Salvar Máquina no Slot
+                    </Btn>
+                </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 6 }}>
+                <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                    Fechar
+                </button>
+            </div>
+        </div>
+    );
+}
+
 function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
-    const { data, user, setSession, setActiveTab, localConnected, webhookUrl } = ctx;
+    const { data, user, setSession, setActiveTab, localConnected } = ctx;
     const [ipRanges, setIpRanges] = useState([
         { id: '1', range: defaultIpRange, checked: true }
     ]);
@@ -4067,7 +4384,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const [selectedIps, setSelectedIps] = useState([]);
     const [firmwareModal, setFirmwareModal] = useState(false);
     const [expandedIps, setExpandedIps] = useState(new Set());
-    const [linkInputs, setLinkInputs] = useState({}); // { ip: chassisSN }
+    const [showExportMenu, setShowExportMenu] = useState(false);
     
     // Pool configuration settings matching the BTC Tools screenshot
     const [pools, setPools] = useState([
@@ -4130,80 +4447,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
             else next.add(ip);
             return next;
         });
-    };
-
-    const normSN = (sn) => String(sn || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-    const handleLinkChassisSN = async (scannedMac, chassisSN, ip) => {
-        if (!chassisSN || !chassisSN.trim()) {
-            return alert("Por favor, digite ou selecione um S/N da Carcaça válido.");
-        }
-        const targetSN = chassisSN.trim().toUpperCase();
-        const targetMachine = data.machines.find(x => normSN(x.sn) === normSN(targetSN));
-        if (!targetMachine) {
-            return alert(`Número de Série da Carcaça "${targetSN}" não encontrado no inventário de máquinas!`);
-        }
-
-        const macToSave = scannedMac || ip;
-        if (!macToSave) return;
-
-        try {
-            // Update local state first to feel instantaneous
-            targetMachine.controladora = macToSave;
-
-            const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
-            if (wUrl) {
-                syncSheet(wUrl, "updateMachine", {
-                    sn: targetMachine.sn,
-                    field: "controladora",
-                    to: macToSave,
-                    employeeName: user.name,
-                    employeeCode: user.code
-                });
-            }
-
-            // Sync to Supabase
-            await supabase.from('machines').upsert({
-                ...targetMachine,
-                controladora: macToSave
-            }, { onConflict: "id" });
-
-            alert(`✅ S/N da Carcaça ${targetMachine.sn} foi vinculado ao MAC/IP ${macToSave} com sucesso!`);
-            
-            // Clear input
-            setLinkInputs(prev => ({ ...prev, [ip]: "" }));
-            
-            // Refresh table
-            doScan();
-        } catch (err) {
-            alert("Erro ao realizar vínculo: " + err.message);
-        }
-    };
-    
-    const handleUnlinkChassisSN = async (machine) => {
-        if (!confirm(`Remover o vínculo da carcaça ${machine.sn}?`)) return;
-        try {
-            machine.controladora = "";
-            const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
-            if (wUrl) {
-                syncSheet(wUrl, "updateMachine", {
-                    sn: machine.sn,
-                    field: "controladora",
-                    to: "",
-                    employeeName: user.name,
-                    employeeCode: user.code
-                });
-            }
-            await supabase.from('machines').upsert({
-                ...machine,
-                controladora: ""
-            }, { onConflict: "id" });
-            
-            alert(`Vínculo de ${machine.sn} removido!`);
-            doScan();
-        } catch (err) {
-            alert("Erro ao desvincular: " + err.message);
-        }
     };
 
     const parseRange = (r) => {
@@ -4350,62 +4593,57 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.setAttribute("href", url);
-        link.setAttribute("download", "mineradores_scan.csv");
+        link.setAttribute("download", "relatorio_scan_fazenda.csv");
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
     };
 
-    const handleExportGoogleSheets = async () => {
-        if (miners.length === 0) return alert("Nenhum minerador escaneado para exportar.");
+    const handleExportXLSX = () => {
+        if (miners.length === 0) return alert("Nenhum dado para exportar.");
         
-        const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
-        if (!wUrl) {
-            return alert("Webhook do Google Sheets não configurado nas configurações!");
-        }
-        
-        const minersToExport = miners.map(m => {
+        const rows = miners.map(m => {
             const telemetry = m.telemetry || {};
-            const mac = telemetry.mac_address || m.sn || m.ip;
-            const linked = data.machines.find(x => normSN(x.controladora) === normSN(mac));
-            
             const bActive = telemetry.hardware?.boards_active ?? 0;
             const bTotal = telemetry.hardware?.boards_total ?? 0;
+            const power = telemetry.efficiency?.power_consumption_watts || 0;
+            const efficiency = telemetry.efficiency?.joules_per_th || 0;
+            
+            const mac = telemetry.mac_address || m.sn || m.ip;
             
             return {
-                ip: m.ip,
-                sn: mac,
-                chassisSN: linked ? linked.sn : "",
-                model: m.model,
-                status: m.status === 'mining' ? 'LIGADA' : 'ERRO',
-                hashrate: m.hashrate || 0,
-                hashrateAvg: m.hashrateAvg || 0,
-                temp: m.temp || 0,
-                uptimeStr: formatUptime(m.uptime),
-                pool1: m.pool1 || "",
-                telemetry: {
-                    brand: telemetry.brand || "",
-                    mac_address: mac,
-                    efficiency: telemetry.efficiency || {},
-                    hardware: {
-                        boards_active: bActive,
-                        boards_total: bTotal
-                    },
-                    pools: telemetry.pools || []
-                }
+                "DATA DO SCAN": new Date().toLocaleString(),
+                "IP": m.ip,
+                "ENDEREÇO MAC": mac,
+                "FABRICANTE": telemetry.brand || "-",
+                "MODELO": m.model || "-",
+                "STATUS": m.status === 'mining' ? 'LIGADA' : 'ERRO',
+                "HASHRATE RT (TH/s)": m.hashrate ? Number(m.hashrate.toFixed(1)) : 0,
+                "HASHRATE AVG (TH/s)": m.hashrateAvg ? Number(m.hashrateAvg.toFixed(1)) : 0,
+                "PLACAS ATIVAS": `${bActive} / ${bTotal}`,
+                "TEMP MÁX CHIP (°C)": m.temp || 0,
+                "POTÊNCIA (W)": power,
+                "EFICIÊNCIA (J/TH)": efficiency,
+                "TEMPO ATIVO": formatUptime(m.uptime),
+                "POOL ATIVA": m.pool1 || ""
             };
         });
+
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Relatório de Scan");
         
-        try {
-            syncSheet(wUrl, "exportScanResults", {
-                miners: minersToExport,
-                employeeName: user.name
+        const maxLens = {};
+        rows.forEach(row => {
+            Object.keys(row).forEach(key => {
+                const val = String(row[key]);
+                maxLens[key] = Math.max(maxLens[key] || key.length, val.length);
             });
-            alert("📤 Exportação enviada para o Google Sheets! A aba 'RELATÓRIO DE SCAN' será gerada/atualizada na sua planilha.");
-        } catch (err) {
-            alert("Erro ao exportar: " + err.message);
-        }
+        });
+        worksheet["!cols"] = Object.keys(maxLens).map(key => ({ wch: maxLens[key] + 3 }));
+
+        XLSX.writeFile(workbook, "relatorio_scan_fazenda.xlsx");
     };
 
     // Calculate Summary Metrics like Hashcore Toolkit
@@ -4513,7 +4751,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
             </div>
 
             {/* Linha de Botões de Ação (Actions Bar) */}
-            <div style={{ background: C.card2, padding: 8, borderRadius: 10, border: `1px solid ${C.border}`, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ background: C.card2, padding: 8, borderRadius: 10, border: `1px solid ${C.border}`, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', position: 'relative' }}>
                 <Btn onClick={doScan} disabled={scanning} style={{ background: C.blue, color: '#fff', fontWeight: 900, padding: '6px 14px', fontSize: 12 }}>
                     {scanning ? "Escaneando..." : "🔍 SCAN"}
                 </Btn>
@@ -4548,12 +4786,76 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                 
                 <div style={{ flex: 1 }} />
                 
-                <button onClick={handleExportGoogleSheets} style={{ background: C.blue, border: 'none', color: '#fff', padding: '6px 12px', borderRadius: 6, fontWeight: 900, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    📤 Planilha Google
-                </button>
-                <button onClick={handleExportCSV} style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.accent, padding: '5px 10px', borderRadius: 6, fontWeight: 800, fontSize: 10, cursor: 'pointer' }}>
-                    📥 Exportar CSV
-                </button>
+                <div style={{ position: 'relative' }}>
+                    <button 
+                        onClick={() => setShowExportMenu(!showExportMenu)} 
+                        style={{ 
+                            background: C.blue, 
+                            border: 'none', 
+                            color: '#fff', 
+                            padding: '6px 14px', 
+                            borderRadius: 6, 
+                            fontWeight: 900, 
+                            fontSize: 11, 
+                            cursor: 'pointer', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 4 
+                        }}
+                    >
+                        📤 Exportar...
+                    </button>
+                    {showExportMenu && (
+                        <div style={{
+                            position: 'absolute',
+                            bottom: '100%',
+                            right: 0,
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 8,
+                            padding: 6,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 4,
+                            zIndex: 10,
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+                            minWidth: 150
+                        }}>
+                            <button 
+                                onClick={() => { handleExportXLSX(); setShowExportMenu(false); }} 
+                                style={{ 
+                                    background: 'transparent', 
+                                    border: 'none', 
+                                    color: C.text, 
+                                    padding: '8px 10px', 
+                                    fontSize: 11, 
+                                    textAlign: 'left', 
+                                    cursor: 'pointer', 
+                                    borderRadius: 4, 
+                                    fontWeight: 700 
+                                }}
+                            >
+                                📊 Excel (.xlsx)
+                            </button>
+                            <button 
+                                onClick={() => { handleExportCSV(); setShowExportMenu(false); }} 
+                                style={{ 
+                                    background: 'transparent', 
+                                    border: 'none', 
+                                    color: C.text, 
+                                    padding: '8px 10px', 
+                                    fontSize: 11, 
+                                    textAlign: 'left', 
+                                    cursor: 'pointer', 
+                                    borderRadius: 4, 
+                                    fontWeight: 700 
+                                }}
+                            >
+                                📝 CSV (.csv)
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Config Grid (Horizontal: Faixas IP + Pools + Overclock) */}
@@ -4656,13 +4958,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
             </div>
 
-            {/* Datalist for available SNs */}
-            <datalist id="available-chassis">
-                {(data.machines || []).filter(x => !x.controladora && x.sn).map(x => (
-                    <option key={x._id} value={x.sn}>{x.model || 'ASIC'} ({x.situacao})</option>
-                ))}
-            </datalist>
-
             {/* Tabela de Dispositivos */}
             <div style={{ flex: 1, overflow: 'auto', background: C.card2, borderRadius: 10, border: `1px solid ${C.border}` }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
@@ -4673,7 +4968,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                 <input type="checkbox" onChange={handleSelectAll} checked={selectedIps.length === miners.length && miners.length > 0} />
                             </th>
                             <th style={{ padding: 8, fontWeight: 800 }}>DISPOSITIVO (MODELO / IP / MAC)</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>S/N CARCAÇA (PRODUTO)</th>
                             <th style={{ padding: 8, fontWeight: 800 }}>STATUS</th>
                             <th style={{ padding: 8, fontWeight: 800 }}>HASHRATE (RT / MÉDIA)</th>
                             <th style={{ padding: 8, fontWeight: 800 }}>POTÊNCIA (CONSUMO / J/TH)</th>
@@ -4689,7 +4983,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                     <tbody>
                         {miners.length === 0 ? (
                             <tr>
-                                <td colSpan="14" style={{ textAlign: 'center', padding: 30, color: C.muted }}>
+                                <td colSpan="13" style={{ textAlign: 'center', padding: 30, color: C.muted }}>
                                     {scanning ? "Buscando dispositivos (filtrando DVRs)..." : "Marque as faixas e clique em SCAN para buscar."}
                                 </td>
                             </tr>
@@ -4705,12 +4999,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                 const power = t.efficiency?.power_consumption_watts || 0;
                                 const efficiency = t.efficiency?.joules_per_th || 0;
                                 
-                                // Resolve Chassis SN linked by MAC/IP
-                                const macClean = normSN(mac);
-                                const linked = (data.machines || []).find(x => {
-                                    return (macClean && normSN(x.controladora) === macClean) || (x.controladora && normSN(x.controladora) === normSN(m.ip));
-                                });
-
                                 return (
                                     <React.Fragment key={idx}>
                                         <tr style={{ borderBottom: `1px solid ${C.border}`, background: isSelected ? C.blue + '11' : 'transparent', transition: 'background 0.2s' }}>
@@ -4727,50 +5015,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                                     <span>•</span>
                                                     <span style={{ fontFamily: 'monospace' }}>{mac}</span>
                                                 </div>
-                                            </td>
-                                            <td style={{ padding: 8 }}>
-                                                {linked ? (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        <span style={{ background: C.green + '22', color: C.green, border: `1px solid ${C.green}44`, padding: '2px 8px', borderRadius: 4, fontWeight: 900, fontSize: 11 }}>
-                                                            📦 {linked.sn}
-                                                        </span>
-                                                        <button onClick={() => handleUnlinkChassisSN(linked)} title="Desvincular" style={{ background: 'transparent', border: 'none', color: C.red, fontSize: 12, fontWeight: 900, cursor: 'pointer', padding: '0 4px' }}>✕</button>
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                                        <input 
-                                                            type="text" 
-                                                            value={linkInputs[m.ip] || ""} 
-                                                            onChange={e => setLinkInputs({ ...linkInputs, [m.ip]: e.target.value })} 
-                                                            placeholder="Vincular Carcaça SN" 
-                                                            list="available-chassis"
-                                                            style={{ 
-                                                                background: C.bg, 
-                                                                border: `1px solid ${C.border}`, 
-                                                                color: C.text, 
-                                                                borderRadius: 4, 
-                                                                padding: '2px 6px', 
-                                                                fontSize: 10,
-                                                                width: 120 
-                                                            }} 
-                                                        />
-                                                        <button 
-                                                            onClick={() => handleLinkChassisSN(mac, linkInputs[m.ip], m.ip)}
-                                                            style={{ 
-                                                                background: C.blue, 
-                                                                color: '#fff', 
-                                                                border: 'none', 
-                                                                borderRadius: 4, 
-                                                                padding: '3px 8px', 
-                                                                fontSize: 9, 
-                                                                fontWeight: 700, 
-                                                                cursor: 'pointer' 
-                                                            }}
-                                                        >
-                                                            Vincular
-                                                        </button>
-                                                    </div>
-                                                )}
                                             </td>
                                             <td style={{ padding: 8 }}>
                                                 <span style={{ 
@@ -4822,7 +5066,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                         </tr>
                                         {isExpanded && (
                                             <tr>
-                                                <td colSpan="14" style={{ padding: 0 }}>
+                                                <td colSpan="13" style={{ padding: 0 }}>
                                                     <div style={{ padding: 12, background: 'rgba(0,0,0,0.25)', borderLeft: `3px solid ${C.accent}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
                                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, fontSize: 11 }}>
                                                             <div><span style={{ color: C.subtle }}>Fabricante:</span> <b>{brand}</b></div>
@@ -4902,6 +5146,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         </div>
     );
 }
+
 
 function DataCenterPage({ctx}) {
     const {data, setModal, user, farmsConfig = [], setFarmsConfig, mutate} = ctx;
@@ -4987,53 +5232,18 @@ function DataCenterPage({ctx}) {
 
     const handleBoxClick = (vao, slot) => {
         const m = getMachine(vao, slot);
-        if (m) {
-            setModal({
-                title: `Detalhes da Máquina - Vão ${vao} / Posição ${slot}`,
-                content: (
-                    <div style={{display:'flex', flexDirection:'column', gap:10}}>
-                        <div style={{fontWeight:800, fontSize:18, color:C.blue}}>{m.ip}</div>
-                        <div style={{background:C.card2, padding:10, borderRadius:8}}>
-                            <div><strong>Modelo:</strong> {m.model || '-'}</div>
-                            <div><strong>SN:</strong> {m.sn || '-'}</div>
-                            <div><strong>Status:</strong> {m.status || '-'}</div>
-                            <div><strong>Hash Rate:</strong> {m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</div>
-                            <div><strong>Temperatura:</strong> {m.temp ? m.temp + '°C' : '-'}</div>
-                            <div><strong>Uptime:</strong> {m.uptime ? formatUptime(m.uptime) : '-'}</div>
-                            <div style={{marginTop:10, fontSize:12, color:C.subtle}}>
-                                Clique duplo na caixa para abrir o painel web.
-                            </div>
-                        </div>
-                        <Btn onClick={() => {
-                            const targetId = m._id || m.id;
-                            const newMachines = farmMachines.filter(x => (x._id || x.id) !== targetId);
-                            mutate("farmMachines", newMachines);
-                            if (m._id) { fbDelete("farmMachines", m._id); }
-                            setModal(null);
-                        }} style={{background:C.red, color:"#fff"}}>Remover da Fazenda</Btn>
-                    </div>
-                )
-            });
-        } else {
-            let newIP = prompt(`Qual o IP da máquina para o Vão ${vao}, Posição ${slot}?`);
-            if (newIP) {
-                const newMachine = {
-                    _id: 'farm_' + Date.now().toString(),
-                    location: selectedFarmName,
-                    shelf: String(vao),
-                    notes: String(slot),
-                    ip: newIP,
-                    status: 'unknown',
-                    temp: 0,
-                    hashrate: 0,
-                    uptime: 0,
-                    model: '',
-                    sn: ''
-                };
-                mutate("farmMachines", prev => [...prev, newMachine]);
-                fbSet("farmMachines", newMachine._id, newMachine);
-            }
-        }
+        setModal(
+            <Modal title={`Alterar Posição - Vão ${vao} / Posição ${slot}`} onClose={() => setModal(null)}>
+                <SlotSwapModalContent 
+                    ctx={ctx} 
+                    vao={vao} 
+                    slot={slot} 
+                    selectedFarmName={selectedFarmName} 
+                    onClose={() => setModal(null)} 
+                    machine={m} 
+                />
+            </Modal>
+        );
     };
 
     const handleDoubleClick = (vao, slot) => {
