@@ -4066,6 +4066,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const [monitoring, setMonitoring] = useState(false);
     const [selectedIps, setSelectedIps] = useState([]);
     const [firmwareModal, setFirmwareModal] = useState(false);
+    const [expandedIps, setExpandedIps] = useState(new Set());
     
     // Pool configuration settings matching the BTC Tools screenshot
     const [pools, setPools] = useState([
@@ -4121,6 +4122,15 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         setIpRanges(prev => prev.map(r => r.id === id ? { ...r, checked: !r.checked } : r));
     };
 
+    const toggleExpandRow = (ip) => {
+        setExpandedIps(prev => {
+            const next = new Set(prev);
+            if (next.has(ip)) next.delete(ip);
+            else next.add(ip);
+            return next;
+        });
+    };
+
     const parseRange = (r) => {
         if (!r || !r.includes('-')) return null;
         const parts = r.split('-');
@@ -4166,9 +4176,8 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                     unique.push({
                                         ...m,
                                         workingMode: m.workingMode || "Normal",
-                                        fanSpeed: m.fanSpeed || "6200 RPM",
-                                        hashrateAvg: m.hashrateAvg || (m.hashrate ? m.hashrate * 0.98 : 0),
-                                        pool1: m.pool1 || pools[0].url
+                                        fanSpeed: m.fanSpeed || (m.telemetry?.hardware?.fans?.[0]?.speed_rpm ? `${m.telemetry.hardware.fans[0].speed_rpm} RPM` : "0 RPM"),
+                                        pool1: m.pool1 || m.telemetry?.pools?.[0]?.url || pools[0].url
                                     });
                                 }
                             });
@@ -4219,7 +4228,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         alert(`Ação "${action}" concluída!\nSucessos: ${successCount}\nFalhas: ${failCount}`);
     };
 
-    // Apply Pool configurations to selected miners
     const applyConfig = async (targetIps) => {
         if (targetIps.length === 0) return alert("Selecione os mineradores para aplicar as configurações.");
         
@@ -4244,13 +4252,16 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         await runAction(targetIps, "config", payload);
     };
 
-    // Export current scanned table as CSV file
     const handleExportCSV = () => {
         if (miners.length === 0) return alert("Nenhum dado para exportar.");
         
-        let csv = "IP,Status,Type,Working Mode,Hash Rate RT,Hash Rate Avg,Temperature,Fan Speed,Elapsed,Pool 1\n";
+        let csv = "IP,Status,Brand,Model,Active Boards,Hash Rate RT,Hash Rate Avg,Temperature,Fan Speed,Elapsed,Pool 1\n";
         miners.forEach(m => {
-            csv += `"${m.ip}","${m.status}","${m.model || '-'}","${m.workingMode}","${m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}","${m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' TH/s' : '0 TH/s'}","${m.temp ? m.temp + '°C' : '-'}","${m.fanSpeed}","${formatUptime(m.uptime)}","${m.pool1}"\n`;
+            const telemetry = m.telemetry || {};
+            const brand = telemetry.brand || "-";
+            const bActive = telemetry.hardware?.boards_active ?? 0;
+            const bTotal = telemetry.hardware?.boards_total ?? 0;
+            csv += `"${m.ip}","${m.status}","${brand}","${m.model || '-'}","${bActive}/${bTotal}","${m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}","${m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' TH/s' : '0 TH/s'}","${m.temp ? m.temp + '°C' : '-'}","${m.fanSpeed}","${formatUptime(m.uptime)}","${m.pool1}"\n`;
         });
 
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -4262,19 +4273,6 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-    };
-
-    const handleTestar = (m) => {
-        const newSession = {
-            ip: m.ip,
-            machineSN: m.sn || "",
-            model: m.model || "",
-            slotsFound: m.slots ? m.slots.filter(s => s).length : 0,
-            adminNotes: []
-        };
-        newSession.slots = m.slots || [null, null, null];
-        setSession(newSession);
-        setActiveTab('teste');
     };
 
     return (
@@ -4459,65 +4457,160 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
                     <thead style={{ position: 'sticky', top: 0, background: C.card, zIndex: 5, borderBottom: `2px solid ${C.border}` }}>
                         <tr style={{ color: C.accent }}>
+                            <th style={{ padding: 8, width: 25, textAlign: 'center' }}></th>
                             <th style={{ padding: 8, width: 30, textAlign: 'center' }}>
                                 <input type="checkbox" onChange={handleSelectAll} checked={selectedIps.length === miners.length && miners.length > 0} />
                             </th>
                             <th style={{ padding: 8, fontWeight: 800 }}>IP</th>
                             <th style={{ padding: 8, fontWeight: 800 }}>STATUS</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>TYPE (MODELO)</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>WORKING MODE</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>HASH RATE RT</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>HASH RATE AVG</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>TEMPERATURE</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>FAN SPEED</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>ELAPSED (UPTIME)</th>
-                            <th style={{ padding: 8, fontWeight: 800 }}>POOL 1</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>BRAND</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>MODELO</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>BOARDS</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>HR RT</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>HR AVG</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>TEMP MÁX</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>FANS</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>UPTIME</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>POOL ATIVA</th>
                             <th style={{ padding: 8, fontWeight: 800, textAlign: 'center' }}>AÇÕES</th>
                         </tr>
                     </thead>
                     <tbody>
                         {miners.length === 0 ? (
                             <tr>
-                                <td colSpan="12" style={{ textAlign: 'center', padding: 30, color: C.muted }}>
+                                <td colSpan="14" style={{ textAlign: 'center', padding: 30, color: C.muted }}>
                                     {scanning ? "Buscando dispositivos (filtrando DVRs)..." : "Marque as faixas e clique em Scan para buscar."}
                                 </td>
                             </tr>
                         ) : (
                             miners.map((m, idx) => {
                                 const isSelected = selectedIps.includes(m.ip);
+                                const isExpanded = expandedIps.has(m.ip);
+                                const t = m.telemetry || {};
+                                const brand = t.brand || "-";
+                                const bActive = t.hardware?.boards_active ?? 0;
+                                const bTotal = t.hardware?.boards_total ?? 0;
+                                
                                 return (
-                                    <tr key={idx} style={{ borderBottom: `1px solid ${C.border}`, background: isSelected ? C.blue + '11' : 'transparent', transition: 'background 0.2s' }}>
-                                        <td style={{ padding: 8, textAlign: 'center' }}>
-                                            <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(m.ip)} />
-                                        </td>
-                                        <td style={{ padding: 8 }}>
-                                            <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: 'none', fontWeight: 800 }}>{m.ip}</a>
-                                        </td>
-                                        <td style={{ padding: 8 }}>
-                                            <span style={{ 
-                                                background: m.status === 'mining' ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)', 
-                                                color: m.status === 'mining' ? C.green : C.red, 
-                                                padding: '2px 6px', borderRadius: 4, fontWeight: 800, fontSize: 9 
-                                            }}>
-                                                ● {m.status === 'mining' ? 'Mining' : (m.status === 'offline' ? 'Offline' : 'Error')}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: 8, fontWeight: 700 }}>{m.model || '-'}</td>
-                                        <td style={{ padding: 8, color: C.accent, fontWeight: 700 }}>{m.workingMode}</td>
-                                        <td style={{ padding: 8, fontWeight: 800, color: C.green }}>{m.hashrate ? m.hashrate.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
-                                        <td style={{ padding: 8, fontWeight: 800, color: C.green }}>{m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' TH/s' : '0 TH/s'}</td>
-                                        <td style={{ padding: 8, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : C.text), fontWeight: m.temp > 75 ? 800 : 400 }}>
-                                            {m.temp ? m.temp + '°C' : '-'}
-                                        </td>
-                                        <td style={{ padding: 8, color: C.subtle }}>{m.fanSpeed}</td>
-                                        <td style={{ padding: 8, color: C.subtle }}>{formatUptime(m.uptime)}</td>
-                                        <td style={{ padding: 8, color: C.muted, fontFamily: 'monospace', fontSize: 9 }} title={m.pool1}>{m.pool1 ? (m.pool1.length > 20 ? m.pool1.substring(0,20) + "..." : m.pool1) : '-'}</td>
-                                        <td style={{ padding: 8, display: 'flex', gap: 4, justifyContent: 'center' }}>
-                                            <button onClick={() => runAction([m.ip], "reboot")} title="Reboot" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>🔄</button>
-                                            <button onClick={() => runAction([m.ip], "blink", { enable: true })} title="Locate LED" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>💡</button>
-                                            <Btn onClick={() => { ctx.setPendingScannerTest(m); ctx.setTab("teste"); }} style={{ background: C.blue, color: '#fff', padding: '1px 4px', fontSize: 8, margin: 0 }}>🧪 Testar</Btn>
-                                        </td>
-                                    </tr>
+                                    <React.Fragment key={idx}>
+                                        <tr style={{ borderBottom: `1px solid ${C.border}`, background: isSelected ? C.blue + '11' : 'transparent', transition: 'background 0.2s' }}>
+                                            <td style={{ padding: '8px 4px', textAlign: 'center', cursor: 'pointer' }} onClick={() => toggleExpandRow(m.ip)}>
+                                                <span style={{ color: C.accent, fontSize: 10 }}>{isExpanded ? "▼" : "▶"}</span>
+                                            </td>
+                                            <td style={{ padding: 8, textAlign: 'center' }}>
+                                                <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(m.ip)} />
+                                            </td>
+                                            <td style={{ padding: 8 }}>
+                                                <a href={`http://${m.ip}`} target="_blank" rel="noreferrer" style={{ color: C.blue, textDecoration: 'none', fontWeight: 800 }}>{m.ip}</a>
+                                            </td>
+                                            <td style={{ padding: 8 }}>
+                                                <span style={{ 
+                                                    background: m.status === 'mining' ? 'rgba(76,175,80,0.1)' : 'rgba(244,67,54,0.1)', 
+                                                    color: m.status === 'mining' ? C.green : C.red, 
+                                                    padding: '2px 6px', borderRadius: 4, fontWeight: 800, fontSize: 9 
+                                                }}>
+                                                    ● {m.status === 'mining' ? 'Mining' : (m.status === 'offline' ? 'Offline' : 'Error')}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: 8, fontWeight: 700, color: C.text }}>{brand}</td>
+                                            <td style={{ padding: 8, fontWeight: 700 }}>{m.model || '-'}</td>
+                                            <td style={{ padding: 8, fontWeight: 800, color: bActive < bTotal ? C.red : C.text }}>{bActive}/{bTotal}</td>
+                                            <td style={{ padding: 8, fontWeight: 800, color: C.green }}>{m.hashrate ? m.hashrate.toFixed(1) + ' T' : '0 T'}</td>
+                                            <td style={{ padding: 8, fontWeight: 800, color: C.green }}>{m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' T' : '0 T'}</td>
+                                            <td style={{ padding: 8, color: m.temp > 85 ? C.red : (m.temp > 75 ? '#ff9800' : C.text), fontWeight: m.temp > 75 ? 800 : 400 }}>
+                                                {m.temp ? m.temp + '°C' : '-'}
+                                            </td>
+                                            <td style={{ padding: 8, color: C.subtle }}>{m.fanSpeed}</td>
+                                            <td style={{ padding: 8, color: C.subtle }}>{formatUptime(m.uptime)}</td>
+                                            <td style={{ padding: 8, color: C.muted, fontFamily: 'monospace', fontSize: 9 }} title={m.pool1}>{m.pool1 ? (m.pool1.length > 25 ? m.pool1.substring(0,25) + "..." : m.pool1) : '-'}</td>
+                                            <td style={{ padding: 8, display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                                <button onClick={() => runAction([m.ip], "reboot")} title="Reboot" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>🔄</button>
+                                                <button onClick={() => runAction([m.ip], "blink", { enable: true })} title="Locate LED" style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: '2px 4px', borderRadius: 4, cursor: 'pointer', fontSize: 9 }}>💡</button>
+                                                <Btn onClick={() => { ctx.setPendingScannerTest(m); ctx.setTab("teste"); }} style={{ background: C.blue, color: '#fff', padding: '1px 4px', fontSize: 8, margin: 0 }}>🧪 Testar</Btn>
+                                            </td>
+                                        </tr>
+                                        {isExpanded && (
+                                            <tr>
+                                                <td colSpan="14" style={{ padding: 0 }}>
+                                                    <div style={{ padding: 12, background: 'rgba(0,0,0,0.25)', borderLeft: `3px solid ${C.accent}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, fontSize: 11 }}>
+                                                            <div><span style={{ color: C.subtle }}>Fabricante:</span> <b>{t.brand || brand}</b></div>
+                                                            <div><span style={{ color: C.subtle }}>Firmware:</span> <b>{t.firmware_version || 'Factory'}</b></div>
+                                                            <div><span style={{ color: C.subtle }}>Consumo:</span> <b>{t.efficiency?.power_consumption_watts || 0} W</b></div>
+                                                            <div><span style={{ color: C.subtle }}>Eficiência:</span> <b>{t.efficiency?.joules_per_th || 0} J/TH</b></div>
+                                                        </div>
+                                                        
+                                                        {/* Placas HASH */}
+                                                        <div>
+                                                            <div style={{ fontSize: 10, fontWeight: 900, color: C.accent, marginBottom: 4 }}>⚡ PLACAS HASH ({t.hardware?.boards_active || bActive}/{t.hardware?.boards_total || bTotal} ATIVAS)</div>
+                                                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                                {(t.hardware?.boards_detail || []).map((b, bIdx) => (
+                                                                    <div key={bIdx} style={{ background: C.card, border: `1px solid ${b.hashrate_th > 0 ? C.border : C.red + '44'}`, borderRadius: 8, padding: '6px 10px', fontSize: 10, flex: 1, minWidth: 150 }}>
+                                                                        <div style={{ fontWeight: 800, color: b.hashrate_th > 0 ? C.green : C.red, display: 'flex', justifyContent: 'space-between' }}>
+                                                                            <span>Slot #{b.board_index + 1}</span>
+                                                                            <span>{b.hashrate_th || 0} TH/s</span>
+                                                                        </div>
+                                                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 4, color: C.muted }}>
+                                                                            <div>Temp Entrada: <b>{b.temp_inlet || 0}°C</b></div>
+                                                                            <div>Temp Saída: <b>{b.temp_outlet || 0}°C</b></div>
+                                                                            <div>Temp Chip: <b>{b.temp_chip || 0}°C</b></div>
+                                                                            <div>Voltagem: <b>{b.voltage || 0}V</b></div>
+                                                                            <div style={{ gridColumn: '1 / -1', color: b.hardware_errors > 0 ? C.red : C.muted }}>Erros HW: <b>{b.hardware_errors || 0}</b></div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Fans & Pools */}
+                                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10 }}>
+                                                            {/* Fans */}
+                                                            <div>
+                                                                <div style={{ fontSize: 10, fontWeight: 900, color: C.accent, marginBottom: 4 }}>🌀 VENTILADORES</div>
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                                    {(t.hardware?.fans || []).map((f, fIdx) => (
+                                                                        <div key={fIdx} style={{ background: C.card, borderRadius: 6, padding: '4px 8px', fontSize: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                            <span>Cooler #{f.fan_index + 1}</span>
+                                                                            <span style={{ fontWeight: 800, color: f.status === 'OK' ? C.green : C.red }}>{f.speed_rpm} RPM ({f.status})</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {/* Pools */}
+                                                            <div>
+                                                                <div style={{ fontSize: 10, fontWeight: 900, color: C.accent, marginBottom: 4 }}>🌐 CONFIGURAÇÃO DE POOLS</div>
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                                    {(t.pools || []).map((p, pIdx) => (
+                                                                        <div key={pIdx} style={{ background: C.card, borderRadius: 6, padding: '4px 8px', fontSize: 9, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: p.status === 'ALIVE' ? 1 : 0.6 }}>
+                                                                            <div>
+                                                                                <span style={{ fontWeight: 800, color: C.blue }}>UserPool #{p.index + 1}:</span>
+                                                                                <span style={{ marginLeft: 4, fontFamily: 'monospace' }}>{p.url}</span>
+                                                                            </div>
+                                                                            <div style={{ textAlign: 'right' }}>
+                                                                                <div>Worker: <b>{p.user}</b></div>
+                                                                                <div style={{ fontSize: 8, color: C.muted }}>A: {p.accepted} | R: {p.rejected}</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Alerts */}
+                                                        {(t.alerts?.length > 0) && (
+                                                            <div style={{ background: C.red + '15', border: `1px solid ${C.red}44`, borderRadius: 8, padding: '6px 10px', color: C.red, fontSize: 10 }}>
+                                                                🚨 <b>Alertas de Operação:</b>
+                                                                <ul style={{ paddingLeft: 14, marginTop: 4 }}>
+                                                                    {t.alerts.map((a, aIdx) => <li key={aIdx}>{a}</li>)}
+                                                                </ul>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
                                 );
                             })
                         )}
@@ -4528,6 +4621,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         </div>
     );
 }
+
 function DataCenterPage({ctx}) {
     const {data, setModal, user, farmsConfig = [], setFarmsConfig, mutate} = ctx;
     const farmMachines = data.farmMachines || [];

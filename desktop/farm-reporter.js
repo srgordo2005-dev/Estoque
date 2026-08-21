@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+const minerScanner = require('./miner-scanner');
 const TelegramBot = require('node-telegram-bot-api').default || require('node-telegram-bot-api');
 
 // Store farms config
@@ -79,55 +80,34 @@ const scanFarm = async (farm) => {
     let offlineCount = 0;
     let errors = [];
     
-    // Scan in sequential batches to not overload the local network
     const ipList = [];
     for (let i = startOctet; i <= endOctet; i++) {
         ipList.push(`${ipPrefix}.${i}`);
     }
 
-    const batchSize = 20;
-    for (let i = 0; i < ipList.length; i += batchSize) {
-        const batch = ipList.slice(i, i + batchSize);
-        await Promise.all(batch.map(async (ip) => {
-            totalMachines++;
-            try {
-                const summaryData = await queryMinerAPI(ip, 'summary').catch(() => null);
-                if (!summaryData) {
-                    offlineCount++;
-                    return;
-                }
-                const statsData = await queryMinerAPI(ip, 'stats').catch(() => null);
-                
-                const sum = summaryData?.SUMMARY?.[0] || {};
-                const stat = statsData?.STATS?.[1] || statsData?.STATS?.[0] || {};
-                
-                let hashrate = 0;
-                if (sum['MHS av']) hashrate = sum['MHS av'] / 1000000;
-                if (sum['GHS av']) hashrate = sum['GHS av'] / 1000;
-                if (sum['THS av']) hashrate = sum['THS av'];
-                
-                totalHashrate += hashrate;
-                onlineCount++;
-
-                let maxTemp = 0;
-                for(let t=1; t<=4; t++) {
-                    if(stat[\`temp\${t}\`] > maxTemp) maxTemp = stat[\`temp\${t}\`];
-                    if(stat[\`temp_chip\${t}\`]) {
-                        const temps = String(stat[\`temp_chip\${t}\`]).split('-').map(Number);
-                        temps.forEach(tp => { if(tp > maxTemp) maxTemp = tp; });
-                    }
-                }
-
-                if (hashrate === 0) {
-                    errors.push(\`[${ip}] 0 TH/s (Placas Zeradas)\`);
-                }
-                if (maxTemp > 85) {
-                    errors.push(\`[${ip}] Superaquecimento (\${maxTemp}°C)\`);
-                }
-            } catch (e) {
+    try {
+        const scanResults = await minerScanner.scanRange(ipList);
+        totalMachines = ipList.length;
+        scanResults.forEach(m => {
+            if (m.status === 'OFFLINE') {
                 offlineCount++;
+                return;
             }
-        }));
+            totalHashrate += m.hashrate.current_th;
+            onlineCount++;
+
+            const maxTemp = m.hardware.boards_detail.reduce((max, b) => Math.max(max, b.temp_chip || b.temp_outlet || 0), 0);
+
+            if (m.hashrate.current_th === 0) {
+                errors.push(`[${m.ip}] 0 TH/s (Placas Zeradas)`);
+            }
+            if (maxTemp > 85) {
+                errors.push(`[${m.ip}] Superaquecimento (${maxTemp}°C)`);
+            }
+        });
+        offlineCount = totalMachines - onlineCount;
+    } catch(e) {
+        console.error("Error during scanFarm:", e);
     }
 
     console.log(`[Farm Reporter] Concluído scan da fazenda ${farm.name}`);
