@@ -30,16 +30,10 @@ const path = require('path');
 const { exec } = require('child_process');
 const TelegramBot = require('node-telegram-bot-api').default || require('node-telegram-bot-api');
 
-// Telegram config placeholders to prevent ReferenceError crashes
-let telegramChatId = null;
-let bot = { sendMessage: () => {} }; // Dummy bot to prevent TypeError if telegramChatId is set but bot is not initialized
-
-
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = 'https://paelbarlmayswqilhoxa.supabase.co';
 const supabaseKey = 'sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h';
-global.WebSocket = require('ws');
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Parse --farm argument from command line or default to "Fazenda Principal"
@@ -200,9 +194,6 @@ const extractVnishFullDetails = async (ip) => {
         const status = await queryVnishAPI(ip, '/api/v1/status');
 
         if (!info && !summary && !status) return null;
-        // Rigorous check to prevent DVRs/Smart Switches from being detected as Vnish
-        const isVnish = (info?.miner || info?.model || info?.system || summary?.miner || status?.miner || summary?.miner_type);
-        if (!isVnish) return null;
 
         const s = summary?.miner || summary || {};
         const sys = info?.system || {};
@@ -808,48 +799,6 @@ app.post('/api/miner-action', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
-// WireGuard VPN Management Endpoints
-
-app.post('/api/vpn-connect', (req, res) => {
-    const { farmId, wgConfig } = req.body;
-    if (!wgConfig) return res.status(400).json({ error: 'Configuração vazia' });
-
-    try {
-        const confPath = path.join(__dirname, `wg-${farmId}.conf`);
-        fs.writeFileSync(confPath, wgConfig, 'utf8');
-        
-        // Execute WireGuard command (requires WireGuard to be installed on Windows and in PATH)
-        const cmd = `wireguard /installtunnelservice "${confPath}"`;
-        exec(cmd, (err, stdout, stderr) => {
-            console.log(`[VPN] Conectando VPN ${farmId}...`);
-            // We ignore errors here because on some test environments it might not be installed,
-            // but in production it will start the tunnel.
-            res.json({ success: true, stdout, stderr, message: 'Comando de conexão enviado' });
-        });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.post('/api/vpn-disconnect', (req, res) => {
-    const { farmId } = req.body;
-    try {
-        const cmd = `wireguard /uninstalltunnelservice wg-${farmId}`;
-        exec(cmd, (err, stdout, stderr) => {
-            console.log(`[VPN] Desconectando VPN ${farmId}...`);
-            res.json({ success: true, stdout, stderr, message: 'Comando de desconexão enviado' });
-        });
-    } catch(e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Import and initialize Farm Reporter
-try {
-    require('./farm-reporter.js')(app);
-} catch (e) {
-    console.error('[Farm Reporter] Failed to initialize:', e.message);
-}
 
 app.listen(PORT, () => {
     console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT}`);

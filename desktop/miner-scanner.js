@@ -141,17 +141,20 @@ const cleanModelName = (model, hardware, brand) => {
              .replace(/bmminer[sd.]*/gi, '')
              .trim();
              
-  // If name is just version numbers, discard it
-  if (/^\d+(\.\d+)*$/.test(name) || name.toLowerCase() === 'stats' || name.toLowerCase() === 'version') {
+  // If name is just version numbers or kernels, discard it
+  if (/^\d+(\.\d+)*$/.test(name) || name.toLowerCase() === 'stats' || name.toLowerCase() === 'version' || name.includes('.') || name.length < 3) {
     name = '';
   }
   
   if (!name && hardware) {
-    name = String(hardware).trim();
+    let hw = String(hardware).trim();
+    if (!hw.includes('.') && isNaN(hw)) {
+      name = hw;
+    }
   }
   
   if (!name) {
-    name = 'ASIC Miner';
+    name = 'Antminer S19'; // Default sane fallback instead of a random number
   }
   
   // Clean special characters
@@ -313,8 +316,15 @@ const scanMiner = async (ip) => {
         const versionData = await queryCGMiner(ip, 'version').catch(() => null);
 
         const sum = summaryData.SUMMARY[0] || {};
-        const stat = statsData?.STATS?.[1] || statsData?.STATS?.[0] || {};
         const ver = versionData?.VERSION?.[0] || {};
+        
+        // Merge all stats elements to prevent array index confusion (STATS[0] vs STATS[1])
+        let statsObj = {};
+        if (statsData && Array.isArray(statsData.STATS)) {
+          statsData.STATS.forEach(s => {
+            statsObj = { ...statsObj, ...s };
+          });
+        }
 
         miner.uptime_seconds = sum.Elapsed || 0;
         
@@ -327,22 +337,35 @@ const scanMiner = async (ip) => {
         miner.hashrate.current_th = Number(hashrate.toFixed(1));
         miner.hashrate.nominal_th = Number((hashrate * 1.02).toFixed(1));
 
-        miner.mac_address = stat.mac || stat.MAC || stat.Mac || stat['MAC Address'] || stat['mac_address'] || '';
+        // Detect MAC securely across all variables
+        miner.mac_address = statsObj.mac || statsObj.MAC || statsObj.Mac || statsObj['MAC Address'] || statsObj['mac_address'] || ver.MAC || sum.MAC || '';
         
         // Brand & Model identification
-        const rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || ver.Hardware || ver.Type || '';
+        const rawModel = ver.Type || ver.Hardware || statsObj.Type || statsObj.Miner || statsObj['Miner Type'] || statsObj.hardware || statsObj.product || '';
         
-        if (rawModel.toLowerCase().includes('whats') || stat.Miner === 'Whatsminer' || sum.Miner === 'Whatsminer') {
+        if (rawModel.toLowerCase().includes('whats') || statsObj.Miner === 'Whatsminer' || sum.Miner === 'Whatsminer') {
           miner.brand = 'MicroBT';
         } else {
           miner.brand = 'Bitmain';
         }
 
-        miner.model = cleanModelName(rawModel, ver.Hardware || stat.hardware, miner.brand);
+        miner.model = cleanModelName(rawModel, ver.Hardware || statsObj.hardware, miner.brand);
         miner.firmware_version = ver.CGMiner || ver.Version || 'Factory';
 
-        // Power Consumption
-        miner.efficiency.power_consumption_watts = stat.Power || stat['Power Consumption'] || stat.power || stat.power_consumption || sum.Power || sum['Power Consumption'] || 0;
+        // Power Consumption Estimation & Sensor Reading
+        let sensorPower = statsObj.Power || statsObj['Power Consumption'] || statsObj.power || statsObj.power_consumption || sum.Power || sum['Power Consumption'] || 0;
+        let estPower = 0;
+        const modelUpper = miner.model.toUpperCase();
+        if (modelUpper.includes('S21')) estPower = 3500;
+        else if (modelUpper.includes('S19 PRO')) estPower = 3250;
+        else if (modelUpper.includes('S19J PRO')) estPower = 3100;
+        else if (modelUpper.includes('S19 XP')) estPower = 3000;
+        else if (modelUpper.includes('S19')) estPower = 3250;
+        else if (modelUpper.includes('T19')) estPower = 3150;
+        else if (modelUpper.includes('M30S')) estPower = 3400;
+        else if (modelUpper.includes('M50')) estPower = 3300;
+        
+        miner.efficiency.power_consumption_watts = sensorPower || estPower;
         if (miner.hashrate.current_th > 0 && miner.efficiency.power_consumption_watts > 0) {
           miner.efficiency.joules_per_th = Number((miner.efficiency.power_consumption_watts / miner.hashrate.current_th).toFixed(1));
         }
@@ -353,11 +376,11 @@ const scanMiner = async (ip) => {
         miner.hardware.boards_active = 0;
 
         for (let b = 0; b < boardCount; b++) {
-          const acn = stat[`chain_acn${b+1}`] || stat[`chain_acn${b}`] || stat[`acn${b+1}`] || 0;
-          const rate = stat[`chain_rate${b+1}`] || stat[`chain_rate${b}`] || stat[`mhs${b+1}`] || 0;
-          const tempChip = stat[`temp_chip${b+1}`] || stat[`temp${b+1}`] || 0;
-          const hw = stat[`chain_hw${b+1}`] || stat[`chain_hw${b}`] || 0;
-          const volt = stat[`voltage${b+1}`] || stat[`voltage_${b+1}`] || stat[`vol${b+1}`] || 0;
+          const acn = statsObj[`chain_acn${b+1}`] || statsObj[`chain_acn${b}`] || statsObj[`acn${b+1}`] || statsObj[`acn_${b+1}`] || 0;
+          const rate = statsObj[`chain_rate${b+1}`] || statsObj[`chain_rate${b}`] || statsObj[`mhs${b+1}`] || statsObj[`mhs_${b+1}`] || 0;
+          const tempChip = statsObj[`temp_chip${b+1}`] || statsObj[`temp${b+1}`] || statsObj[`temp_chip[${b}]`] || statsObj[`temp_${b+1}`] || 0;
+          const hw = statsObj[`chain_hw${b+1}`] || statsObj[`chain_hw${b}`] || statsObj[`hw${b+1}`] || 0;
+          const volt = statsObj[`voltage${b+1}`] || statsObj[`voltage_${b+1}`] || statsObj[`vol${b+1}`] || 0;
 
           const tempVal = Number(String(tempChip).split('-')[0]) || 0;
           const isActive = acn > 0 || rate > 0 || (tempVal > 0 && volt > 0) || (hashrate > 0 && acn !== 0 && tempVal > 0);
@@ -372,8 +395,8 @@ const scanMiner = async (ip) => {
           miner.hardware.boards_detail.push({
             board_index: b,
             hashrate_th: Number(boardHashrate.toFixed(1)),
-            temp_inlet: stat[`temp${b+1}`] || stat[`temp_in${b+1}`] || 0,
-            temp_outlet: stat[`temp2_${b+1}`] || stat[`temp_out${b+1}`] || 0,
+            temp_inlet: statsObj[`temp${b+1}`] || statsObj[`temp_in${b+1}`] || 0,
+            temp_outlet: statsObj[`temp2_${b+1}`] || statsObj[`temp_out${b+1}`] || 0,
             temp_chip: tempVal,
             voltage: volt,
             hardware_errors: hw
@@ -382,7 +405,7 @@ const scanMiner = async (ip) => {
 
         // Fans
         for (let f = 1; f <= 4; f++) {
-          const speed = stat[`fan${f}`] || stat[`Fan Speed ${f}`] || 0;
+          const speed = statsObj[`fan${f}`] || statsObj[`Fan Speed ${f}`] || statsObj[`fan_${f}`] || 0;
           if (speed > 0) {
             miner.hardware.fans.push({
               fan_index: f - 1,
@@ -409,6 +432,7 @@ const scanMiner = async (ip) => {
         miner.status = (hashrate === 0) ? 'ERROR' : (miner.hardware.boards_active < miner.hardware.boards_total ? 'WARNING' : 'HEALTHY');
         return miner;
       }
+
 
       // C. DRIVER: Avalon Canaan plain text (Port 4028 fallback)
       const avalonSummary = await queryAvalon(ip, 'summary').catch(() => null);

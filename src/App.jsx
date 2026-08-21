@@ -257,6 +257,10 @@ async function fbSet(c,id,obj){
       delete cleanObj.autoEnabled;
       delete cleanObj.targetUptimeHours;
     }
+    if (c === "tests") {
+      delete cleanObj.employeeName;
+      delete cleanObj.employeeCode;
+    }
     const row={id,...toDBRow(cleanObj)};
     const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
     if(error){console.error(`fbSet(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui salvar em "${c}": ${error.message}`);return{ok:false,error:error.message}}
@@ -4940,21 +4944,26 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
                     <thead style={{ position: 'sticky', top: 0, background: C.card, zIndex: 5, borderBottom: `2px solid ${C.border}` }}>
                         <tr style={{ color: C.accent }}>
-                            <th style={{ padding: 12, width: 30, textAlign: 'center' }}>
+                            <th style={{ padding: '12px 8px', width: 30, textAlign: 'center' }}>
                                 <input type="checkbox" onChange={handleSelectAll} checked={selectedIps.length === miners.length && miners.length > 0} />
                             </th>
-                            <th style={{ padding: 12, fontWeight: 900, fontSize: 12 }}>DISPOSITIVO (MODELO / IP / MAC)</th>
-                            <th style={{ padding: 12, fontWeight: 900, fontSize: 12 }}>STATUS</th>
-                            <th style={{ padding: 12, fontWeight: 900, fontSize: 12 }}>HASHRATE RT</th>
-                            <th style={{ padding: 12, fontWeight: 900, fontSize: 12 }}>POTÊNCIA / J/TH</th>
-                            <th style={{ padding: 12, fontWeight: 900, fontSize: 12 }}>CADEIAS</th>
-                            <th style={{ padding: 12, fontWeight: 900, fontSize: 12 }}>POOL / WORKER ATIVO</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>DISPOSITIVO (MODELO / IP / MAC)</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>HASHRATE RT</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>POTÊNCIA</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>TEMP CHIP</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>REFRIGERAÇÃO</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>PREDEFINIÇÃO</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>FIRMWARE</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>TEMPO ATIVO</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>CADEIAS</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900 }}>POOL / WORKER ATIVO</th>
+                            <th style={{ padding: '12px 8px', fontWeight: 900, textAlign: 'center' }}>STATUS</th>
                         </tr>
                     </thead>
                     <tbody>
                         {miners.length === 0 ? (
                             <tr>
-                                <td colSpan="7" style={{ textAlign: 'center', padding: 40, color: C.muted, fontSize: 12 }}>
+                                <td colSpan="12" style={{ textAlign: 'center', padding: 40, color: C.muted, fontSize: 12 }}>
                                     {scanning ? "Buscando dispositivos (filtrando DVRs)..." : "Marque as faixas de IP e clique em SCAN."}
                                 </td>
                             </tr>
@@ -4981,47 +4990,71 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                         onMouseEnter={e => { if(!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
                                         onMouseLeave={e => { if(!isSelected) e.currentTarget.style.background = 'transparent'; }}
                                     >
-                                        <td style={{ padding: 12, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                                        <td style={{ padding: '10px 8px', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                                             <input type="checkbox" checked={isSelected} onChange={() => handleSelectRow(m.ip)} />
                                         </td>
-                                        <td style={{ padding: 12 }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                <span style={{ fontSize: 18 }}>⛏️</span>
-                                                <div>
-                                                    <div style={{ fontWeight: 800, color: C.text, fontSize: 12 }}>{m.model || 'Antminer'}</div>
-                                                    <div style={{ display: 'flex', gap: 8, fontSize: 10, color: C.subtle, marginTop: 2 }}>
-                                                        <span style={{ color: C.blue, fontWeight: 700 }}>{m.ip}</span>
-                                                        <span>•</span>
-                                                        <span style={{ fontFamily: 'monospace' }}>{mac}</span>
-                                                    </div>
+                                        <td style={{ padding: '10px 8px' }}>
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <span style={{ fontWeight: 800, color: C.text, fontSize: 12 }}>{m.model || 'Antminer'}</span>
+                                                    <span style={{ background: C.green + '22', color: C.green, fontSize: 8, fontWeight: 900, padding: '2px 6px', borderRadius: 4 }}>Hashcore</span>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: 8, fontSize: 10, color: C.subtle, marginTop: 4 }}>
+                                                    <span style={{ color: C.blue, fontWeight: 700 }}>{m.ip}</span>
+                                                    <span>•</span>
+                                                    <span style={{ fontFamily: 'monospace' }}>{mac}</span>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td style={{ padding: 12 }}>
-                                            <span style={{ 
-                                                background: m.status === 'mining' && bActive === bTotal ? 'rgba(76,175,80,0.1)' : (bActive < bTotal && bActive > 0 ? 'rgba(255,152,0,0.1)' : 'rgba(244,67,54,0.1)'), 
-                                                color: m.status === 'mining' && bActive === bTotal ? C.green : (bActive < bTotal && bActive > 0 ? '#ff9800' : C.red), 
-                                                padding: '4px 10px', borderRadius: 4, fontWeight: 900, fontSize: 9 
-                                            }}>
-                                                ● {m.status === 'mining' && bActive === bTotal ? 'HEALTHY' : (bActive < bTotal && bActive > 0 ? 'WARNING' : 'ERROR')}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: 12 }}>
-                                            <div style={{ fontWeight: 900, color: C.green, fontSize: 13 }}>{m.hashrate ? m.hashrate.toFixed(2) + ' TH/s' : '0.00 TH/s'}</div>
+                                        <td style={{ padding: '10px 8px' }}>
+                                            <div style={{ fontWeight: 900, color: C.green, fontSize: 12 }}>{m.hashrate ? m.hashrate.toFixed(2) + ' TH/s' : '0.00 TH/s'}</div>
                                             <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Média: {m.hashrateAvg ? m.hashrateAvg.toFixed(1) + ' TH/s' : '0.0 TH/s'}</div>
                                         </td>
-                                        <td style={{ padding: 12 }}>
+                                        <td style={{ padding: '10px 8px' }}>
                                             <div style={{ fontWeight: 800, color: C.text }}>{power ? power + ' W' : '0 W'}</div>
-                                            {efficiency > 0 && <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{efficiency} J/TH</div>}
+                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Potência</div>
                                         </td>
-                                        <td style={{ padding: 12 }}>
+                                        <td style={{ padding: '10px 8px' }}>
+                                            <div style={{ fontWeight: 800, color: m.temp > 80 ? C.red : C.text }}>{m.temp ? m.temp + ' °C' : '30-65 °C'}</div>
+                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Temp chip</div>
+                                        </td>
+                                        <td style={{ padding: '10px 8px' }}>
+                                            <div style={{ fontWeight: 800, color: C.text }}>{m.fanSpeed || 'Auto'}</div>
+                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Refrigeração</div>
+                                        </td>
+                                        <td style={{ padding: '10px 8px' }}>
+                                            <div style={{ color: C.text, fontWeight: 700 }}>{m.workingMode || 'Normal'}</div>
+                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Predefinição</div>
+                                        </td>
+                                        <td style={{ padding: '10px 8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.text, fontWeight: 700 }}>
+                                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.green }} />
+                                                {t.firmware_version || '1.2.7'}
+                                            </div>
+                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Firmware</div>
+                                        </td>
+                                        <td style={{ padding: '10px 8px' }}>
+                                            <div style={{ color: C.text, fontWeight: 700 }}>{m.uptime ? formatUptime(m.uptime) : '-'}</div>
+                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Tempo ativo</div>
+                                        </td>
+                                        <td style={{ padding: '10px 8px' }}>
                                             {renderVisualChains(bActive, bTotal)}
+                                            <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>Cadeias</div>
                                         </td>
-                                        <td style={{ padding: 12 }}>
-                                            <div style={{ color: C.blue, fontFamily: 'monospace', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }} title={m.pool1}>
+                                        <td style={{ padding: '10px 8px' }}>
+                                            <div style={{ color: C.blue, fontFamily: 'monospace', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }} title={m.pool1}>
                                                 {m.pool1 ? (m.pool1.includes('//') ? m.pool1.split('//')[1] : m.pool1) : '-'}
                                             </div>
                                             <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>worker: <b>{t.pools?.[0]?.user || pools[0].user}</b></div>
+                                        </td>
+                                        <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                                            <span style={{ 
+                                                background: m.status === 'mining' && bActive === bTotal ? 'rgba(76,175,80,0.15)' : (bActive < bTotal && bActive > 0 ? 'rgba(255,152,0,0.15)' : 'rgba(244,67,54,0.15)'), 
+                                                color: m.status === 'mining' && bActive === bTotal ? C.green : (bActive < bTotal && bActive > 0 ? '#ff9800' : C.red), 
+                                                padding: '4px 8px', borderRadius: 6, fontWeight: 900, fontSize: 8, display: 'inline-flex', alignItems: 'center', gap: 4 
+                                            }}>
+                                                🔓 {m.status === 'mining' && bActive === bTotal ? 'Minerando' : (bActive < bTotal && bActive > 0 ? 'Alerta' : 'Offline')}
+                                            </span>
                                         </td>
                                     </tr>
                                 );
@@ -5202,6 +5235,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         </div>
     );
 }
+
 
 
 function DataCenterPage({ctx}) {
@@ -9691,7 +9725,9 @@ function TeamAdvanced({ctx}) {
                 <div style={{ width: 38, height: 38, borderRadius: "50%", background: C.card2, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: C.accent, fontSize: 16 }}>{emp.name[0]}</div>
                 <div>
                   <div style={{ fontWeight: 800, fontSize: 14 }}>{emp.name} <Tag color={C.accent} small>#{emp.code}</Tag></div>
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{employeeRepairs.length} HASHs consertadas ativas · {repairedHashesInstalled.length} instaladas</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+                    {employeeRepairs.length} HASHs consertadas ativas · {repairedHashesInstalled.length} instaladas · {data.tests.filter(t => (t.employeeId === emp._id || t._by === emp._id)).length} testes realizados
+                  </div>
                 </div>
               </div>
               <span style={{ fontSize: 14, color: C.muted }}>{isExpanded ? "▲" : "▼"}</span>
@@ -10012,7 +10048,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   const[types,setTypes]=useState({
     repairs: true,
     alreadyGood: false,
-    tests: false
+    tests: true
   });
 
   const toggleEmp = (id) => {
