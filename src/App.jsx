@@ -5001,6 +5001,94 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     );
 }
 
+function ShelfConfigModal({ currentShelf, selectedFarmName, farmData, mutate, onClose }) {
+    const isEdit = !!currentShelf;
+    const [name, setName] = useState(currentShelf || "Prateleira 2");
+    
+    // Load current layout or defaults
+    let initRows = 4;
+    let initCols = 4;
+    if (isEdit) {
+        try {
+            const meta = JSON.parse(localStorage.getItem("hs_layout_" + currentShelf));
+            if (meta) {
+                initRows = meta.levelsCount || 4;
+                initCols = meta.machinesPerLevel || 4;
+            }
+        } catch(e) {}
+    }
+    
+    const [rows, setRows] = useState(initRows);
+    const [cols, setCols] = useState(initCols);
+
+    const handleSave = async () => {
+        if (!name.trim()) return alert("O nome da prateleira é obrigatório.");
+        const finalName = name.trim();
+        
+        // Save layout metadata to localStorage
+        const layoutMeta = {
+            levelsCount: Number(rows),
+            machinesPerLevel: Number(cols)
+        };
+        
+        localStorage.setItem("hs_layout_" + finalName, JSON.stringify(layoutMeta));
+        
+        if (isEdit && finalName !== currentShelf) {
+            // Rename shelf on old machines
+            localStorage.removeItem("hs_layout_" + currentShelf);
+            
+            // Rename custom shelf list
+            try {
+                let customShelves = JSON.parse(localStorage.getItem("hs_custom_shelves_" + selectedFarmName)) || [];
+                customShelves = customShelves.map(s => s === currentShelf ? finalName : s);
+                localStorage.setItem("hs_custom_shelves_" + selectedFarmName, JSON.stringify(customShelves));
+            } catch(e) {}
+
+            const machinesToUpdate = farmData.filter(m => m.shelf === currentShelf);
+            for (const m of machinesToUpdate) {
+                const updated = { ...m, shelf: finalName };
+                await fbSet("farmMachines", m._id, updated);
+            }
+            mutate("farmMachines");
+        } else if (!isEdit) {
+            let customShelves = [];
+            try {
+                customShelves = JSON.parse(localStorage.getItem("hs_custom_shelves_" + selectedFarmName)) || [];
+            } catch(e) {}
+            if (!customShelves.includes(finalName)) {
+                customShelves.push(finalName);
+                localStorage.setItem("hs_custom_shelves_" + selectedFarmName, JSON.stringify(customShelves));
+            }
+        }
+        
+        alert(isEdit ? "Prateleira atualizada com sucesso!" : "Prateleira criada com sucesso!");
+        onClose(finalName);
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 320, padding: 8 }}>
+            <div>
+                <label style={{ fontSize: 11, fontWeight: 800, color: C.subtle }}>Nome da Prateleira:</label>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4, padding: '6px 10px', fontSize: 12, background: C.bg }} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                    <label style={{ fontSize: 11, fontWeight: 800, color: C.subtle }}>Níveis (Fileiras):</label>
+                    <input type="number" min="1" max="12" value={rows} onChange={e => setRows(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4, padding: '6px 10px', fontSize: 12, background: C.bg }} />
+                </div>
+                <div>
+                    <label style={{ fontSize: 11, fontWeight: 800, color: C.subtle }}>Máquinas por Nível:</label>
+                    <input type="number" min="1" max="12" value={cols} onChange={e => setCols(e.target.value)} style={{ ...inp, width: '100%', marginTop: 4, padding: '6px 10px', fontSize: 12, background: C.bg }} />
+                </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 12 }}>
+                <button onClick={() => onClose(null)} style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Cancelar</button>
+                <Btn onClick={handleSave} style={{ background: C.blue, color: '#fff', fontSize: 11, fontWeight: 900 }}>Salvar</Btn>
+            </div>
+        </div>
+    );
+}
+
 function DataCenterPage({ctx}) {
     const {data, setModal, user, farmsConfig = [], setFarmsConfig, mutate} = ctx;
     const farmMachines = data.farmMachines || [];
@@ -5093,6 +5181,16 @@ function DataCenterPage({ctx}) {
     
     // Find all shelves names under this farm
     const shelvesList = Array.from(new Set(farmData.map(m => m.shelf).filter(Boolean)));
+    
+    // Append custom created shelves that are still empty
+    let customShelves = [];
+    try {
+        customShelves = JSON.parse(localStorage.getItem("hs_custom_shelves_" + selectedFarmName)) || [];
+    } catch(e) {}
+    customShelves.forEach(s => {
+        if (!shelvesList.includes(s)) shelvesList.push(s);
+    });
+    
     if (shelvesList.length === 0) shelvesList.push("Prateleira 1");
     
     // Ensure selectedShelf is valid
@@ -5166,6 +5264,39 @@ function DataCenterPage({ctx}) {
         if (m && m.ip) {
             window.open(`http://${m.ip}`, '_blank');
         }
+    };
+
+    const handleCreateShelf = () => {
+        setModal(
+            <Modal title="Criar Nova Prateleira" onClose={() => setModal(null)}>
+                <ShelfConfigModal 
+                    selectedFarmName={selectedFarmName}
+                    farmData={farmData}
+                    mutate={mutate}
+                    onClose={(newShelfName) => {
+                        setModal(null);
+                        if (newShelfName) setSelectedShelf(newShelfName);
+                    }}
+                />
+            </Modal>
+        );
+    };
+
+    const handleEditShelf = () => {
+        setModal(
+            <Modal title={`Editar: ${currentShelf}`} onClose={() => setModal(null)}>
+                <ShelfConfigModal 
+                    currentShelf={currentShelf}
+                    selectedFarmName={selectedFarmName}
+                    farmData={farmData}
+                    mutate={mutate}
+                    onClose={(updatedShelfName) => {
+                        setModal(null);
+                        if (updatedShelfName) setSelectedShelf(updatedShelfName);
+                    }}
+                />
+            </Modal>
+        );
     };
 
     // The display rows are looped in reverse order (bottom-up: rowsCount down to 1) so level 1 is rendered at the bottom!
@@ -5350,15 +5481,22 @@ function DataCenterPage({ctx}) {
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <span style={{ fontSize: 10, fontWeight: 900, color: '#8892b0', alignSelf: 'center', marginRight: 4 }}>PRATELEIRA:</span>
                             <select 
                                 value={currentShelf} 
                                 onChange={e => setSelectedShelf(e.target.value)} 
-                                style={{ background: '#1c2430', color: '#fff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                                style={{ background: '#1c2430', color: '#fff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 800, cursor: 'pointer', outline: 'none' }}
                             >
                                 {shelvesList.map(s => <option key={s} value={s}>{s}</option>)}
                             </select>
+                            
+                            <button onClick={handleCreateShelf} title="Criar Nova Prateleira" style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer', fontSize: 11 }}>
+                                ➕
+                            </button>
+                            <button onClick={handleEditShelf} title="Editar Prateleira Atual" style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer', fontSize: 11 }}>
+                                ✏️
+                            </button>
                         </div>
                     </div>
                     
