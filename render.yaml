@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: hashstock-helper
+    runtime: node
+    buildCommand: npm install
+    startCommand: node local-helper.cjs
+    envVars:
+      - key: PORT
+        value: 3001
