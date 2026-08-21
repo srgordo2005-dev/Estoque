@@ -119,7 +119,6 @@ const queryREST = (ip, endpoint, port = 80, timeout = 2000) => {
 const parsePipeString = (str) => {
   const result = {};
   if (!str) return result;
-  // Format: STATUS=S,M=summary,Elapsed=3600|...
   const parts = str.split('|');
   parts.forEach(part => {
     const pairs = part.split(',');
@@ -133,9 +132,65 @@ const parsePipeString = (str) => {
   return result;
 };
 
+// Robust Model Name Sanitizer & Normalizer
+const cleanModelName = (model, hardware, brand) => {
+  let name = String(model || hardware || '').trim();
+  
+  // Clean up BMMiner/CGMiner prefix
+  name = name.replace(/cgminer[sd.]*/gi, '')
+             .replace(/bmminer[sd.]*/gi, '')
+             .trim();
+             
+  // If name is just version numbers, discard it
+  if (/^\d+(\.\d+)*$/.test(name) || name.toLowerCase() === 'stats' || name.toLowerCase() === 'version') {
+    name = '';
+  }
+  
+  if (!name && hardware) {
+    name = String(hardware).trim();
+  }
+  
+  if (!name) {
+    name = 'ASIC Miner';
+  }
+  
+  // Clean special characters
+  name = name.replace(/[\s\-_]+/g, ' ').trim();
+  
+  // Normalize known Antminer / Whatsminer model formats
+  const upper = name.toUpperCase();
+  if (upper.includes('S21XP') || upper.includes('S21 XP')) {
+    name = 'S21 XP';
+  } else if (upper.includes('S19JPRO') || upper.includes('S19J PRO') || upper.includes('S19J-PRO')) {
+    name = 'S19j Pro';
+  } else if (upper.includes('S19PRO') || upper.includes('S19 PRO')) {
+    name = 'S19 Pro';
+  } else if (upper.includes('S19XP') || upper.includes('S19 XP')) {
+    name = 'S19 XP';
+  } else if (upper.includes('S19') && !upper.includes('ANTMINER')) {
+    name = 'S19';
+  } else if (upper.includes('M30S') && !upper.includes('WHATSMINER')) {
+    name = 'M30S';
+  } else if (upper.includes('M50') && !upper.includes('WHATSMINER')) {
+    name = 'M50';
+  }
+  
+  // Prepend brand prefix if not present
+  if (brand === 'Bitmain' && !name.toLowerCase().includes('antminer') && name !== 'ASIC Miner') {
+    name = 'Antminer ' + name;
+  } else if (brand === 'MicroBT' && !name.toLowerCase().includes('whatsminer')) {
+    name = 'Whatsminer ' + name;
+  } else if (brand === 'Canaan' && !name.toLowerCase().includes('avalon')) {
+    name = 'Avalon ' + name;
+  }
+  
+  return name;
+};
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 // Main Scanner & Normalizer
 const scanMiner = async (ip) => {
-  // 1. Detect open ports
   const hasCGMinerPort = await checkPort(ip, 4028);
   const hasWebPort = await checkPort(ip, 80);
 
@@ -156,7 +211,6 @@ const scanMiner = async (ip) => {
     };
   }
 
-  // Initialize normalized structure
   const miner = {
     ip,
     mac_address: '',
@@ -180,12 +234,12 @@ const scanMiner = async (ip) => {
       const vnishStatus = await queryREST(ip, '/api/v1/status');
 
       if (vnishInfo || vnishSummary || vnishStatus) {
-        miner.brand = 'Braiins'; // or Vnish custom
-        miner.firmware_version = vnishInfo?.system?.firmware_version || 'Vnish / Custom';
+        miner.brand = 'Braiins';
+        miner.firmware_version = vnishInfo?.system?.firmware_version || 'Vnish';
         miner.model = vnishInfo?.model || vnishInfo?.preset_name || 'Antminer Vnish';
         miner.uptime_seconds = Number(vnishInfo?.system?.uptime || vnishSummary?.miner?.elapsed || 0);
         
-        const avgHash = (vnishSummary?.miner?.average_hashrate || vnishSummary?.hashrate || 0) / 1000000; // in TH
+        const avgHash = (vnishSummary?.miner?.average_hashrate || vnishSummary?.hashrate || 0) / 1000000;
         const rtHash = (vnishSummary?.miner?.hashrate || 0) / 1000000;
         
         miner.hashrate.current_th = Number(rtHash.toFixed(1));
@@ -208,7 +262,7 @@ const scanMiner = async (ip) => {
           if (isOk) miner.hardware.boards_active++;
           
           miner.hardware.boards_detail.push({
-            board_index: c.id || idx,
+            board_index: idx,
             hashrate_th: Number(((c.hashrate || 0) / 1000).toFixed(1)),
             temp_inlet: c.pcb_temp?.min || 0,
             temp_outlet: c.pcb_temp?.max || 0,
@@ -249,11 +303,13 @@ const scanMiner = async (ip) => {
 
     // B. DRIVER: CGMiner / BMMiner API (Port 4028)
     if (hasCGMinerPort) {
-      // Handshake
       const summaryData = await queryCGMiner(ip, 'summary').catch(() => null);
       if (summaryData && summaryData.SUMMARY) {
+        await sleep(150);
         const statsData = await queryCGMiner(ip, 'stats').catch(() => null);
+        await sleep(150);
         const poolsData = await queryCGMiner(ip, 'pools').catch(() => null);
+        await sleep(150);
         const versionData = await queryCGMiner(ip, 'version').catch(() => null);
 
         const sum = summaryData.SUMMARY[0] || {};
@@ -268,42 +324,59 @@ const scanMiner = async (ip) => {
         if (sum['THS av']) hashrate = sum['THS av'];
 
         miner.hashrate.average_th = Number(hashrate.toFixed(1));
-        miner.hashrate.current_th = Number(hashrate.toFixed(1)); // fallback
+        miner.hashrate.current_th = Number(hashrate.toFixed(1));
         miner.hashrate.nominal_th = Number((hashrate * 1.02).toFixed(1));
 
-        miner.mac_address = stat.mac || stat.MAC || '';
+        miner.mac_address = stat.mac || stat.MAC || stat.Mac || stat['MAC Address'] || stat['mac_address'] || '';
         
         // Brand & Model identification
-        const rawModel = stat.Type || stat.Miner || stat['Miner Type'] || ver.Type || ver.Hardware || '';
-        miner.model = rawModel.replace(/cgminer[sd.]*/gi, '').replace(/bmminer[sd.]*/gi, '').trim();
-
-        if (miner.model.toLowerCase().includes('whats') || stat.Miner === 'Whatsminer' || sum.Miner === 'Whatsminer') {
+        const rawModel = stat.Type || stat.Miner || stat['Miner Type'] || stat.hardware || stat.product || ver.Hardware || ver.Type || '';
+        
+        if (rawModel.toLowerCase().includes('whats') || stat.Miner === 'Whatsminer' || sum.Miner === 'Whatsminer') {
           miner.brand = 'MicroBT';
-        } else if (miner.model.toLowerCase().includes('ant') || stat.Miner === 'Antminer') {
-          miner.brand = 'Bitmain';
         } else {
-          miner.brand = 'Bitmain'; // general fallback
+          miner.brand = 'Bitmain';
+        }
+
+        miner.model = cleanModelName(rawModel, ver.Hardware || stat.hardware, miner.brand);
+        miner.firmware_version = ver.CGMiner || ver.Version || 'Factory';
+
+        // Power Consumption
+        miner.efficiency.power_consumption_watts = stat.Power || stat['Power Consumption'] || stat.power || stat.power_consumption || sum.Power || sum['Power Consumption'] || 0;
+        if (miner.hashrate.current_th > 0 && miner.efficiency.power_consumption_watts > 0) {
+          miner.efficiency.joules_per_th = Number((miner.efficiency.power_consumption_watts / miner.hashrate.current_th).toFixed(1));
         }
 
         // Hashboard slots / Details
-        const boardCount = stat.chain_acn ? 3 : 3;
+        const boardCount = 3;
         miner.hardware.boards_total = boardCount;
+        miner.hardware.boards_active = 0;
+
         for (let b = 0; b < boardCount; b++) {
+          const acn = stat[`chain_acn${b+1}`] || stat[`chain_acn${b}`] || stat[`acn${b+1}`] || 0;
+          const rate = stat[`chain_rate${b+1}`] || stat[`chain_rate${b}`] || stat[`mhs${b+1}`] || 0;
           const tempChip = stat[`temp_chip${b+1}`] || stat[`temp${b+1}`] || 0;
-          const sn = stat[`chain_sn${b}`] || stat[`board_sn${b}`] || stat[`hash board ${b} sn`] || null;
-          
-          let active = true;
-          if (sn === null && hashrate === 0) active = false;
-          if (active) miner.hardware.boards_active++;
+          const hw = stat[`chain_hw${b+1}`] || stat[`chain_hw${b}`] || 0;
+          const volt = stat[`voltage${b+1}`] || stat[`voltage_${b+1}`] || stat[`vol${b+1}`] || 0;
+
+          const tempVal = Number(String(tempChip).split('-')[0]) || 0;
+          const isActive = acn > 0 || rate > 0 || (tempVal > 0 && volt > 0) || (hashrate > 0 && acn !== 0 && tempVal > 0);
+
+          if (isActive) miner.hardware.boards_active++;
+
+          let boardHashrate = rate ? rate / 1000 : 0;
+          if (boardHashrate === 0 && isActive && hashrate > 0) {
+            boardHashrate = hashrate / 3;
+          }
 
           miner.hardware.boards_detail.push({
             board_index: b,
-            hashrate_th: Number((miner.hashrate.current_th / boardCount).toFixed(1)),
-            temp_inlet: stat[`temp${b+1}`] || 0,
-            temp_outlet: stat[`temp2_${b+1}`] || 0,
-            temp_chip: Number(String(tempChip).split('-')[0]) || 0,
-            voltage: stat[`voltage${b+1}`] || 0,
-            hardware_errors: stat[`chain_hw${b}`] || 0
+            hashrate_th: Number(boardHashrate.toFixed(1)),
+            temp_inlet: stat[`temp${b+1}`] || stat[`temp_in${b+1}`] || 0,
+            temp_outlet: stat[`temp2_${b+1}`] || stat[`temp_out${b+1}`] || 0,
+            temp_chip: tempVal,
+            voltage: volt,
+            hardware_errors: hw
           });
         }
 
@@ -365,7 +438,6 @@ const scanMiner = async (ip) => {
     miner.alerts.push(err.message);
   }
 
-  // Fallback if details could not be extracted
   miner.model = 'ASIC Miner';
   miner.status = 'WARNING';
   return miner;
