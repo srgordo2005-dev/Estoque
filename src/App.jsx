@@ -4057,7 +4057,7 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
 }
 
 function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
-    const { data, user, setSession, setActiveTab, localConnected } = ctx;
+    const { data, user, setSession, setActiveTab, localConnected, webhookUrl } = ctx;
     const [ipRanges, setIpRanges] = useState([
         { id: '1', range: defaultIpRange, checked: true }
     ]);
@@ -4067,6 +4067,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const [selectedIps, setSelectedIps] = useState([]);
     const [firmwareModal, setFirmwareModal] = useState(false);
     const [expandedIps, setExpandedIps] = useState(new Set());
+    const [linkInputs, setLinkInputs] = useState({}); // { ip: chassisSN }
     
     // Pool configuration settings matching the BTC Tools screenshot
     const [pools, setPools] = useState([
@@ -4129,6 +4130,80 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
             else next.add(ip);
             return next;
         });
+    };
+
+    const normSN = (sn) => String(sn || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+    const handleLinkChassisSN = async (scannedMac, chassisSN, ip) => {
+        if (!chassisSN || !chassisSN.trim()) {
+            return alert("Por favor, digite ou selecione um S/N da Carcaça válido.");
+        }
+        const targetSN = chassisSN.trim().toUpperCase();
+        const targetMachine = data.machines.find(x => normSN(x.sn) === normSN(targetSN));
+        if (!targetMachine) {
+            return alert(`Número de Série da Carcaça "${targetSN}" não encontrado no inventário de máquinas!`);
+        }
+
+        const macToSave = scannedMac || ip;
+        if (!macToSave) return;
+
+        try {
+            // Update local state first to feel instantaneous
+            targetMachine.controladora = macToSave;
+
+            const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
+            if (wUrl) {
+                syncSheet(wUrl, "updateMachine", {
+                    sn: targetMachine.sn,
+                    field: "controladora",
+                    to: macToSave,
+                    employeeName: user.name,
+                    employeeCode: user.code
+                });
+            }
+
+            // Sync to Supabase
+            await supabase.from('machines').upsert({
+                ...targetMachine,
+                controladora: macToSave
+            }, { onConflict: "id" });
+
+            alert(`✅ S/N da Carcaça ${targetMachine.sn} foi vinculado ao MAC/IP ${macToSave} com sucesso!`);
+            
+            // Clear input
+            setLinkInputs(prev => ({ ...prev, [ip]: "" }));
+            
+            // Refresh table
+            doScan();
+        } catch (err) {
+            alert("Erro ao realizar vínculo: " + err.message);
+        }
+    };
+    
+    const handleUnlinkChassisSN = async (machine) => {
+        if (!confirm(`Remover o vínculo da carcaça ${machine.sn}?`)) return;
+        try {
+            machine.controladora = "";
+            const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
+            if (wUrl) {
+                syncSheet(wUrl, "updateMachine", {
+                    sn: machine.sn,
+                    field: "controladora",
+                    to: "",
+                    employeeName: user.name,
+                    employeeCode: user.code
+                });
+            }
+            await supabase.from('machines').upsert({
+                ...machine,
+                controladora: ""
+            }, { onConflict: "id" });
+            
+            alert(`Vínculo de ${machine.sn} removido!`);
+            doScan();
+        } catch (err) {
+            alert("Erro ao desvincular: " + err.message);
+        }
     };
 
     const parseRange = (r) => {
@@ -4282,6 +4357,57 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         document.body.removeChild(link);
     };
 
+    const handleExportGoogleSheets = async () => {
+        if (miners.length === 0) return alert("Nenhum minerador escaneado para exportar.");
+        
+        const wUrl = localStorage.getItem("hs_webhook_url") || webhookUrl;
+        if (!wUrl) {
+            return alert("Webhook do Google Sheets não configurado nas configurações!");
+        }
+        
+        const minersToExport = miners.map(m => {
+            const telemetry = m.telemetry || {};
+            const mac = telemetry.mac_address || m.sn || m.ip;
+            const linked = data.machines.find(x => normSN(x.controladora) === normSN(mac));
+            
+            const bActive = telemetry.hardware?.boards_active ?? 0;
+            const bTotal = telemetry.hardware?.boards_total ?? 0;
+            
+            return {
+                ip: m.ip,
+                sn: mac,
+                chassisSN: linked ? linked.sn : "",
+                model: m.model,
+                status: m.status === 'mining' ? 'LIGADA' : 'ERRO',
+                hashrate: m.hashrate || 0,
+                hashrateAvg: m.hashrateAvg || 0,
+                temp: m.temp || 0,
+                uptimeStr: formatUptime(m.uptime),
+                pool1: m.pool1 || "",
+                telemetry: {
+                    brand: telemetry.brand || "",
+                    mac_address: mac,
+                    efficiency: telemetry.efficiency || {},
+                    hardware: {
+                        boards_active: bActive,
+                        boards_total: bTotal
+                    },
+                    pools: telemetry.pools || []
+                }
+            };
+        });
+        
+        try {
+            syncSheet(wUrl, "exportScanResults", {
+                miners: minersToExport,
+                employeeName: user.name
+            });
+            alert("📤 Exportação enviada para o Google Sheets! A aba 'RELATÓRIO DE SCAN' será gerada/atualizada na sua planilha.");
+        } catch (err) {
+            alert("Erro ao exportar: " + err.message);
+        }
+    };
+
     // Calculate Summary Metrics like Hashcore Toolkit
     const totalMiners = miners.length;
     const onlineMiners = miners.filter(m => m.status === 'mining').length;
@@ -4422,6 +4548,9 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                 
                 <div style={{ flex: 1 }} />
                 
+                <button onClick={handleExportGoogleSheets} style={{ background: C.blue, border: 'none', color: '#fff', padding: '6px 12px', borderRadius: 6, fontWeight: 900, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    📤 Planilha Google
+                </button>
                 <button onClick={handleExportCSV} style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.accent, padding: '5px 10px', borderRadius: 6, fontWeight: 800, fontSize: 10, cursor: 'pointer' }}>
                     📥 Exportar CSV
                 </button>
@@ -4527,6 +4656,13 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
             </div>
 
+            {/* Datalist for available SNs */}
+            <datalist id="available-chassis">
+                {(data.machines || []).filter(x => !x.controladora && x.sn).map(x => (
+                    <option key={x._id} value={x.sn}>{x.model || 'ASIC'} ({x.situacao})</option>
+                ))}
+            </datalist>
+
             {/* Tabela de Dispositivos */}
             <div style={{ flex: 1, overflow: 'auto', background: C.card2, borderRadius: 10, border: `1px solid ${C.border}` }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, textAlign: 'left' }}>
@@ -4537,6 +4673,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                 <input type="checkbox" onChange={handleSelectAll} checked={selectedIps.length === miners.length && miners.length > 0} />
                             </th>
                             <th style={{ padding: 8, fontWeight: 800 }}>DISPOSITIVO (MODELO / IP / MAC)</th>
+                            <th style={{ padding: 8, fontWeight: 800 }}>S/N CARCAÇA (PRODUTO)</th>
                             <th style={{ padding: 8, fontWeight: 800 }}>STATUS</th>
                             <th style={{ padding: 8, fontWeight: 800 }}>HASHRATE (RT / MÉDIA)</th>
                             <th style={{ padding: 8, fontWeight: 800 }}>POTÊNCIA (CONSUMO / J/TH)</th>
@@ -4552,7 +4689,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                     <tbody>
                         {miners.length === 0 ? (
                             <tr>
-                                <td colSpan="13" style={{ textAlign: 'center', padding: 30, color: C.muted }}>
+                                <td colSpan="14" style={{ textAlign: 'center', padding: 30, color: C.muted }}>
                                     {scanning ? "Buscando dispositivos (filtrando DVRs)..." : "Marque as faixas e clique em SCAN para buscar."}
                                 </td>
                             </tr>
@@ -4568,6 +4705,12 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                 const power = t.efficiency?.power_consumption_watts || 0;
                                 const efficiency = t.efficiency?.joules_per_th || 0;
                                 
+                                // Resolve Chassis SN linked by MAC/IP
+                                const macClean = normSN(mac);
+                                const linked = (data.machines || []).find(x => {
+                                    return (macClean && normSN(x.controladora) === macClean) || (x.controladora && normSN(x.controladora) === normSN(m.ip));
+                                });
+
                                 return (
                                     <React.Fragment key={idx}>
                                         <tr style={{ borderBottom: `1px solid ${C.border}`, background: isSelected ? C.blue + '11' : 'transparent', transition: 'background 0.2s' }}>
@@ -4584,6 +4727,50 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                                     <span>•</span>
                                                     <span style={{ fontFamily: 'monospace' }}>{mac}</span>
                                                 </div>
+                                            </td>
+                                            <td style={{ padding: 8 }}>
+                                                {linked ? (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <span style={{ background: C.green + '22', color: C.green, border: `1px solid ${C.green}44`, padding: '2px 8px', borderRadius: 4, fontWeight: 900, fontSize: 11 }}>
+                                                            📦 {linked.sn}
+                                                        </span>
+                                                        <button onClick={() => handleUnlinkChassisSN(linked)} title="Desvincular" style={{ background: 'transparent', border: 'none', color: C.red, fontSize: 12, fontWeight: 900, cursor: 'pointer', padding: '0 4px' }}>✕</button>
+                                                    </div>
+                                                ) : (
+                                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                                        <input 
+                                                            type="text" 
+                                                            value={linkInputs[m.ip] || ""} 
+                                                            onChange={e => setLinkInputs({ ...linkInputs, [m.ip]: e.target.value })} 
+                                                            placeholder="Vincular Carcaça SN" 
+                                                            list="available-chassis"
+                                                            style={{ 
+                                                                background: C.bg, 
+                                                                border: `1px solid ${C.border}`, 
+                                                                color: C.text, 
+                                                                borderRadius: 4, 
+                                                                padding: '2px 6px', 
+                                                                fontSize: 10,
+                                                                width: 120 
+                                                            }} 
+                                                        />
+                                                        <button 
+                                                            onClick={() => handleLinkChassisSN(mac, linkInputs[m.ip], m.ip)}
+                                                            style={{ 
+                                                                background: C.blue, 
+                                                                color: '#fff', 
+                                                                border: 'none', 
+                                                                borderRadius: 4, 
+                                                                padding: '3px 8px', 
+                                                                fontSize: 9, 
+                                                                fontWeight: 700, 
+                                                                cursor: 'pointer' 
+                                                            }}
+                                                        >
+                                                            Vincular
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </td>
                                             <td style={{ padding: 8 }}>
                                                 <span style={{ 
@@ -4635,7 +4822,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                         </tr>
                                         {isExpanded && (
                                             <tr>
-                                                <td colSpan="13" style={{ padding: 0 }}>
+                                                <td colSpan="14" style={{ padding: 0 }}>
                                                     <div style={{ padding: 12, background: 'rgba(0,0,0,0.25)', borderLeft: `3px solid ${C.accent}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
                                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, fontSize: 11 }}>
                                                             <div><span style={{ color: C.subtle }}>Fabricante:</span> <b>{brand}</b></div>

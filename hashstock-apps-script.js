@@ -202,6 +202,8 @@ function doPost(e) {
         addAlreadyGoodRow(sheetHash, payload);
       } else if (action === "test") {
         addTestRow(sheetTestes, payload);
+      } else if (action === "exportScanResults") {
+        exportScanResults(ss, payload);
       }
       SpreadsheetApp.flush();
     }
@@ -793,5 +795,83 @@ function addHashesBulk(sheet, payload) {
     } else if (item.action === "update") {
       updateHashRow(sheet, item.payload);
     }
+  }
+}
+
+
+function exportScanResults(ss, payload) {
+  var sheetName = "RELATÓRIO DE SCAN";
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+  } else {
+    sheet.clear();
+  }
+  
+  var headers = [
+    "DATA DO SCAN", "IP", "ENDEREÇO MAC", "FABRICANTE", "MODELO", 
+    "S/N CARCAÇA", "STATUS", "HASHRATE RT (TH/s)", "HASHRATE AVG (TH/s)", 
+    "PLACAS ATIVAS", "TEMP MÁX CHIP (°C)", "POTÊNCIA (W)", "EFICIÊNCIA (J/TH)", 
+    "TEMPO ATIVO", "POOL ATIVA", "RESPONSÁVEL"
+  ];
+  
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  
+  // Format Header
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setBackground("#1f4e78")
+             .setFontColor("#ffffff")
+             .setFontWeight("bold")
+             .setHorizontalAlignment("center");
+             
+  var miners = payload.miners || [];
+  if (miners.length === 0) return;
+  
+  var rows = [];
+  var dateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+  
+  for (var i = 0; i < miners.length; i++) {
+    var m = miners[i];
+    var t = m.telemetry || {};
+    var brand = t.brand || "";
+    var mac = t.mac_address || m.sn || "";
+    var power = t.efficiency?.power_consumption_watts || 0;
+    var efficiency = t.efficiency?.joules_per_th || 0;
+    var bActive = t.hardware?.boards_active ?? 0;
+    var bTotal = t.hardware?.boards_total ?? 0;
+    
+    rows.push([
+      dateStr,
+      m.ip || "",
+      mac,
+      brand,
+      m.model || "",
+      m.chassisSN || "",
+      m.status || "",
+      m.hashrate || 0,
+      m.hashrateAvg || 0,
+      bActive + " / " + bTotal,
+      m.temp || 0,
+      power,
+      efficiency,
+      m.uptimeStr || "",
+      m.pool1 || "",
+      payload.employeeName || ""
+    ]);
+  }
+  
+  sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  
+  // Apply formatting (Borders, auto-width, alignments)
+  var dataRange = sheet.getRange(2, 1, rows.length, headers.length);
+  dataRange.setBorder(true, true, true, true, true, true, "#dcdde1", SpreadsheetApp.BorderStyle.SOLID);
+  
+  // Center alignments for metrics
+  sheet.getRange(2, 1, rows.length, 3).setHorizontalAlignment("center"); // Date, IP, MAC
+  sheet.getRange(2, 6, rows.length, 8).setHorizontalAlignment("center"); // SN, Status, HR, Temp, Power, Efficiency, Uptime
+  
+  // Auto-fit column widths
+  for (var c = 1; c <= headers.length; c++) {
+    sheet.autoResizeColumn(c);
   }
 }
