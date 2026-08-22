@@ -131,6 +131,26 @@ const setupUDPServer = (port) => {
             fs.appendFileSync(path.join(__dirname, 'ipreport_debug.log'), logLine);
         } catch(e) {}
 
+        // Write to Supabase audit log to share with remote client (WireGuard)
+        if (supabase) {
+            const reportId = `${activeFarmName}_${rinfo.address}_${Date.now()}`;
+            supabase.from("audit").insert({
+                id: reportId,
+                coll: "ipreport",
+                docId: rinfo.address,
+                by: activeFarmName,
+                at: Date.now(),
+                from: msg.toString('hex') || "",
+                to: "",
+                label: ""
+            }).then(({error}) => {
+                if (error) console.error("[Supabase Bridge] Erro ao salvar IP report no audit log:", error.message);
+                else console.log(`[Supabase Bridge] IP Report salvo no Supabase: ${rinfo.address}`);
+            }).catch(e => {
+                console.error("[Supabase Bridge] Erro crítico ao salvar IP report:", e.message);
+            });
+        }
+
         const existingIdx = lastIPReports.findIndex(x => x.ip === rinfo.address);
         if (existingIdx !== -1) {
             lastIPReports.splice(existingIdx, 1);

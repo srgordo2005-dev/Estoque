@@ -4103,9 +4103,83 @@ function ScannerSettingsModal({ pools, setPools, overclockEnabled, setOverclockE
     );
 }
 
-function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRange, onClose, machine }) {
+async function getUnifiedIpReports(selectedFarmName, subnetPrefix) {
+    let reports = [];
+    
+    // 1. Try local helper
+    try {
+        const res = await fetch('http://localhost:3001/api/ipreport');
+        if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data ? [data] : []);
+            list.forEach(r => {
+                if (r && r.ip) {
+                    reports.push({
+                        ip: r.ip,
+                        mac: r.mac || "",
+                        timestamp: r.timestamp || Date.now(),
+                        source: 'local'
+                    });
+                }
+            });
+        }
+    } catch(e) {}
+
+    // 2. Try Supabase remote helper if selectedFarmName is set (relayed via audit log table)
+    if (selectedFarmName) {
+        try {
+            const { data: remoteData, error } = await supabase
+                .from("audit")
+                .select("*")
+                .eq("coll", "ipreport")
+                .eq("by", selectedFarmName)
+                .order("at", { ascending: false })
+                .limit(5);
+            
+            if (remoteData && !error) {
+                remoteData.forEach(r => {
+                    // Only consider reports in the last 60 seconds to avoid stale captures
+                    if (Date.now() - r.at < 60000) {
+                        reports.push({
+                            ip: r.docId,
+                            mac: r.from || "",
+                            timestamp: r.at,
+                            source: 'supabase'
+                        });
+                    }
+                });
+            }
+        } catch(e) {}
+    }
+
+    // Sort by timestamp descending
+    reports.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Remove duplicates
+    const unique = [];
+    const seen = new Set();
+    reports.forEach(r => {
+        if (!seen.has(r.ip)) {
+            seen.add(r.ip);
+            unique.push(r);
+        }
+    });
+
+    // Filter by subnet prefix if provided
+    if (subnetPrefix) {
+        return unique.filter(r => r.ip && r.ip.startsWith(subnetPrefix));
+    }
+    return unique;
+}
+
+function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRange, currentShelf, colsCount, rowsCount, farmData, onClose, machine }) {
     const { data, mutate, user, webhookUrl } = ctx;
     
+    // State for navigating slot mapping wizard
+    const [activeVao, setActiveVao] = useState(vao);
+    const [activeSlot, setActiveSlot] = useState(slot);
+    const [currentMachine, setCurrentMachine] = useState(machine);
+
     // State for removing old machine
     const [removalReason, setRemovalReason] = useState("");
     const [removalDest, setRemovalDest] = useState("REPARO");
@@ -4130,32 +4204,57 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
 
     const subnetPrefix = getSubnetPrefix(selectedFarmRange);
 
-    // Listen to IP Report when active
+    // Dynamic slotKey and loading logic
+    const slotKey = `${selectedFarmName}_${currentShelf}_${(activeVao - 1) * colsCount + activeSlot}`;
+
+    // Load active slot machine or drafts
+    useEffect(() => {
+        const foundMac = farmData.find(x => x.shelf === currentShelf && String(x.notes) === String((activeVao - 1) * colsCount + activeSlot));
+        setCurrentMachine(foundMac);
+
+        // Load drafts from localStorage
+        const draftSN = localStorage.getItem(`hs_draft_sn_${slotKey}`) || "";
+        const draftIP = localStorage.getItem(`hs_draft_ip_${slotKey}`) || "";
+
+        setNewSN(foundMac ? foundMac.sn : draftSN);
+        setNewIP(foundMac ? foundMac.ip : draftIP);
+        
+        setDetectedIps([]);
+        setIsListening(false);
+    }, [activeVao, activeSlot, currentShelf, selectedFarmName, farmData, colsCount]);
+
+    // Save drafts to localStorage when inputs change
+    useEffect(() => {
+        if (!currentMachine) {
+            localStorage.setItem(`hs_draft_sn_${slotKey}`, newSN);
+        }
+    }, [newSN, slotKey, currentMachine]);
+
+    useEffect(() => {
+        if (!currentMachine) {
+            localStorage.setItem(`hs_draft_ip_${slotKey}`, newIP);
+        }
+    }, [newIP, slotKey, currentMachine]);
+
+    // Listen to IP Report when active (local + Supabase)
     useEffect(() => {
         if (!isListening) return;
         const interval = setInterval(async () => {
             try {
-                const res = await fetch('http://localhost:3001/api/ipreport');
-                if (res.ok) {
-                    const reports = await res.json();
-                    const list = Array.isArray(reports) ? reports : (reports ? [reports] : []);
-                    
-                    // Filter reports by current subnet prefix to avoid VPN/WireGuard collision
-                    const filtered = list.filter(r => r.ip && r.ip.startsWith(subnetPrefix));
-                    if (filtered.length > 0) {
-                        setDetectedIps(filtered);
-                        // If only one matches, auto-fill it
-                        if (filtered.length === 1) {
-                            setNewIP(filtered[0].ip);
-                            const found = data.machines.find(x => x.ip === filtered[0].ip);
-                            if (found) setNewSN(found.sn);
-                        }
+                // Fetch reports from unified source (combining local helper and remote Supabase audit log)
+                const uniqueReports = await getUnifiedIpReports(selectedFarmName, subnetPrefix);
+                if (uniqueReports.length > 0) {
+                    setDetectedIps(uniqueReports);
+                    if (uniqueReports.length === 1) {
+                        setNewIP(uniqueReports[0].ip);
+                        const found = data.machines.find(x => x.ip === uniqueReports[0].ip);
+                        if (found) setNewSN(found.sn);
                     }
                 }
             } catch(e) {}
         }, 1000);
         return () => clearInterval(interval);
-    }, [isListening, subnetPrefix]);
+    }, [isListening, subnetPrefix, selectedFarmName, data.machines]);
 
     const handleSelectDetectedIp = (item) => {
         setNewIP(item.ip);
@@ -4166,17 +4265,17 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
     };
 
     const handleRemoveOld = async () => {
-        if (!machine) return;
+        if (!currentMachine) return;
         const targetDest = removalDest === "OUTRO" ? customDest : removalDest;
         if (!targetDest) {
             return alert("Por favor, informe para onde a máquina está indo.");
         }
 
-        const confirmMsg = `Tem certeza que deseja retirar a máquina S/N ${machine.sn || 'Sem SN'} da prateleira?\nDestino: ${targetDest}`;
+        const confirmMsg = `Tem certeza que deseja retirar a máquina S/N ${currentMachine.sn || 'Sem SN'} da prateleira?\nDestino: ${targetDest}`;
         if (!confirm(confirmMsg)) return;
 
         try {
-            const dbMac = data.machines.find(x => x.sn === machine.sn || x._id === machine._id);
+            const dbMac = data.machines.find(x => x.sn === currentMachine.sn || x._id === currentMachine._id);
             if (dbMac) {
                 const updatedSituacao = targetDest === "REPARO" ? "ENTRADA OFICINA" : "STOCK";
                 const updatedLoc = targetDest;
@@ -4220,11 +4319,17 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
                 });
             }
 
-            mutate("farmMachines", prev => prev.filter(x => x._id !== machine._id));
-            await fbDelete("farmMachines", machine._id);
+            mutate("farmMachines", prev => prev.filter(x => x._id !== currentMachine._id));
+            await fbDelete("farmMachines", currentMachine._id);
 
             alert("Máquina retirada com sucesso!");
-            onClose();
+            
+            // Reload slot status
+            setCurrentMachine(null);
+            setNewSN("");
+            setNewIP("");
+            localStorage.removeItem(`hs_draft_sn_${slotKey}`);
+            localStorage.removeItem(`hs_draft_ip_${slotKey}`);
         } catch (err) {
             alert("Erro ao retirar máquina: " + err.message);
         }
@@ -4239,7 +4344,7 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
         const finalIP = newIP.trim();
 
         const dbMac = data.machines.find(x => x.sn === finalSN);
-        const locString = `${selectedFarmName} - PRAT. VÃO ${vao} - POS. ${slot}`;
+        const locString = `${selectedFarmName} - PRAT. VÃO ${activeVao} - POS. ${activeSlot}`;
         
         try {
             if (dbMac) {
@@ -4277,12 +4382,12 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
             }
 
             // The position notes column contains the global slot number mapping!
-            const globalSlotNumber = String((vao - 1) * 4 + slot); // Dynamically calculated from row and col
+            const globalSlotNumber = String((activeVao - 1) * colsCount + activeSlot);
 
             const newFarmMachine = {
-                _id: machine?._id || 'farm_' + Date.now().toString(),
+                _id: currentMachine?._id || 'farm_' + Date.now().toString(),
                 location: selectedFarmName,
-                shelf: "Prateleira 1", // Will be dynamic below
+                shelf: currentShelf,
                 notes: globalSlotNumber,
                 ip: finalIP,
                 sn: finalSN,
@@ -4302,8 +4407,28 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
 
             try { await fetch('http://localhost:3001/api/ipreport?clear=true'); } catch(e) {}
 
-            alert("Nova máquina adicionada com sucesso!");
-            onClose();
+            // Clear draft from localStorage
+            localStorage.removeItem(`hs_draft_sn_${slotKey}`);
+            localStorage.removeItem(`hs_draft_ip_${slotKey}`);
+
+            // Calculate next slot in shelf sequence
+            let nextSlot = activeSlot + 1;
+            let nextVao = activeVao;
+            if (nextSlot > colsCount) {
+                nextSlot = 1;
+                nextVao = activeVao + 1;
+            }
+
+            if (nextVao > rowsCount) {
+                alert("Máquina salva! Prateleira completamente preenchida!");
+                onClose();
+            } else {
+                // Auto-advance to the next slot in the shelf mapping wizard
+                setActiveSlot(nextSlot);
+                setActiveVao(nextVao);
+                setNewSN("");
+                setNewIP("");
+            }
         } catch (err) {
             alert("Erro ao adicionar máquina: " + err.message);
         }
@@ -4312,16 +4437,16 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 350 }}>
             <div style={{ background: C.accent + '11', padding: 8, borderRadius: 6, fontSize: 12, fontWeight: 800, color: C.accent, textAlign: 'center' }}>
-                📍 Fazenda: {selectedFarmName} • Vão: {vao} • Posição: {slot}
+                📍 Fazenda: {selectedFarmName} • Prateleira: {currentShelf} • Vão: {activeVao} • Posição: {activeSlot}
             </div>
 
-            {machine && (
+            {currentMachine && (
                 <div style={{ background: C.card2, border: `1px solid ${C.red}33`, padding: 12, borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ fontWeight: 900, color: C.red, fontSize: 12 }}>🔴 MÁQUINA ATUAL NO SLOT</div>
                     <div style={{ fontSize: 11, color: C.text }}>
-                        <div>IP: <b>{machine.ip}</b></div>
-                        <div>S/N Carcaça: <b>{machine.sn || 'Sem S/N'}</b></div>
-                        {machine.model && <div>Modelo: <b>{machine.model}</b></div>}
+                        <div>IP: <b>{currentMachine.ip}</b></div>
+                        <div>S/N Carcaça: <b>{currentMachine.sn || 'Sem S/N'}</b></div>
+                        {currentMachine.model && <div>Modelo: <b>{currentMachine.model}</b></div>}
                     </div>
 
                     <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -4426,7 +4551,7 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
                                     onClick={() => handleSelectDetectedIp(item)}
                                     style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, padding: '4px 8px', fontSize: 10, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}
                                 >
-                                    🖥️ IP: {item.ip} (MAC: {item.mac || 'Desconhecido'})
+                                    🖥️ IP: {item.ip} {item.source === 'supabase' ? '☁️ (Nuvem/Bridge)' : '⚡ (Local)'}
                                 </button>
                             ))}
                         </div>
@@ -4446,6 +4571,7 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
         </div>
     );
 }
+
 
 function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const { data, user, setSession, setActiveTab, localConnected } = ctx;
@@ -4657,11 +4783,11 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#11161d', color: '#e2e8f0', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
             
-            {/* Topbar: HASHSTOCK TOOLKIT */}
+            {/* Topbar: HASHSTOCK */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 20, fontWeight: 900, color: '#10b981', tracking: '0.5px' }}>HASHSTOCK TOOLKIT</span>
+                        <span style={{ fontSize: 20, fontWeight: 900, color: '#10b981', tracking: '0.5px' }}>HASHSTOCK</span>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
                     </div>
                     <span style={{ fontSize: 11, color: '#8892b0', marginTop: 2 }}>App para configurar e gerenciar dispositivos de mineração</span>
@@ -5252,6 +5378,10 @@ function DataCenterPage({ctx}) {
                     slot={pos} 
                     selectedFarmName={selectedFarmName} 
                     selectedFarmRange={farm.ipRange}
+                    currentShelf={currentShelf}
+                    colsCount={colsCount}
+                    rowsCount={rowsCount}
+                    farmData={farmData}
                     onClose={() => setModal(null)} 
                     machine={m} 
                 />
@@ -5305,9 +5435,8 @@ function DataCenterPage({ctx}) {
 
     const renderBoxContent = (m) => {
         if (!m) return (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.15, height: '100%' }}>
-                <span style={{ fontSize: 16, fontWeight: 900, color: '#8892b0' }}>+</span>
-                <span style={{ fontSize: 7, fontWeight: 900, color: '#8892b0' }}>VACANT</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 24, fontWeight: 800, color: 'rgba(255,255,255,0.15)' }}>
+                +
             </div>
         );
         
