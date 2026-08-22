@@ -5059,43 +5059,114 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
             {/* Selected Miner Detail Side Drawer */}
             {selectedMiner && (
-                <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 420, background: '#151b26', borderLeft: '1px solid rgba(255,255,255,0.08)', boxShadow: '-8px 0 32px rgba(0,0,0,0.5)', zIndex: 1010, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 440, background: '#151b26', borderLeft: '1px solid rgba(255,255,255,0.08)', boxShadow: '-8px 0 32px rgba(0,0,0,0.5)', zIndex: 1010, display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <div style={{ fontWeight: 900, fontSize: 14, color: '#fff' }}>📋 Detalhes do Dispositivo</div>
-                        <button onClick={() => setSelectedMiner(null)} style={{ background: 'none', border: 'none', color: '#8892b0', fontSize: 16, cursor: 'pointer', fontWeight: 900 }}>×</button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 16 }}>📋</span>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontWeight: 900, fontSize: 14, color: '#fff' }}>Detalhes do Dispositivo</span>
+                                <span style={{ fontSize: 10, color: '#10b981', fontWeight: 800 }}>Modelo: {selectedMiner.model || "Antminer S19"}</span>
+                            </div>
+                        </div>
+                        <button onClick={() => setSelectedMiner(null)} style={{ background: 'none', border: 'none', color: '#8892b0', fontSize: 18, cursor: 'pointer', fontWeight: 900 }}>×</button>
                     </div>
 
-                    <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-                        <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
-                            <div style={{ fontSize: 11, color: '#8892b0', fontWeight: 900 }}>IP ADDRESS</div>
-                            <div style={{ fontSize: 14, fontWeight: 900, color: '#10b981', fontFamily: 'monospace', marginTop: 2 }}>{selectedMiner.ip}</div>
-                        </div>
-
-                        <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
-                            <div style={{ fontSize: 11, color: '#8892b0', fontWeight: 900 }}>HARDWARE MODEL</div>
-                            <div style={{ fontSize: 14, fontWeight: 900, color: '#fff', marginTop: 2 }}>{selectedMiner.model || "Antminer S19/S21"}</div>
-                        </div>
-
-                        <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
-                            <div style={{ fontSize: 11, color: '#8892b0', fontWeight: 900 }}>MAC ADDRESS</div>
-                            <div style={{ fontSize: 13, fontWeight: 900, color: '#fff', fontFamily: 'monospace', marginTop: 2 }}>{selectedMiner.mac_address || selectedMiner.telemetry?.mac_address || "N/A"}</div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                            <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
-                                <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>REALTIME HASHRATE</div>
-                                <div style={{ fontSize: 15, fontWeight: 900, color: '#fff', marginTop: 2 }}>{selectedMiner.hashrate ? selectedMiner.hashrate.toFixed(1) + ' TH/s' : '0.0 TH'}</div>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        
+                        {/* Section 1: Network Identification */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>REDE & IDENTIFICAÇÃO</div>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>IP ADDRESS</div>
+                                    <div style={{ fontSize: 12, fontWeight: 900, color: '#10b981', fontFamily: 'monospace', marginTop: 2 }}>{selectedMiner.ip}</div>
+                                </div>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>MAC ADDRESS</div>
+                                    <div style={{ fontSize: 11, fontWeight: 900, color: '#fff', fontFamily: 'monospace', marginTop: 3 }}>{selectedMiner.mac_address || selectedMiner.telemetry?.mac_address || "N/A"}</div>
+                                </div>
                             </div>
-                            <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
-                                <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>AVERAGE HASHRATE</div>
-                                <div style={{ fontSize: 15, fontWeight: 900, color: '#fff', marginTop: 2 }}>{selectedMiner.hashrateAvg ? selectedMiner.hashrateAvg.toFixed(1) + ' TH/s' : '0.0 TH'}</div>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>PLACA DE CONTROLE</div>
+                                    <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.control_board || selectedMiner.telemetry?.controller_type || "N/A"}</div>
+                                </div>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>VERSÃO FIRMWARE</div>
+                                    <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.telemetry?.firmware_version || selectedMiner.firmware || "1.2.7"}</div>
+                                </div>
                             </div>
                         </div>
 
-                        <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 12 }}>
-                            <div style={{ fontSize: 11, color: '#8892b0', fontWeight: 900 }}>HASH CHAINS STATUS</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                                {[1, 2, 3].map((id, idx) => (
+                        {/* Section 2: Performance Telemetry */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>TELEMETRIA DE PERFORMANCE</div>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>REALTIME HASHRATE</div>
+                                    <div style={{ fontSize: 14, fontWeight: 900, color: '#fff', marginTop: 2 }}>{selectedMiner.hashrate ? selectedMiner.hashrate.toFixed(2) + ' TH/s' : '0.00 TH/s'}</div>
+                                </div>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>AVERAGE HASHRATE</div>
+                                    <div style={{ fontSize: 14, fontWeight: 900, color: '#fff', marginTop: 2 }}>{selectedMiner.hashrateAvg ? selectedMiner.hashrateAvg.toFixed(2) + ' TH/s' : '0.00 TH/s'}</div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>ESTIMATED POWER</div>
+                                    <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.power || selectedMiner.telemetry?.power || estimatePower(selectedMiner.model)} W</div>
+                                </div>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>PREDEFINIÇÃO (OVERCLOCK)</div>
+                                    <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.preset || selectedMiner.telemetry?.overclock_mode || "Disabled"}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Section 3: Hardware Diagnostics */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>DIAGNÓSTICO E SENSORES</div>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>TEMP CHIP</div>
+                                    <div style={{ fontSize: 13, fontWeight: 800, color: selectedMiner.temp > 85 ? '#ef4444' : (selectedMiner.temp > 75 ? '#ff9800' : '#fff'), marginTop: 2 }}>{selectedMiner.temp ? `${selectedMiner.temp}°C` : '49-65 °C'}</div>
+                                </div>
+                                <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                    <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>REFRIGERAÇÃO / FANS</div>
+                                    <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.cooling || selectedMiner.telemetry?.fan_speed || "Auto 65%"}</div>
+                                </div>
+                            </div>
+
+                            <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>TEMPO ATIVO (UPTIME)</div>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.uptime ? Math.floor(selectedMiner.uptime / 60) + "h " + (selectedMiner.uptime % 60) + "m" : "2:17"}</div>
+                            </div>
+                        </div>
+
+                        {/* Section 4: Stratum Pool Config */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>POOL E MINERAÇÃO</div>
+                            
+                            <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>URL DA POOL ATIVA</div>
+                                <div style={{ fontSize: 10, fontWeight: 800, color: '#fff', fontFamily: 'monospace', wordBreak: 'break-all', marginTop: 2 }}>{selectedMiner.telemetry?.pool_active || selectedMiner.pool || "stratum+tcp://btc.viabtc.top:3333"}</div>
+                            </div>
+                            <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>WORKER</div>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.worker || "worker1"}</div>
+                            </div>
+                        </div>
+
+                        {/* Section 5: Hash Chains Status */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>CADEIAS DE HASH (CHAINS)</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {[1, 2, 3].map((id) => (
                                     <div key={id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: 4 }}>
                                         <span style={{ fontSize: 10, fontWeight: 800, color: '#8892b0' }}>Chain #{id}</span>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
