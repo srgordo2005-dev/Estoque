@@ -34,7 +34,13 @@ const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = 'https://paelbarlmayswqilhoxa.supabase.co';
 const supabaseKey = 'sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const WebSocket = require('ws');
+const supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false },
+    realtime: {
+        WebSocket: WebSocket
+    }
+});
 
 // Parse --farm argument from command line or default to "Fazenda Principal"
 const argsList = process.argv.slice(2);
