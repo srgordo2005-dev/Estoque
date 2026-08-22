@@ -5028,9 +5028,9 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                     {/* Column 11: Pool & Active Worker */}
                                     <div style={{ flex: 1.8, display: 'flex', flexDirection: 'column', maxWidth: 170, overflow: 'hidden' }}>
                                         <span style={{ fontSize: 10, fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                                            {m.telemetry?.pool_active || m.pool || "stratum+tcp://btc.viabtc.top:3333"}
+                                            {m.telemetry?.pool || m.telemetry?.pool_active || m.pool || "stratum+tcp://btc.viabtc.top:3333"}
                                         </span>
-                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>worker: {m.worker || "worker1"}</span>}
+                                        {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>worker: {m.telemetry?.worker || m.worker || "worker1"}</span>}
                                     </div>
 
                                     {/* Column 12: Actions & Status Badge */}
@@ -5176,11 +5176,11 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                             
                             <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
                                 <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>URL DA POOL ATIVA</div>
-                                <div style={{ fontSize: 10, fontWeight: 800, color: '#fff', fontFamily: 'monospace', wordBreak: 'break-all', marginTop: 2 }}>{selectedMiner.telemetry?.pool_active || selectedMiner.pool || "stratum+tcp://btc.viabtc.top:3333"}</div>
+                                <div style={{ fontSize: 10, fontWeight: 800, color: '#fff', fontFamily: 'monospace', wordBreak: 'break-all', marginTop: 2 }}>{selectedMiner.telemetry?.pool || selectedMiner.telemetry?.pool_active || selectedMiner.pool || "stratum+tcp://btc.viabtc.top:3333"}</div>
                             </div>
                             <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
                                 <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>WORKER</div>
-                                <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.worker || "worker1"}</div>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.telemetry?.worker || selectedMiner.worker || "worker1"}</div>
                             </div>
                         </div>
 
