@@ -583,7 +583,13 @@ let minerStatusCache = {};
 try {
     if (fs.existsSync(cacheFile)) {
         minerStatusCache = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-        console.log(`[Cache] Loaded ${Object.keys(minerStatusCache).length} cached miner statuses from file.`);
+        // Initialize status of all cached miners to offline on startup
+        for (const ip in minerStatusCache) {
+            if (minerStatusCache[ip]) {
+                minerStatusCache[ip].status = 'offline';
+            }
+        }
+        console.log(`[Cache] Loaded ${Object.keys(minerStatusCache).length} cached miner statuses from file. Resetted all to offline.`);
     }
 } catch(e) {
     console.error("[Cache] Failed to load miner status cache from file:", e.message);
@@ -619,6 +625,8 @@ const updateFarmStatus = async () => {
 
     try {
         const scanResults = await minerScanner.scanRange(activeIPs);
+        const foundIPs = new Set(scanResults.map(m => m.ip));
+
         scanResults.forEach(m => {
             const maxTemp = m.hardware.boards_detail.reduce((max, b) => Math.max(max, b.temp_chip || b.temp_outlet || 0), 0);
             const slots = [
@@ -629,7 +637,7 @@ const updateFarmStatus = async () => {
             
             minerStatusCache[m.ip] = {
                 ip: m.ip,
-                status: m.status === 'HEALTHY' || m.status === 'WARNING' ? 'mining' : 'offline',
+                status: m.status ? m.status.toLowerCase() : 'offline',
                 model: m.model,
                 sn: m.mac_address || m.ip,
                 uptime: m.uptime_seconds,
@@ -640,6 +648,17 @@ const updateFarmStatus = async () => {
                 lastUpdate: Date.now(),
                 telemetry: m
             };
+        });
+
+        // Mark missing IPs as offline in cache
+        activeIPs.forEach(ip => {
+            if (!foundIPs.has(ip)) {
+                if (minerStatusCache[ip]) {
+                    minerStatusCache[ip].status = 'offline';
+                    minerStatusCache[ip].hashrate = 0;
+                    minerStatusCache[ip].hashrateAvg = 0;
+                }
+            }
         });
         
         fs.writeFileSync(cacheFile, JSON.stringify(minerStatusCache, null, 2), 'utf8');
