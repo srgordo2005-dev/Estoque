@@ -4212,12 +4212,12 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
         const foundMac = farmData.find(x => x.shelf === currentShelf && String(x.notes) === String((activeVao - 1) * colsCount + activeSlot));
         setCurrentMachine(foundMac);
 
-        // Load drafts from localStorage
+        // Load drafts from localStorage (always start blank for replacements unless there is a draft)
         const draftSN = localStorage.getItem(`hs_draft_sn_${slotKey}`) || "";
         const draftIP = localStorage.getItem(`hs_draft_ip_${slotKey}`) || "";
 
-        setNewSN(foundMac ? foundMac.sn : draftSN);
-        setNewIP(foundMac ? foundMac.ip : draftIP);
+        setNewSN(draftSN);
+        setNewIP(draftIP);
         
         setDetectedIps([]);
         setIsListening(false);
@@ -4225,16 +4225,12 @@ function SlotSwapModalContent({ ctx, vao, slot, selectedFarmName, selectedFarmRa
 
     // Save drafts to localStorage when inputs change
     useEffect(() => {
-        if (!currentMachine) {
-            localStorage.setItem(`hs_draft_sn_${slotKey}`, newSN);
-        }
-    }, [newSN, slotKey, currentMachine]);
+        localStorage.setItem(`hs_draft_sn_${slotKey}`, newSN);
+    }, [newSN, slotKey]);
 
     useEffect(() => {
-        if (!currentMachine) {
-            localStorage.setItem(`hs_draft_ip_${slotKey}`, newIP);
-        }
-    }, [newIP, slotKey, currentMachine]);
+        localStorage.setItem(`hs_draft_ip_${slotKey}`, newIP);
+    }, [newIP, slotKey]);
 
     // Listen to IP Report when active (local + Supabase)
     useEffect(() => {
@@ -5441,14 +5437,26 @@ function DataCenterPage({ctx}) {
         );
         
         const isOffline = m.status === 'offline';
-        const isError = m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown');
-        const isWarning = m.temp > 75 && m.temp <= 85;
+        const isError = m.temp > 85 || m.status === 'error';
+        const isMining = m.hashrate > 0;
 
-        let statusLight = '#10b981';
-        let shadowColor = '#10b981';
-        if (isOffline) { statusLight = '#aaa'; shadowColor = '#555'; }
-        else if (isError) { statusLight = '#ef4444'; shadowColor = '#ef4444'; }
-        else if (isWarning) { statusLight = '#ff9800'; shadowColor = '#ff9800'; }
+        let statusLight = '#aaa'; // Default Gray for Offline
+        let shadowColor = '#555';
+
+        if (isError) {
+            statusLight = '#ef4444'; // Red
+            shadowColor = '#ef4444';
+        } else if (isMining) {
+            statusLight = '#10b981'; // Green
+            shadowColor = '#10b981';
+        } else if (isOffline) {
+            statusLight = '#aaa'; // Gray
+            shadowColor = '#555';
+        } else {
+            // Online but not hashing (hashrate 0) or generic alert
+            statusLight = '#ff9800'; // Yellow
+            shadowColor = '#ff9800';
+        }
 
         return (
             <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%', padding: '6px', justifyContent: 'space-between', position: 'relative' }}>
