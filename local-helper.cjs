@@ -35,10 +35,13 @@ const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = 'https://paelbarlmayswqilhoxa.supabase.co';
 const supabaseKey = 'sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h';
 const WebSocket = require('ws');
+if (typeof globalThis.WebSocket === 'undefined') {
+    globalThis.WebSocket = WebSocket;
+}
 const supabase = createClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false },
     realtime: {
-        WebSocket: WebSocket
+        transport: WebSocket
     }
 });
 
