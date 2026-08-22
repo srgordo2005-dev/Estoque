@@ -4754,6 +4754,17 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         return 3200;
     };
 
+    const formatUptime = (seconds) => {
+        if (!seconds) return "2:17";
+        const d = Math.floor(seconds / 86400);
+        const h = Math.floor((seconds % 86400) / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        
+        if (d > 0) return `${d}d ${h}h ${m}m`;
+        if (h > 0) return `${h}h ${m}m`;
+        return `${m}m`;
+    };
+
     const totalPower = miners.reduce((sum, m) => sum + (m.power || (m.telemetry?.power) || estimatePower(m.model)), 0);
 
     const handleExportExcel = () => {
@@ -5011,7 +5022,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                                     {/* Column 9: Uptime */}
                                     <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column' }}>
-                                        <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{m.uptime ? Math.floor(m.uptime / 60) + "h " + (m.uptime % 60) + "m" : "2:17"}</span>
+                                        <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{formatUptime(m.uptime)}</span>
                                         {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Tempo ativo</span>}
                                     </div>
 
@@ -5120,6 +5131,13 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                     <div style={{ fontSize: 11, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.telemetry?.firmware_version || selectedMiner.firmware || "1.2.7"}</div>
                                 </div>
                             </div>
+
+                            <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
+                                <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>SERIAL NUMBER (S/N)</div>
+                                <div style={{ fontSize: 11, fontWeight: 900, color: '#fff', fontFamily: 'monospace', marginTop: 3 }}>
+                                    {selectedMiner.telemetry?.serial_number || selectedMiner.serial_number || selectedMiner.sn || "N/A"}
+                                </div>
+                            </div>
                         </div>
 
                         {/* Section 2: Performance Telemetry */}
@@ -5166,7 +5184,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                             <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
                                 <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>TEMPO ATIVO (UPTIME)</div>
-                                <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.uptime ? Math.floor(selectedMiner.uptime / 60) + "h " + (selectedMiner.uptime % 60) + "m" : "2:17"}</div>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: '#fff', marginTop: 2 }}>{formatUptime(selectedMiner.uptime || selectedMiner.telemetry?.uptime)}</div>
                             </div>
                         </div>
 
@@ -5197,6 +5215,39 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+
+                        {/* Section 6: Hash Boards Detail */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>PLACAS DE HASH (BOARDS DETAIL)</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {(selectedMiner.telemetry?.hardware?.boards_detail || selectedMiner.hardware?.boards_detail || []).map((b, idx) => (
+                                    <div key={idx} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: 11, fontWeight: 900, color: '#fff' }}>Placa #{b.board_index + 1}</span>
+                                            <span style={{ fontSize: 10, fontWeight: 800, color: '#10b981' }}>{b.hashrate_th ? b.hashrate_th.toFixed(1) + ' TH/s' : '0.0 TH/s'}</span>
+                                        </div>
+                                        
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: 6, fontSize: 9 }}>
+                                            <div>
+                                                <span style={{ color: '#8892b0' }}>Temp Chip:</span>
+                                                <div style={{ fontWeight: 800, color: b.temp_chip > 85 ? '#ef4444' : '#fff', marginTop: 1 }}>{b.temp_chip ? `${b.temp_chip}°C` : '--'}</div>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: '#8892b0' }}>Temp Board:</span>
+                                                <div style={{ fontWeight: 800, color: '#fff', marginTop: 1 }}>{b.temp_outlet || b.temp_inlet ? `${b.temp_outlet || b.temp_inlet}°C` : '--'}</div>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: '#8892b0' }}>Erros HW:</span>
+                                                <div style={{ fontWeight: 800, color: b.hardware_errors > 0 ? '#ff9800' : '#fff', marginTop: 1 }}>{b.hardware_errors || 0}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                {(selectedMiner.telemetry?.hardware?.boards_detail || selectedMiner.hardware?.boards_detail || []).length === 0 && (
+                                    <div style={{ fontSize: 10, color: '#8892b0', fontStyle: 'italic', textAlign: 'center', padding: 10 }}>Nenhuma placa de hash detectada</div>
+                                )}
                             </div>
                         </div>
                     </div>
