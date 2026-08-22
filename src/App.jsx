@@ -8354,33 +8354,17 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
               <button 
                   onClick={() => {
                       ctx.setModal(
-                          <Modal title="🌐 Dispositivos Escaneados (Scanner)" onClose={() => ctx.setModal(null)}>
-                              <div style={{ color: C.muted, fontSize: 12, marginBottom: 12 }}>
-                                  Escolha um dos IPs detectados recentemente na sua rede para carregar na bancada:
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
-                                  {(ctx.scannedMiners || []).length === 0 ? (
-                                      <div style={{ color: C.muted, fontSize: 11, textAlign: 'center', padding: 20 }}>Nenhum minerador escaneado ainda. Vá na aba Scanner e execute um SCAN.</div>
-                                  ) : (
-                                      (ctx.scannedMiners || []).map((m, idx) => (
-                                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: '8px 12px' }}>
-                                              <div>
-                                                  <div style={{ fontSize: 12, fontWeight: 900, color: '#fff' }}>{m.model || "Desconhecido"}</div>
-                                                  <div style={{ fontSize: 10, color: C.muted }}>IP: {m.ip} · MAC: {m.mac_address || "N/A"}</div>
-                                              </div>
-                                              <button 
-                                                  onClick={() => {
-                                                      ctx.setModal(null);
-                                                      ctx.setPendingScannerTest(m);
-                                                  }} 
-                                                  style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 4, padding: '6px 12px', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}
-                                              >
-                                                  🧪 Testar
-                                              </button>
-                                          </div>
-                                      ))
-                                  )}
-                              </div>
+                          <Modal title="🌐 Máquinas Online (Bancada)" onClose={() => ctx.setModal(null)}>
+                              <OnlineMinersModal 
+                                  ctx={ctx}
+                                  session={session}
+                                  setMacInput={setMacInput}
+                                  loadMachine={loadMachine}
+                                  saveSession={saveSession}
+                                  fetchAndApplyMinerInfo={fetchAndApplyMinerInfo}
+                                  triggerToast={triggerToast}
+                                  onClose={() => ctx.setModal(null)}
+                              />
                           </Modal>
                       );
                   }}
