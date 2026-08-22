@@ -192,6 +192,34 @@ const cleanModelName = (model, hardware, brand) => {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+const parseUptimeString = (str) => {
+  if (!str) return 0;
+  const s = String(str).trim();
+  
+  if (s.includes('d') || s.includes('h') || s.includes('m') || s.includes('s')) {
+    let days = 0, hours = 0, minutes = 0, seconds = 0;
+    const dMatch = s.match(/(\d+)\s*d/);
+    const hMatch = s.match(/(\d+)\s*h/);
+    const mMatch = s.match(/(\d+)\s*m/);
+    const sMatch = s.match(/(\d+)\s*s/);
+    if (dMatch) days = parseInt(dMatch[1], 10);
+    if (hMatch) hours = parseInt(hMatch[1], 10);
+    if (mMatch) minutes = parseInt(mMatch[1], 10);
+    if (sMatch) seconds = parseInt(sMatch[1], 10);
+    return (days * 86400) + (hours * 3600) + (minutes * 60) + seconds;
+  }
+  
+  const parts = s.split(':').map(x => parseInt(x, 10) || 0);
+  if (parts.length === 3) {
+    return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+  } else if (parts.length === 2) {
+    return (parts[0] * 3600) + (parts[1] * 60);
+  }
+  
+  const num = Number(s);
+  return isNaN(num) ? 0 : num;
+};
+
 // Main Scanner & Normalizer
 const scanMiner = async (ip) => {
   const hasCGMinerPort = await checkPort(ip, 4028);
@@ -201,6 +229,7 @@ const scanMiner = async (ip) => {
     return {
       ip,
       mac_address: '',
+      serial_number: '',
       brand: 'Unknown',
       model: 'Offline',
       firmware_version: '',
@@ -217,6 +246,7 @@ const scanMiner = async (ip) => {
   const miner = {
     ip,
     mac_address: '',
+    serial_number: '',
     brand: 'Unknown',
     model: '',
     firmware_version: 'Factory',
@@ -236,18 +266,32 @@ const scanMiner = async (ip) => {
       const vnishSummary = await queryREST(ip, '/api/v1/summary');
       const vnishStatus = await queryREST(ip, '/api/v1/status');
 
-      if (vnishInfo || vnishSummary || vnishStatus) {
-        miner.brand = 'Braiins';
-        miner.firmware_version = vnishInfo?.system?.firmware_version || 'Vnish';
-        miner.model = vnishInfo?.model || vnishInfo?.preset_name || 'Antminer Vnish';
-        miner.uptime_seconds = Number(vnishInfo?.system?.uptime || vnishSummary?.miner?.elapsed || 0);
+      const isRealVnish = 
+        (vnishInfo && (vnishInfo.fw_name === 'Vnish' || vnishInfo.fw_name === 'Braiins' || vnishInfo.miner || vnishInfo.platform)) ||
+        (vnishSummary && (vnishSummary.miner || vnishSummary.cooling || vnishSummary.chains)) ||
+        (vnishStatus && (vnishStatus.miner_state !== undefined || vnishStatus.unlocked !== undefined));
+
+      if (isRealVnish) {
+        miner.brand = 'Bitmain';
+        if (vnishInfo?.miner && vnishInfo.miner.toLowerCase().includes('whats')) {
+          miner.brand = 'MicroBT';
+        }
+        miner.firmware_version = vnishInfo?.fw_version || vnishInfo?.system?.firmware_version || 'Vnish';
+        miner.model = cleanModelName(vnishInfo?.miner || vnishInfo?.model || 'Antminer Vnish', '', miner.brand);
         
-        const avgHash = (vnishSummary?.miner?.average_hashrate || vnishSummary?.hashrate || 0) / 1000000;
-        const rtHash = (vnishSummary?.miner?.hashrate || 0) / 1000000;
+        const rawUptime = vnishInfo?.system?.uptime || vnishSummary?.miner_status?.miner_state_time || vnishSummary?.miner?.elapsed || 0;
+        miner.uptime_seconds = typeof rawUptime === 'string' ? parseUptimeString(rawUptime) : Number(rawUptime);
+        
+        miner.serial_number = (vnishInfo?.serial && vnishInfo.serial !== 'N/A') ? vnishInfo.serial : '';
+        
+        // Vnish reports hashrate in GH/s, convert to TH/s by dividing by 1000
+        const divisor = 1000;
+        const avgHash = (vnishSummary?.miner?.hr_average || vnishSummary?.miner?.average_hashrate || vnishSummary?.hashrate || 0) / divisor;
+        const rtHash = (vnishSummary?.miner?.hr_realtime || vnishSummary?.miner?.instant_hashrate || vnishSummary?.miner?.hashrate || 0) / divisor;
         
         miner.hashrate.current_th = Number(rtHash.toFixed(1));
         miner.hashrate.average_th = Number(avgHash.toFixed(1));
-        miner.hashrate.nominal_th = Number((vnishInfo?.preset_hashrate || avgHash).toFixed(1));
+        miner.hashrate.nominal_th = Number((vnishSummary?.miner?.hr_nominal || vnishInfo?.preset_hashrate || avgHash).toFixed(1));
 
         miner.mac_address = vnishInfo?.system?.network_status?.mac || '';
 
@@ -261,12 +305,12 @@ const scanMiner = async (ip) => {
         const chains = vnishSummary?.miner?.chains || vnishSummary?.chains || [];
         miner.hardware.boards_total = chains.length || 3;
         chains.forEach((c, idx) => {
-          const isOk = c.hashrate > 0 && !(c.chip_statuses?.red > 0);
+          const isOk = c.status?.state === 'mining' || (c.hashrate_rt > 0 && !(c.chip_statuses?.red > 0));
           if (isOk) miner.hardware.boards_active++;
           
           miner.hardware.boards_detail.push({
             board_index: idx,
-            hashrate_th: Number(((c.hashrate || 0) / 1000).toFixed(1)),
+            hashrate_th: Number(((c.hashrate_rt || c.hashrate || 0) / 1000).toFixed(1)),
             temp_inlet: c.pcb_temp?.min || 0,
             temp_outlet: c.pcb_temp?.max || 0,
             temp_chip: c.chip_temp?.max || 0,
@@ -276,12 +320,12 @@ const scanMiner = async (ip) => {
         });
 
         // Fans speed
-        const fans = vnishSummary?.miner?.fans || [];
+        const fans = vnishSummary?.cooling?.fans || vnishSummary?.miner?.fans || [];
         fans.forEach((f, idx) => {
           miner.hardware.fans.push({
             fan_index: idx,
             speed_rpm: f.rpm || 0,
-            status: (f.rpm || 0) > 500 ? 'OK' : 'FAILED'
+            status: f.status === 'ok' ? 'OK' : 'FAILED'
           });
         });
 
@@ -292,14 +336,22 @@ const scanMiner = async (ip) => {
             index: idx,
             url: p.url || '',
             user: p.user || '',
-            status: p.status === 'alive' ? 'ALIVE' : 'DEAD',
+            status: p.status === 'active' || p.status === 'working' ? 'ALIVE' : 'DEAD',
             accepted: p.accepted || 0,
             rejected: p.rejected || 0,
-            stale: 0
+            stale: p.stale || 0
           });
         });
 
-        miner.status = (rtHash === 0) ? 'ERROR' : (miner.hardware.boards_active < miner.hardware.boards_total ? 'WARNING' : 'HEALTHY');
+        // Extract active pool and worker
+        const activePool = miner.pools.find(p => p.status === 'ALIVE') || miner.pools[0];
+        if (activePool) {
+          miner.pool = activePool.url;
+          miner.worker = activePool.user;
+        }
+
+        const isInitializing = vnishSummary?.miner?.miner_status?.miner_state === 'initializing';
+        miner.status = (rtHash === 0 && !isInitializing) ? 'ERROR' : (miner.hardware.boards_active < miner.hardware.boards_total ? 'WARNING' : 'HEALTHY');
         return miner;
       }
     }
@@ -339,6 +391,7 @@ const scanMiner = async (ip) => {
 
         // Detect MAC securely across all variables
         miner.mac_address = statsObj.mac || statsObj.MAC || statsObj.Mac || statsObj['MAC Address'] || statsObj['mac_address'] || ver.MAC || sum.MAC || '';
+        miner.serial_number = statsObj.DeviceSerial || statsObj.Serial || statsObj['Device Serial'] || statsObj.Device_Serial || ver.Serial || '';
         
         // Brand & Model identification
         const rawModel = ver.Type || ver.Hardware || statsObj.Type || statsObj.Miner || statsObj['Miner Type'] || statsObj.hardware || statsObj.product || '';
@@ -422,12 +475,19 @@ const scanMiner = async (ip) => {
             index: idx,
             url: p.URL || '',
             user: p.User || '',
-            status: p.Status === 'Alive' ? 'ALIVE' : 'DEAD',
+            status: p.Status === 'Alive' || p.Status === 'working' || p.Status === 'active' ? 'ALIVE' : 'DEAD',
             accepted: p.Accepted || 0,
             rejected: p.Rejected || 0,
             stale: p.Stale || 0
           });
         });
+
+        // Extract active pool and worker
+        const activePool = miner.pools.find(p => p.status === 'ALIVE') || miner.pools[0];
+        if (activePool) {
+          miner.pool = activePool.url;
+          miner.worker = activePool.user;
+        }
 
         miner.status = (hashrate === 0) ? 'ERROR' : (miner.hardware.boards_active < miner.hardware.boards_total ? 'WARNING' : 'HEALTHY');
         return miner;

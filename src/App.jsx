@@ -4850,8 +4850,8 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 20, fontWeight: 900, color: '#10b981', tracking: '0.5px' }}>HASHSTOCK</span>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+                        <span style={{ fontSize: 20, fontWeight: 900, color: C.accent, tracking: '0.5px' }}>HASHSTOCK</span>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.accent, boxShadow: `0 0 8px ${C.accent}` }} />
                     </div>
                     <span style={{ fontSize: 11, color: '#8892b0', marginTop: 2 }}>App para configurar e gerenciar dispositivos de mineração</span>
                 </div>
@@ -4935,8 +4935,8 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: 9, color: '#10b981', fontWeight: 900 }}>DESBLOQUEADOS</span>
-                            <span style={{ fontSize: 12, fontWeight: 900, color: '#10b981' }}>{onlineMiners || '--'}</span>
+                            <span style={{ fontSize: 9, color: C.accent, fontWeight: 900 }}>DESBLOQUEADOS</span>
+                            <span style={{ fontSize: 12, fontWeight: 900, color: C.accent }}>{onlineMiners || '--'}</span>
                         </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
@@ -4977,7 +4977,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                         style={{ 
                                             background: activeLayoutMode === mode ? 'rgba(16,185,129,0.15)' : 'none', 
                                             border: 'none', 
-                                            color: activeLayoutMode === mode ? '#10b981' : '#e2e8f0', 
+                                            color: activeLayoutMode === mode ? C.accent : '#e2e8f0', 
                                             padding: '6px 10px', 
                                             fontSize: 10, 
                                             cursor: 'pointer', 
@@ -5026,7 +5026,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                     </div>
 
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <button onClick={doScan} disabled={scanning} style={{ width: '100%', background: scanning ? 'rgba(16,185,129,0.5)' : '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }}>
+                        <button onClick={doScan} disabled={scanning} style={{ width: '100%', background: scanning ? 'rgba(16,185,129,0.5)' : C.accent, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 0', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxShadow: `0 4px 12px ${C.accent}33` }}>
                             {scanning ? "⏳ ESCANEANDO..." : "🔍 SCAN"}
                         </button>
                         <button onClick={() => setMonitoring(!monitoring)} style={{ width: '100%', background: monitoring ? '#ef4444' : '#1c2430', border: `1px solid ${monitoring ? 'transparent' : 'rgba(255,255,255,0.08)'}`, color: '#fff', borderRadius: 8, padding: '8px 0', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>
@@ -5046,8 +5046,8 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                     ) : (
                         filteredMiners.map((m, idx) => {
                             const isOffline = m.status === 'offline';
-                            const isError = m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown');
-                            const isWarning = m.temp > 75 && m.temp <= 85;
+                            const isError = m.status === 'error' || m.temp > 85 || (m.status !== 'offline' && m.hashrate === 0);
+                            const isWarning = m.status === 'warning' || (m.temp > 75 && m.temp <= 85);
 
                             const pConsumption = isOffline ? 0 : (m.power || m.telemetry?.efficiency?.power_consumption_watts || estimatePower(m.model));
 
@@ -5057,7 +5057,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                             const isPoolsMode = activeLayoutMode === "Pools";
 
                             return (
-                                <div key={m.ip || idx} onClick={() => setSelectedMiner(m)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#18202b', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, padding: isCompact ? '6px 14px' : '10px 16px', marginBottom: 6, cursor: 'pointer', transition: 'all 0.15s' }}>
+                                <div key={m.ip || idx} onClick={() => setSelectedMiner(m)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: isError ? 'rgba(239,68,68,0.05)' : (isWarning ? 'rgba(255,152,0,0.02)' : '#18202b'), border: isError ? '1px solid rgba(239,68,68,0.3)' : (isWarning ? '1px solid rgba(255,152,0,0.2)' : '1px solid rgba(255,255,255,0.05)'), borderRadius: 8, padding: isCompact ? '6px 14px' : '10px 16px', marginBottom: 6, cursor: 'pointer', transition: 'all 0.15s' }}>
                                     
                                     {/* Column 1: Checkbox */}
                                     <div style={{ width: 35, display: 'flex', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
@@ -5068,7 +5068,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                     <div style={{ flex: 1.6, display: 'flex', flexDirection: 'column', gap: 2 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                             <span style={{ fontSize: 13, fontWeight: 900, color: '#fff' }}>{m.model || "Antminer S19"}</span>
-                                            <span style={{ fontSize: 7, fontWeight: 900, color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '1px 4px', borderRadius: 3, background: 'rgba(16,185,129,0.06)' }}>HashStock</span>
+                                            <span style={{ fontSize: 7, fontWeight: 900, color: C.accent, border: `1px solid ${C.accent}4d`, padding: '1px 4px', borderRadius: 3, background: `${C.accent}0f` }}>HashStock</span>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#8892b0' }}>
                                             <span style={{ color: '#fff', fontWeight: 800 }}>{m.ip}</span>
@@ -5079,7 +5079,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                                     {/* Column 3: RT Hashrate */}
                                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                                        <span style={{ fontSize: 13, fontWeight: 900, color: isMetric ? '#10b981' : '#fff' }}>{m.hashrate ? m.hashrate.toFixed(1) + " TH/s" : "0.00 TH/s"}</span>
+                                        <span style={{ fontSize: 13, fontWeight: 900, color: isMetric ? C.accent : '#fff' }}>{m.hashrate ? m.hashrate.toFixed(1) + " TH/s" : "0.00 TH/s"}</span>
                                         {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Média: {m.hashrateAvg ? m.hashrateAvg.toFixed(1) + " TH" : "0.0 TH"}</span>}
                                     </div>
 
@@ -5110,7 +5110,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                     {/* Column 8: Firmware */}
                                     <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column' }}>
                                         <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981' }} />
+                                            <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.accent }} />
                                             1.2.7
                                         </span>
                                         {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Firmware</span>}
@@ -5125,9 +5125,9 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                     {/* Column 10: Chains Block Indicators */}
                                     <div style={{ flex: 0.8, display: 'flex', flexDirection: 'column', gap: 3 }}>
                                         <div style={{ display: 'flex', gap: 3 }}>
-                                            <div style={{ width: 8, height: 8, background: '#10b981', borderRadius: 2 }} />
-                                            <div style={{ width: 8, height: 8, background: '#10b981', borderRadius: 2 }} />
-                                            <div style={{ width: 8, height: 8, background: '#10b981', borderRadius: 2 }} />
+                                            <div style={{ width: 8, height: 8, background: C.accent, borderRadius: 2 }} />
+                                            <div style={{ width: 8, height: 8, background: C.accent, borderRadius: 2 }} />
+                                            <div style={{ width: 8, height: 8, background: C.accent, borderRadius: 2 }} />
                                         </div>
                                         {!isCompact && <span style={{ fontSize: 9, color: '#8892b0' }}>Cadeias</span>}
                                     </div>
@@ -5145,9 +5145,9 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                                         <button onClick={() => { if(confirm("Reiniciar minerador?")) runAction([m.ip], "reboot"); }} style={{ padding: '2px 4px', fontSize: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 3, color: '#e2e8f0', cursor: 'pointer', fontWeight: 800 }}>amI</button>
                                         <button style={{ padding: '2px 4px', fontSize: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 3, color: '#e2e8f0', cursor: 'pointer', fontWeight: 800 }}>nand</button>
                                         
-                                        <div style={{ display: 'flex', alignItems: 'center', background: isOffline ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)', border: `1px solid ${isOffline ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)'}`, padding: '4px 8px', borderRadius: 12, height: 18 }}>
-                                            <span style={{ fontSize: 8, fontWeight: 900, color: isOffline ? '#ef4444' : '#10b981' }}>
-                                                {isOffline ? '❌ Offline' : '🔓 Minerando'}
+                                        <div style={{ display: 'flex', alignItems: 'center', background: isOffline ? 'rgba(239,68,68,0.1)' : (isError ? 'rgba(239,68,68,0.1)' : (isWarning ? 'rgba(255,152,0,0.1)' : `${C.accent}15`)), border: `1px solid ${isOffline ? 'rgba(239,68,68,0.2)' : (isError ? 'rgba(239,68,68,0.2)' : (isWarning ? 'rgba(255,152,0,0.2)' : `${C.accent}44`))}`, padding: '4px 8px', borderRadius: 12, height: 18 }}>
+                                            <span style={{ fontSize: 8, fontWeight: 900, color: isOffline ? '#ef4444' : (isError ? '#ef4444' : (isWarning ? '#ff9800' : C.accent)) }}>
+                                                {isOffline ? '❌ Offline' : (isError ? '⚠️ Ociosa / Erro' : (isWarning ? '⚠️ Alerta' : '🔓 Minerando'))}
                                             </span>
                                         </div>
                                     </div>
@@ -5194,7 +5194,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                             <span style={{ fontSize: 16 }}>📋</span>
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <span style={{ fontWeight: 900, fontSize: 14, color: '#fff' }}>Detalhes do Dispositivo</span>
-                                <span style={{ fontSize: 10, color: '#10b981', fontWeight: 800 }}>Modelo: {selectedMiner.model || "Antminer S19"}</span>
+                                <span style={{ fontSize: 10, color: C.accent, fontWeight: 800 }}>Modelo: {selectedMiner.model || "Antminer S19"}</span>
                             </div>
                         </div>
                         <button onClick={() => setSelectedMiner(null)} style={{ background: 'none', border: 'none', color: '#8892b0', fontSize: 18, cursor: 'pointer', fontWeight: 900 }}>×</button>
@@ -5204,12 +5204,12 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                         
                         {/* Section 1: Network Identification */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>REDE & IDENTIFICAÇÃO</div>
+                            <div style={{ fontSize: 10, color: C.accent, fontWeight: 900, letterSpacing: 0.5 }}>REDE & IDENTIFICAÇÃO</div>
                             
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                                 <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
                                     <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>IP ADDRESS</div>
-                                    <div style={{ fontSize: 12, fontWeight: 900, color: '#10b981', fontFamily: 'monospace', marginTop: 2 }}>{selectedMiner.ip}</div>
+                                    <div style={{ fontSize: 12, fontWeight: 900, color: C.accent, fontFamily: 'monospace', marginTop: 2 }}>{selectedMiner.ip}</div>
                                 </div>
                                 <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
                                     <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>MAC ADDRESS</div>
@@ -5238,7 +5238,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                         {/* Section 2: Performance Telemetry */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>TELEMETRIA DE PERFORMANCE</div>
+                            <div style={{ fontSize: 10, color: C.accent, fontWeight: 900, letterSpacing: 0.5 }}>TELEMETRIA DE PERFORMANCE</div>
                             
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                                 <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
@@ -5265,7 +5265,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                         {/* Section 3: Hardware Diagnostics */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>DIAGNÓSTICO E SENSORES</div>
+                            <div style={{ fontSize: 10, color: C.accent, fontWeight: 900, letterSpacing: 0.5 }}>DIAGNÓSTICO E SENSORES</div>
                             
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                                 <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
@@ -5284,9 +5284,23 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                             </div>
                         </div>
 
+                        {/* Section 3.5: Alertas e Erros */}
+                        {((selectedMiner.telemetry?.alerts && selectedMiner.telemetry.alerts.length > 0) || (selectedMiner.alerts && selectedMiner.alerts.length > 0)) && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 900, letterSpacing: 0.5 }}>ALERTAS E ERROS DA MÁQUINA</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    {[...(selectedMiner.telemetry?.alerts || []), ...(selectedMiner.alerts || [])].map((alertText, idx) => (
+                                        <div key={idx} style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', padding: '8px 10px', borderRadius: 6, color: '#ef4444', fontSize: 10, fontWeight: 700 }}>
+                                            ⚠️ {alertText}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Section 4: Stratum Pool Config */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>POOL E MINERAÇÃO</div>
+                            <div style={{ fontSize: 10, color: C.accent, fontWeight: 900, letterSpacing: 0.5 }}>POOL E MINERAÇÃO</div>
                             
                             <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
                                 <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>URL DA POOL ATIVA</div>
@@ -5300,14 +5314,14 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                         {/* Section 5: Hash Chains Status */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>CADEIAS DE HASH (CHAINS)</div>
+                            <div style={{ fontSize: 10, color: C.accent, fontWeight: 900, letterSpacing: 0.5 }}>CADEIAS DE HASH (CHAINS)</div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 {[1, 2, 3].map((id) => (
                                     <div key={id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '6px 10px', borderRadius: 4 }}>
                                         <span style={{ fontSize: 10, fontWeight: 800, color: '#8892b0' }}>Chain #{id}</span>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} />
-                                            <span style={{ fontSize: 10, fontWeight: 900, color: '#10b981' }}>OK</span>
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.accent }} />
+                                            <span style={{ fontSize: 10, fontWeight: 900, color: C.accent }}>OK</span>
                                         </div>
                                     </div>
                                 ))}
@@ -5316,13 +5330,13 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                         {/* Section 6: Hash Boards Detail */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <div style={{ fontSize: 10, color: '#10b981', fontWeight: 900, letterSpacing: 0.5 }}>PLACAS DE HASH (BOARDS DETAIL)</div>
+                            <div style={{ fontSize: 10, color: C.accent, fontWeight: 900, letterSpacing: 0.5 }}>PLACAS DE HASH (BOARDS DETAIL)</div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {(selectedMiner.telemetry?.hardware?.boards_detail || selectedMiner.hardware?.boards_detail || []).map((b, idx) => (
                                     <div key={idx} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <span style={{ fontSize: 11, fontWeight: 900, color: '#fff' }}>Placa #{b.board_index + 1}</span>
-                                            <span style={{ fontSize: 10, fontWeight: 800, color: '#10b981' }}>{b.hashrate_th ? b.hashrate_th.toFixed(1) + ' TH/s' : '0.0 TH/s'}</span>
+                                            <span style={{ fontSize: 10, fontWeight: 800, color: C.accent }}>{b.hashrate_th ? b.hashrate_th.toFixed(1) + ' TH/s' : '0.0 TH/s'}</span>
                                         </div>
                                         
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: 6, fontSize: 9 }}>
@@ -5477,7 +5491,7 @@ function DataCenterPage({ctx}) {
         return (
             <div style={{display:"flex", flexDirection:"column", height:"calc(100vh - 80px)", background: '#11161d', padding: 20, overflowY: 'auto', fontFamily: 'system-ui, -apple-system, sans-serif'}}>
                 <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 20}}>
-                    <div style={{fontWeight:900, fontSize:22, color:'#10b981', display:'flex', alignItems:'center', gap:10}}>
+                    <div style={{fontWeight:900, fontSize:22, color:C.accent, display:'flex', alignItems:'center', gap:10}}>
                        <span style={{fontSize:28}}>🏢</span> Fazendas Cadastradas
                        {user?.code === "019" && (
                             <button onClick={() => ctx.setModal(<Modal title="Configuração" onClose={() => ctx.setModal(null)}><FarmConfigModal ctx={ctx} onClose={() => ctx.setModal(null)} /></Modal>)} style={{background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#fff', padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer', marginLeft: 10}}>
@@ -5508,12 +5522,12 @@ function DataCenterPage({ctx}) {
                                     position: 'relative',
                                     overflow: 'hidden'
                                 }}
-                                onMouseEnter={e => e.currentTarget.style.borderColor = '#10b981'}
+                                onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
                                 onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'}
                             >
                                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12}}>
                                     <div style={{fontWeight: 900, fontSize: 18, color: '#fff'}}>🏢 {f.name}</div>
-                                    <span style={{fontSize: 16, color: '#10b981'}}>➔</span>
+                                    <span style={{fontSize: 16, color: C.accent}}>➔</span>
                                 </div>
                                 <div style={{fontSize: 12, color: '#8892b0', marginBottom: 10}}>Sub-rede: <b style={{color: '#ef4444'}}>{f.ipRange || '-'}</b></div>
                                 <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, textAlign: 'center', marginTop: 14}}>
@@ -5522,7 +5536,7 @@ function DataCenterPage({ctx}) {
                                         <div style={{fontSize: 8, color: '#8892b0', fontWeight: 800}}>TOTAL</div>
                                     </div>
                                     <div style={{background: '#11161d', padding: 8, borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)'}}>
-                                        <div style={{fontWeight: 900, color: '#10b981', fontSize: 14}}>{onlineCount}</div>
+                                        <div style={{fontWeight: 900, color: C.accent, fontSize: 14}}>{onlineCount}</div>
                                         <div style={{fontSize: 8, color: '#8892b0', fontWeight: 800}}>ONLINE</div>
                                     </div>
                                     <div style={{background: '#11161d', padding: 8, borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)'}}>
@@ -5687,8 +5701,8 @@ function DataCenterPage({ctx}) {
             statusLight = '#ef4444'; // Red
             shadowColor = '#ef4444';
         } else if (isMining) {
-            statusLight = '#10b981'; // Green
-            shadowColor = '#10b981';
+            statusLight = C.accent; // Green
+            shadowColor = C.accent;
         } else if (isOffline) {
             statusLight = '#aaa'; // Gray
             shadowColor = '#555';
@@ -5743,7 +5757,7 @@ function DataCenterPage({ctx}) {
         if (m.status === 'offline') return 'rgba(255,255,255,0.1)';
         if (m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown')) return '#ef4444';
         if (m.temp > 75) return '#ff9800';
-        if (m.hashrate > 0) return '#10b981';
+        if (m.hashrate > 0) return C.accent;
         return '#3b82f6';
     };
 
@@ -5765,11 +5779,11 @@ function DataCenterPage({ctx}) {
             {/* Topbar: HASHSTOCK TOOLKIT */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <button onClick={() => setSelectedFarmName(null)} style={{background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontSize: 22, fontWeight: 900, padding: 0}}>←</button>
+                    <button onClick={() => setSelectedFarmName(null)} style={{background: 'none', border: 'none', color: C.accent, cursor: 'pointer', fontSize: 22, fontWeight: 900, padding: 0}}>←</button>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 18, fontWeight: 900, color: '#fff' }}>🏢 {selectedFarmName}</span>
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.accent, boxShadow: `0 0 8px ${C.accent}` }} />
                         </div>
                         <span style={{ fontSize: 11, color: '#8892b0', marginTop: 2 }}>Prateleira Virtual & Scanner em alta definição</span>
                     </div>
@@ -5834,8 +5848,8 @@ function DataCenterPage({ctx}) {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(16,185,129,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
                                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <span style={{ fontSize: 9, color: '#10b981', fontWeight: 900 }}>DESBLOQUEADOS</span>
-                                    <span style={{ fontSize: 12, fontWeight: 900, color: '#10b981' }}>{onlineRackMiners || '--'}</span>
+                                    <span style={{ fontSize: 9, color: C.accent, fontWeight: 900 }}>DESBLOQUEADOS</span>
+                                    <span style={{ fontSize: 12, fontWeight: 900, color: C.accent }}>{onlineRackMiners || '--'}</span>
                                 </div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#1c2430', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 6, padding: '4px 10px', minWidth: 90 }}>
@@ -5880,7 +5894,7 @@ function DataCenterPage({ctx}) {
                     {/* Legenda de Cores */}
                     <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#151b26', padding: '8px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.04)'}}>
                         <div style={{display: 'flex', gap: 12, alignItems: 'center', fontSize: 10, fontWeight: 800}}>
-                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#10b981'}}/> Online</span>
+                            <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: C.accent}}/> Online</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#ff9800'}}/> Alerta</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#ef4444'}}/> Defeito</span>
                             <span style={{display: 'inline-flex', alignItems: 'center', gap: 4}}><span style={{width:8, height:8, borderRadius:'50%', background: '#aaa'}}/> Offline</span>

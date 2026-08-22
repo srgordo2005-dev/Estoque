@@ -386,7 +386,7 @@ app.post('/api/scan-range', async (req, res) => {
             
             return {
                 ip: m.ip,
-                status: m.status === 'HEALTHY' || m.status === 'WARNING' ? 'mining' : 'offline',
+                status: m.status ? m.status.toLowerCase() : 'offline',
                 model: m.model,
                 sn: m.mac_address || m.ip,
                 uptime: m.uptime_seconds,
@@ -425,7 +425,7 @@ app.get('/api/miner-info', async (req, res) => {
             hashrateAvg: m.hashrate.average_th,
             temp: maxTemp,
             slots,
-            status: m.status === 'HEALTHY' || m.status === 'WARNING' ? 'mining' : 'offline',
+            status: m.status ? m.status.toLowerCase() : 'offline',
             telemetry: m
         });
     } catch (e) {
