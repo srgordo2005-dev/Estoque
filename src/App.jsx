@@ -1765,12 +1765,13 @@ export default function App(){
   // chega a ser salvo em lugar nenhum, e a foto fica "órfã" só no Drive.
   const[publicPalletId,setPublicPalletId]=useState(()=>new URLSearchParams(window.location.search).get("pallet"));
   const[pendingScannerTest,setPendingScannerTest]=useState(null);
+  const[scannedMiners,setScannedMiners]=useState([]);
 
   const changeTab=t=>{
     if(hasActivePhotoUpload()&&!window.confirm("⚠️ Ainda tem uma foto sendo enviada pro Drive.\n\nSe sair agora, ela pode ficar salva no Drive sem ficar vinculada a nada no app.\n\nSair mesmo assim?"))return;
     setTab(t);
   };
-  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,geminiApiKey,setGeminiApiKey,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, pendingScannerTest, setPendingScannerTest};
+  const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,geminiApiKey,setGeminiApiKey,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, pendingScannerTest, setPendingScannerTest, scannedMiners, setScannedMiners};
 
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
@@ -4602,7 +4603,8 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const [ipRanges, setIpRanges] = useState([
         { id: '1', range: defaultIpRange, checked: true }
     ]);
-    const [miners, setMiners] = useState([]);
+    const miners = ctx.scannedMiners || [];
+    const setMiners = ctx.setScannedMiners;
     const [scanning, setScanning] = useState(false);
     const [monitoring, setMonitoring] = useState(false);
     const [selectedIps, setSelectedIps] = useState([]);
@@ -5142,6 +5144,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                                     {/* Column 12: Actions & Status Badge */}
                                     <div style={{ flex: 1.2, display: 'flex', gap: 4, alignItems: 'center', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
+                                        <button onClick={() => { ctx.setPendingScannerTest(m); ctx.setTab("teste"); }} style={{ padding: '4px 8px', fontSize: 9, background: C.accent, border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontWeight: 900 }}>🧪 Testar</button>
                                         <button onClick={() => { if(confirm("Reiniciar minerador?")) runAction([m.ip], "reboot"); }} style={{ padding: '2px 4px', fontSize: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 3, color: '#e2e8f0', cursor: 'pointer', fontWeight: 800 }}>amI</button>
                                         <button style={{ padding: '2px 4px', fontSize: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 3, color: '#e2e8f0', cursor: 'pointer', fontWeight: 800 }}>nand</button>
                                         
@@ -8135,12 +8138,15 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
         setAutoSubmitTriggered(session?.uptimeReached || false);
     }, [session?._id, session?.uptimeReached]);
     const [currentUptimeSec, setCurrentUptimeSec] = useState(0);
+    const [editingIP, setEditingIP] = useState(false);
+    const [ipInput, setIpInput] = useState(session?.ip || "");
 
     // Sync state when active session changes (always turn off listening to prevent accidental capture)
     useEffect(() => {
         setLastCapturedIP(session?.ip || "");
+        setIpInput(session?.ip || "");
         setListening(false);
-    }, [session?._id]);
+    }, [session?._id, session?.ip]);
 
     const startManualCapture = async () => {
         try { await fetch('http://localhost:3001/api/ipreport?clear=true'); } catch(e) {}
@@ -8311,19 +8317,79 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
 
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:6}}>
            <div style={{display:'flex', alignItems:'center', gap:10}}>
-              {ipToUse ? (
-                 <>
-                    <span style={{fontSize:14, color:C.green, fontWeight:900, background:C.card2, padding:'4px 8px', borderRadius:6}}>🌐 {ipToUse}</span>
-                    <span style={{fontSize:13, color:C.text, fontWeight:800}}>⏱️ {formatUptime(currentUptimeSec)} / {targetUptimeHours}h</span>
-                 </>
+              {editingIP ? (
+                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                     <input 
+                         type="text" 
+                         value={ipInput} 
+                         onChange={e => setIpInput(e.target.value)} 
+                         placeholder="IP (ex: 192.168.1.50)" 
+                         style={{ background: '#1c2430', color: '#fff', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, width: 140, padding: '4px 8px', fontSize: 11, fontWeight: 'bold' }} 
+                     />
+                     <Btn v="g" onClick={() => {
+                         if (session && saveSession) {
+                             saveSession({ ...session, ip: ipInput, updatedAt: stamp() });
+                             setLastCapturedIP(ipInput);
+                             fetchAndApplyMinerInfo(ipInput);
+                         }
+                         setEditingIP(false);
+                     }} style={{ padding: '4px 8px', fontSize: 10 }}>Link</Btn>
+                     <Btn v="s" onClick={() => setEditingIP(false)} style={{ padding: '4px 8px', fontSize: 10 }}>✕</Btn>
+                 </div>
               ) : (
-                 <span style={{fontWeight:800, color: listening ? C.blue : C.subtle, fontSize:13}}>
-                    {listening ? "📡 Aguardando IP Report..." : "🔌 Automação de Teste"}
-                 </span>
+                 <>
+                    <span onClick={() => { setIpInput(ipToUse); setEditingIP(true); }} style={{fontSize:14, color:C.accent, fontWeight:900, background:C.card2, padding:'4px 8px', borderRadius:6, cursor: 'pointer'}} title="Clique para digitar o IP manualmente">🌐 {ipToUse || "Digitar IP..."}</span>
+                    {ipToUse ? (
+                       <span style={{fontSize:13, color:C.text, fontWeight:800}}>⏱️ {formatUptime(currentUptimeSec)} / {targetUptimeHours}h</span>
+                    ) : (
+                       <span style={{fontWeight:800, color: listening ? C.blue : C.subtle, fontSize:13}}>
+                          {listening ? "📡 Aguardando IP Report..." : "🔌 Automação de Teste"}
+                       </span>
+                    )}
+                 </>
               )}
            </div>
            
            <div style={{display:'flex', gap:6, alignItems:'center', flexWrap:'wrap'}}>
+              <button 
+                  onClick={() => {
+                      ctx.setModal(
+                          <Modal title="🌐 Dispositivos Escaneados (Scanner)" onClose={() => ctx.setModal(null)}>
+                              <div style={{ color: C.muted, fontSize: 12, marginBottom: 12 }}>
+                                  Escolha um dos IPs detectados recentemente na sua rede para carregar na bancada:
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
+                                  {(ctx.scannedMiners || []).length === 0 ? (
+                                      <div style={{ color: C.muted, fontSize: 11, textAlign: 'center', padding: 20 }}>Nenhum minerador escaneado ainda. Vá na aba Scanner e execute um SCAN.</div>
+                                  ) : (
+                                      (ctx.scannedMiners || []).map((m, idx) => (
+                                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 6, padding: '8px 12px' }}>
+                                              <div>
+                                                  <div style={{ fontSize: 12, fontWeight: 900, color: '#fff' }}>{m.model || "Desconhecido"}</div>
+                                                  <div style={{ fontSize: 10, color: C.muted }}>IP: {m.ip} · MAC: {m.mac_address || "N/A"}</div>
+                                              </div>
+                                              <button 
+                                                  onClick={() => {
+                                                      ctx.setModal(null);
+                                                      ctx.setPendingScannerTest(m);
+                                                  }} 
+                                                  style={{ background: C.accent, color: '#fff', border: 'none', borderRadius: 4, padding: '6px 12px', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}
+                                              >
+                                                  🧪 Testar
+                                              </button>
+                                          </div>
+                                      ))
+                                  )}
+                              </div>
+                          </Modal>
+                      );
+                  }}
+                  style={{ background: C.card2, border: `1px solid ${C.border}`, color: C.accent, borderRadius: 6, padding: "6px 12px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}
+                  title="Listar IPs encontrados no Scanner"
+              >
+                  🔍 IPs Scanner
+              </button>
+
               <div style={{display:'flex', alignItems:'center', gap:4, background:C.card2, padding:'4px 8px', borderRadius:6, border:"1px solid " + C.border}}>
                  <span style={{fontSize:10, color:C.subtle, fontWeight:700}}>Alvo(H):</span>
                  <input type="number" value={targetUptimeHours} onChange={e => { const v = Number(e.target.value); setTargetUptimeHours(v); if (session && saveSession) saveSession({ ...session, targetUptimeHours: v }); }} style={{width:35, background:'transparent', color:C.accent, border:'none', fontWeight:900, fontSize:12, textAlign:'center'}} />
@@ -8347,7 +8413,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
                   <Btn v="s" onClick={()=>setListening(false)}>❌ Parar</Btn>
               )}
               
-              <button onClick={() => { const n = !(session?.autoEnabled !== false); if (session && saveSession) saveSession({ ...session, autoEnabled: n }); }} style={{ background: (session?.autoEnabled !== false) ? C.green + "22" : C.card2, border: "1px solid " + ((session?.autoEnabled !== false) ? C.green : C.border), color: (session?.autoEnabled !== false) ? C.green : C.subtle, borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }} title="Automação">
+              <button onClick={() => { const n = !(session?.autoEnabled !== false); if (session && saveSession) saveSession({ ...session, autoEnabled: n }); }} style={{ background: (session?.autoEnabled !== false) ? C.accent + "22" : C.card2, border: "1px solid " + ((session?.autoEnabled !== false) ? C.accent : C.border), color: (session?.autoEnabled !== false) ? C.accent : C.subtle, borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 800, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4 }} title="Automação">
                   {(session?.autoEnabled !== false) ? "⚡ Auto: ON" : "⏸️ Auto: OFF"}
               </button>
            </div>
