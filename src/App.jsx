@@ -4061,6 +4061,34 @@ function SequentialMappingModal({ ctx, shelfName, farmName, totalSlots, onClose 
   );
 }
 
+function BatchPoolModal({ selectedIps, onApply, onClose }) {
+  const [poolUrl, setPoolUrl] = useState('stratum+tcp://btc.viabtc.top:3333');
+  const [poolUser, setPoolUser] = useState('worker1');
+  const [poolPass, setPoolPass] = useState('123');
+
+  return (
+    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ fontSize: 11, color: '#8892b0' }}>Você está configurando {selectedIps.length} máquinas selecionadas.</div>
+      <div>
+        <label style={{ fontSize: 10, color: '#8892b0', fontWeight: 900, display: 'block', marginBottom: 4 }}>URL DA POOL</label>
+        <input type="text" value={poolUrl} onChange={e => setPoolUrl(e.target.value)} placeholder="stratum+tcp://..." style={{ width: '100%', padding: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, color: '#fff', fontSize: 11 }} />
+      </div>
+      <div>
+        <label style={{ fontSize: 10, color: '#8892b0', fontWeight: 900, display: 'block', marginBottom: 4 }}>WORKER / USUÁRIO</label>
+        <input type="text" value={poolUser} onChange={e => setPoolUser(e.target.value)} placeholder="nome_usuario.trabalhador" style={{ width: '100%', padding: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, color: '#fff', fontSize: 11 }} />
+      </div>
+      <div>
+        <label style={{ fontSize: 10, color: '#8892b0', fontWeight: 900, display: 'block', marginBottom: 4 }}>SENHA (OPCIONAL)</label>
+        <input type="text" value={poolPass} onChange={e => setPoolPass(e.target.value)} placeholder="123" style={{ width: '100%', padding: 8, background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, color: '#fff', fontSize: 11 }} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button onClick={() => onApply(poolUrl, poolUser, poolPass)} style={{ flex: 2, background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, padding: '10px 0', fontWeight: 900, cursor: 'pointer', fontSize: 11 }}>Aplicar em Lote</button>
+        <button onClick={onClose} style={{ flex: 1, background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', color: '#fff', borderRadius: 6, padding: '10px 0', fontWeight: 900, cursor: 'pointer', fontSize: 11 }}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 function ScannerSettingsModal({ pools, setPools, overclockEnabled, setOverclockEnabled, ocModel, setOcModel, ocMode, setOcMode, ocOption, setOcOption, onlySuccessMiners, setOnlySuccessMiners, reOverclocking, setReOverclocking, powerControl, setPowerControl, lpmType, setLpmType, onClose }) {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 400, padding: 12 }}>
@@ -4581,6 +4609,8 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
     const [firmwareModal, setFirmwareModal] = useState(false);
     const [selectedMiner, setSelectedMiner] = useState(null); // Side Drawer
     const [showExportMenu, setShowExportMenu] = useState(false);
+    const [showViewMenu, setShowViewMenu] = useState(false);
+    const [showOperationsMenu, setShowOperationsMenu] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [activeLayoutMode, setActiveLayoutMode] = useState("Normal"); // Normal, Compacto, Metrico, Pools
     
@@ -4765,7 +4795,11 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         return `${m}m`;
     };
 
-    const totalPower = miners.reduce((sum, m) => sum + (m.power || (m.telemetry?.power) || estimatePower(m.model)), 0);
+    const totalPower = miners.reduce((sum, m) => {
+        if (m.status === 'offline') return sum;
+        const p = m.power || m.telemetry?.efficiency?.power_consumption_watts;
+        return sum + (p || estimatePower(m.model));
+    }, 0);
 
     const handleExportExcel = () => {
         const rows = miners.map(m => ({
@@ -4841,9 +4875,42 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                     )} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                         ⚙️ Configurações
                     </button>
-                    <button style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
-                        📈 Operações
-                    </button>
+                    <div style={{ position: 'relative' }}>
+                        <button onClick={() => setShowOperationsMenu(!showOperationsMenu)} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                            📈 Operações
+                        </button>
+                        {showOperationsMenu && (
+                            <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#1c2430', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: 4, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 160 }}>
+                                <button onClick={() => { 
+                                    setShowOperationsMenu(false);
+                                    if (selectedIps.length === 0) return alert("Selecione pelo menos um dispositivo nos checkboxes.");
+                                    if (confirm(`Deseja reiniciar as ${selectedIps.length} máquinas selecionadas?`)) {
+                                        runAction(selectedIps, 'reboot');
+                                    }
+                                }} style={{ background: 'none', border: 'none', color: '#e2e8f0', padding: '8px 12px', fontSize: 11, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}>
+                                    🔄 Reiniciar Selecionados
+                                </button>
+                                <button onClick={() => {
+                                    setShowOperationsMenu(false);
+                                    if (selectedIps.length === 0) return alert("Selecione pelo menos um dispositivo nos checkboxes.");
+                                    ctx.setModal(
+                                        <Modal title="Configurar Pool em Lote" onClose={() => ctx.setModal(null)}>
+                                            <BatchPoolModal 
+                                                selectedIps={selectedIps}
+                                                onClose={() => ctx.setModal(null)}
+                                                onApply={async (url, user, pass) => {
+                                                    ctx.setModal(null);
+                                                    await runAction(selectedIps, 'set-pool', { url, user, pass });
+                                                }}
+                                            />
+                                        </Modal>
+                                    );
+                                }} style={{ background: 'none', border: 'none', color: '#e2e8f0', padding: '8px 12px', fontSize: 11, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}>
+                                    🧱 Alterar Pool em Lote
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -4894,13 +4961,42 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
 
                 <div style={{ display: 'flex', gap: 6 }}>
                     <button style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Filtro ▾</button>
-                    <button style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Visualização ▾</button>
+                    <div style={{ position: 'relative' }}>
+                        <button onClick={() => setShowViewMenu(!showViewMenu)} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                            Visualização ▾
+                        </button>
+                        {showViewMenu && (
+                            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#1c2430', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: 4, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 100 }}>
+                                {["Normal", "Compacto", "Metrico", "Pools"].map((mode) => (
+                                    <button 
+                                        key={mode} 
+                                        onClick={() => {
+                                            setActiveLayoutMode(mode);
+                                            setShowViewMenu(false);
+                                        }} 
+                                        style={{ 
+                                            background: activeLayoutMode === mode ? 'rgba(16,185,129,0.15)' : 'none', 
+                                            border: 'none', 
+                                            color: activeLayoutMode === mode ? '#10b981' : '#e2e8f0', 
+                                            padding: '6px 10px', 
+                                            fontSize: 10, 
+                                            cursor: 'pointer', 
+                                            textAlign: 'left', 
+                                            fontWeight: 800 
+                                        }}
+                                    >
+                                        {mode}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     <button onClick={() => setShowExportMenu(!showExportMenu)} style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.06)', color: '#e2e8f0', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 800, cursor: 'pointer', position: 'relative' }}>
-                        📤 Exportar
+                        📤 Exportar ▾
                         {showExportMenu && (
                             <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#1c2430', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: 4, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 100 }}>
-                                <button onClick={handleExportExcel} style={{ background: 'none', border: 'none', color: '#e2e8f0', padding: '6px 10px', fontSize: 10, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}>XLSX</button>
-                                <button onClick={handleExportCSV} style={{ background: 'none', border: 'none', color: '#e2e8f0', padding: '6px 10px', fontSize: 10, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}>CSV</button>
+                                <button onClick={() => { handleExportExcel(); setShowExportMenu(false); }} style={{ background: 'none', border: 'none', color: '#e2e8f0', padding: '6px 10px', fontSize: 10, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}>XLSX</button>
+                                <button onClick={() => { handleExportCSV(); setShowExportMenu(false); }} style={{ background: 'none', border: 'none', color: '#e2e8f0', padding: '6px 10px', fontSize: 10, cursor: 'pointer', textAlign: 'left', fontWeight: 800 }}>CSV</button>
                             </div>
                         )}
                     </button>
@@ -4953,7 +5049,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                             const isError = m.temp > 85 || (m.hashrate === 0 && m.status !== 'unknown');
                             const isWarning = m.temp > 75 && m.temp <= 85;
 
-                            const pConsumption = m.power || (m.telemetry?.power) || estimatePower(m.model);
+                            const pConsumption = isOffline ? 0 : (m.power || m.telemetry?.efficiency?.power_consumption_watts || estimatePower(m.model));
 
                             // Compact styling support
                             const isCompact = activeLayoutMode === "Compacto";
@@ -5158,7 +5254,7 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                                 <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
                                     <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>ESTIMATED POWER</div>
-                                    <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.power || selectedMiner.telemetry?.power || estimatePower(selectedMiner.model)} W</div>
+                                    <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', marginTop: 2 }}>{selectedMiner.status === 'offline' ? 0 : (selectedMiner.power || selectedMiner.telemetry?.efficiency?.power_consumption_watts || estimatePower(selectedMiner.model))} W</div>
                                 </div>
                                 <div style={{ background: '#1c2430', border: '1px solid rgba(255,255,255,0.04)', borderRadius: 8, padding: 10 }}>
                                     <div style={{ fontSize: 9, color: '#8892b0', fontWeight: 900 }}>PREDEFINIÇÃO (OVERCLOCK)</div>
