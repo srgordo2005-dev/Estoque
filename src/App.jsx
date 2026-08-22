@@ -4653,6 +4653,24 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         }
     };
 
+    const getRangeChunks = (startIp, endIp, chunkSize = 16) => {
+        const ipToLong = ip => ip.split('.').reduce((acc, oct) => (acc << 8) + parseInt(oct, 10), 0) >>> 0;
+        const longToIp = long => [(long >>> 24) & 255, (long >>> 16) & 255, (long >>> 8) & 255, long & 255].join('.');
+        
+        const startLong = ipToLong(startIp);
+        const endLong = ipToLong(endIp);
+        
+        const chunks = [];
+        for (let l = startLong; l <= endLong; l += chunkSize) {
+            const chunkEndLong = Math.min(l + chunkSize - 1, endLong);
+            chunks.push({
+                start: longToIp(l),
+                end: longToIp(chunkEndLong)
+            });
+        }
+        return chunks;
+    };
+
     const doScan = async () => {
         const activeRanges = ipRanges.filter(r => r.checked);
         if (activeRanges.length === 0) {
@@ -4660,36 +4678,40 @@ function BtcToolsScanner({ctx, defaultIpRange = "192.168.1.1-255", farmName}) {
         }
 
         setScanning(true);
-        let allResults = [];
 
+        // Generate all chunks of 16 IPs for each active range
+        let allChunks = [];
         for (const rangeObj of activeRanges) {
             const parsed = parseRange(rangeObj.range);
             if (!parsed) continue;
+            const chunks = getRangeChunks(parsed.start, parsed.end, 16);
+            allChunks = [...allChunks, ...chunks];
+        }
 
+        // Scan each chunk sequentially and update UI state immediately
+        for (const chunk of allChunks) {
             try {
                 const res = await fetch('http://localhost:3001/api/scan-range', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ start: parsed.start, end: parsed.end })
+                    body: JSON.stringify({ start: chunk.start, end: chunk.end })
                 });
                 if (res.ok) {
                     const payload = await res.json();
                     if (payload && Array.isArray(payload.miners)) {
-                        allResults = [...allResults, ...payload.miners];
+                        setMiners(prev => {
+                            const newMap = new Map();
+                            prev.forEach(x => newMap.set(x.ip, x));
+                            payload.miners.forEach(x => newMap.set(x.ip, x));
+                            return Array.from(newMap.values());
+                        });
                     }
                 }
             } catch (err) {
-                console.error("Erro ao escanear faixa:", rangeObj.range, err);
+                console.error("Erro ao escanear faixa:", chunk.start, "-", chunk.end, err);
             }
         }
 
-        setMiners(prev => {
-            // Merge results without duplicate IPs
-            const newMap = new Map();
-            prev.forEach(x => newMap.set(x.ip, x));
-            allResults.forEach(x => newMap.set(x.ip, x));
-            return Array.from(newMap.values());
-        });
         setScanning(false);
     };
 

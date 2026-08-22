@@ -458,13 +458,23 @@ const scanMiner = async (ip) => {
     }
 
   } catch(err) {
-    miner.status = 'ERROR';
-    miner.alerts.push(err.message);
+    console.error(`Erro ao analisar mineradora em ${ip}:`, err.message);
   }
 
-  miner.model = 'ASIC Miner';
-  miner.status = 'WARNING';
-  return miner;
+  return {
+    ip,
+    mac_address: '',
+    brand: 'Unknown',
+    model: 'Offline',
+    firmware_version: '',
+    uptime_seconds: 0,
+    status: 'OFFLINE',
+    hashrate: { nominal_th: 0, current_th: 0, average_th: 0, unit: 'TH/s' },
+    efficiency: { power_consumption_watts: 0, joules_per_th: 0 },
+    hardware: { boards_total: 0, boards_active: 0, chips_total: 0, chips_active: 0, boards_detail: [], fans: [] },
+    pools: [],
+    alerts: []
+  };
 };
 
 // Sequential Worker Pool Scanner
