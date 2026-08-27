@@ -196,6 +196,12 @@ function fromDBRow(row){
     if(k==="created_at")continue; // coluna interna do Supabase (timestamp da linha), não é usada pelo app
     obj[FIELD_MAP_REV[k]||k]=v;
   }
+  if (obj.orderRef && obj.orderRef._tech) {
+    const tech = obj.orderRef._tech;
+    for (const [tk, tv] of Object.entries(tech)) {
+      obj[tk] = tv;
+    }
+  }
   return obj;
 }
 
@@ -8851,21 +8857,31 @@ function TestePage({ctx}){
     const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
     const prevSituacao=exMac?exMac.situacao:"";
     const id=uid();
-    const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,...audit(user),date:TODAY(),status:"pending",
-      prevSituacao,
-      slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
-      slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
-      slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
+    const techData = {
       slot0TechId:sess.slots[0].techId||"",slot0TechName:sess.slots[0].techName||"",slot0TechCode:sess.slots[0].techCode||"",slot0TechDate:sess.slots[0].techDate||"",
       slot0NewHashModel:sess.slots[0].newHashModel||"",slot0NewHashMaterial:sess.slots[0].newHashMaterial||"",slot0NewHashChips:sess.slots[0].newHashChips||"",
       slot1TechId:sess.slots[1].techId||"",slot1TechName:sess.slots[1].techName||"",slot1TechCode:sess.slots[1].techCode||"",slot1TechDate:sess.slots[1].techDate||"",
       slot1NewHashModel:sess.slots[1].newHashModel||"",slot1NewHashMaterial:sess.slots[1].newHashMaterial||"",slot1NewHashChips:sess.slots[1].newHashChips||"",
       slot2TechId:sess.slots[2].techId||"",slot2TechName:sess.slots[2].techName||"",slot2TechCode:sess.slots[2].techCode||"",slot2TechDate:sess.slots[2].techDate||"",
       slot2NewHashModel:sess.slots[2].newHashModel||"",slot2NewHashMaterial:sess.slots[2].newHashMaterial||"",slot2NewHashChips:sess.slots[2].newHashChips||"",
+    };
+    const orderRefWithTech = {
+      ...(sess.orderRef || {}),
+      _tech: techData
+    };
+    const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,...audit(user),date:TODAY(),status:"pending",
+      prevSituacao,
+      slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
+      slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
+      slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
       controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
-      prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,machineBad:!!sess.machineBad,
+      prepShipment:!!sess.prepShipment,orderRef:orderRefWithTech,machineBad:!!sess.machineBad,
       newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
-    await fbSet("tests",id,rec);mutate("tests",t=>[...t,{...rec,_id:id}]);
+    const insertRes = await fbSet("tests",id,rec);
+    if (!insertRes.ok) {
+       alert(`⚠️ Erro ao salvar o registro de teste no banco de dados!\n\nDetalhes: ${insertRes.error}\n\nPor favor, contate o administrador.`);
+    }
+    mutate("tests",t=>[...t,{...rec,_id:id}]);
     const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,machineBad:!!sess.machineBad,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
     await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
     // Preparar pra Envio já deixou a máquina em PREPARANDO (e já sincronizou
@@ -9558,8 +9574,39 @@ function ApprovalsPage({ctx}){
     await markChanged("approvals");setProcessing(null);
   };
   const approve=async(appr)=>{
-    setProcessing(appr._id);const test=data.tests.find(t=>t._id===appr.testId);if(!test){setProcessing(null);return}
-    const tUpd={...test,status:"approved",overallResult:appr.machineBad?"bad":"good",...audit(user)};await fbSet("tests",test._id,tUpd);mutate("tests",t=>t.map(x=>x._id===test._id?tUpd:x));
+    setProcessing(appr._id);
+    let test=data.tests.find(t=>t._id===appr.testId);
+    let testExists = true;
+    if(!test){
+      testExists = false;
+      test = {
+        _id: appr.testId,
+        machineSN: appr.machineSN,
+        model: appr.model,
+        th: appr.th,
+        employeeId: appr.employeeId,
+        employeeName: appr.employeeName,
+        employeeCode: appr.employeeCode,
+        status: "pending",
+        slot0HashSN: "", slot0Result: "good",
+        slot1HashSN: "", slot1Result: "good",
+        slot2HashSN: "", slot2Result: "good",
+        controladora: "good", fonte: "good", fans: "good",
+        overallResult: "pending",
+        machineBad: appr.machineBad,
+        prepShipment: appr.prepShipment,
+        orderRef: appr.orderRef
+      };
+    }
+    const tUpd={...test,status:"approved",overallResult:appr.machineBad?"bad":"good",...audit(user)};
+    await fbSet("tests",test._id,tUpd);
+    mutate("tests",t => {
+      if (testExists) {
+        return t.map(x => x._id === test._id ? tUpd : x);
+      } else {
+        return [...t, tUpd];
+      }
+    });
     const exMac=data.machines.find(m=>m.sn===appr.machineSN);
     // "Preparar pra Envio" PERMANECE PREPARANDO quando aprovado — só um
     // teste comum volta a virar BOA. Vinculada a um Pedido, já vai de vez
