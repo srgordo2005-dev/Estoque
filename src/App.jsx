@@ -1779,6 +1779,38 @@ export default function App(){
   };
   const ctx={user,data,setCol,mutate,setModal,setTab:changeTab,loadAll,webhookUrl,setWebhookUrl,geminiApiKey,setGeminiApiKey,allModels,gTH,gChips,dataWarnings,resetMaxCount, farmsConfig, setFarmsConfig, localConnected, pendingScannerTest, setPendingScannerTest, scannedMiners, setScannedMiners};
 
+  const p_tab = user?.permissions || {};
+  const isAdmin_tab = p_tab.admin;
+  const isSuperAdmin_tab = user?.code === "019";
+  const canSeeClients_tab = isAdmin_tab || p_tab.clients;
+  const canApprove_tab = isAdmin_tab || p_tab.approvals;
+  const canSeeTeam_tab = isAdmin_tab || p_tab.team;
+
+  const allowedTabs = [];
+  if (user) {
+    if (isAdmin_tab) allowedTabs.push("home");
+    if (p_tab.machines || isAdmin_tab) allowedTabs.push("mac");
+    if (p_tab.hashes || isAdmin_tab) allowedTabs.push("hsh");
+    if (p_tab.repairs) allowedTabs.push("conserto");
+    if (p_tab.testing) allowedTabs.push("teste");
+    if (p_tab.repairs || p_tab.testing || isAdmin_tab) allowedTabs.push("guia");
+    if (p_tab.orders || isAdmin_tab) allowedTabs.push("pedidos");
+    if ((p_tab.repairs || p_tab.testing) && !isAdmin_tab) allowedTabs.push("hist");
+    if (p_tab.machines || p_tab.hashes || isAdmin_tab) allowedTabs.push("pal");
+    if (canSeeClients_tab) allowedTabs.push("cli");
+    if (canApprove_tab) allowedTabs.push("approvals");
+    if (canSeeTeam_tab) allowedTabs.push("team");
+    if (user.code === "019") allowedTabs.push("scanner", "datacenter");
+    if (isSuperAdmin_tab) allowedTabs.push("cfg");
+  }
+
+  const allowedTabsKey = allowedTabs.join(",");
+  useEffect(() => {
+    if (user && allowedTabs.length > 0 && !allowedTabs.includes(tab)) {
+      setTab(allowedTabs[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, allowedTabsKey, user]);
   // Deep-link: se a URL tem ?pallet=ID, abre o palete automaticamente
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -1825,13 +1857,6 @@ export default function App(){
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
     ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(user?.code==="019"?[{id:"scanner",icon:"📡",label:"Scanner"}]:[]),...(user?.code==="019"?[{id:"datacenter",icon:"🌐",label:"Fazenda"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
-
-  const tabsKey = TABS.map(t=>t.id).join(",");
-  useEffect(()=>{
-    if(TABS.length > 0 && !TABS.some(t=>t.id===tab)){
-      setTab(TABS[0].id);
-    }
-  }, [tab, tabsKey]);
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:1240,margin:"0 auto",position:"relative"}}>
     
