@@ -9143,7 +9143,7 @@ function TestePage({ctx}){
       <datalist id="mac-list">{data.machines.map(m=><option key={m._id} value={m.sn||""}>{m.model}</option>)}</datalist>
       {session&&<div style={{marginTop:8}}>
         <div style={{fontWeight:800,color:C.accent,marginBottom:6}}>{session.machineSN}</div>
-        <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",gap:8,marginBottom:8}}>
           <Sel value={session.model} onChange={e=>{
             const newModel=e.target.value;
             const updated={...session,model:newModel,th:gTH(newModel),updatedAt:stamp()};
@@ -9153,6 +9153,37 @@ function TestePage({ctx}){
             saveSession(updated);
           }} style={{flex:2,marginBottom:0}}>{models.map(m=><option key={m.m}>{m.m}</option>)}{session.model&&!models.some(m=>m.m===session.model)&&<option key={session.model}>{session.model}</option>}</Sel>
           <Inp type="number" value={session.th} onChange={e=>saveSession({...session,th:Number(e.target.value),updatedAt:stamp()})} placeholder="TH" style={{width:70,marginBottom:0}}/>
+        </div>
+        <div>
+          <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4}}>CLIENTE DESTINO (SAÍDA AO APROVAR)</div>
+          <select value={session.orderRef?.clientId||""} onChange={e=>{
+            const val=e.target.value;
+            if(val){
+              const client=data.clients.find(c=>c._id===val);
+              saveSession({
+                ...session,
+                prepShipment: true,
+                orderRef: {
+                  orderId: "",
+                  orderNumber: "",
+                  clientId: client._id,
+                  clientName: client.name,
+                  model: session.model,
+                  th: session.th
+                },
+                updatedAt:stamp()
+              });
+            } else {
+              saveSession({
+                ...session,
+                orderRef: null,
+                updatedAt:stamp()
+              });
+            }
+          }} style={{...inp,marginBottom:0}}>
+            <option value="">Nenhum cliente (fluxo padrão)</option>
+            {(data.clients||[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
         </div>
       </div>}
       {!session&&macInput===""&&otherSessions.length>0&&<div style={{color:C.muted,fontSize:11,marginTop:6}}>Bipe outro SN pra abrir uma nova máquina em paralelo, sem perder as outras.</div>}
