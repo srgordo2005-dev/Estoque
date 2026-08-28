@@ -8605,6 +8605,40 @@ function TestePage({ctx}){
   // testador cancelar a sessão sem mandar pra revisão, volta pro status de
   // antes — nunca fica "preso" em PREPARANDO à toa. Se tiver algum pedido em
   // aberto com vaga, pergunta antes se é pra vincular a máquina a ele.
+  const chooseDirectClientModal=(sn, ex, prevSituacao)=>{
+    setModal(<Modal title="👥 Enviar Direto a um Cliente?" onClose={()=>setModal(null)}>
+      <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Esta máquina será enviada diretamente a um cliente sem vínculo com pedidos?</div>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:12}}>
+        <select id="direct-client-select" style={inp}>
+          <option value="">Nenhum cliente (Apenas PREPARANDO comum)</option>
+          {(data.clients||[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
+        </select>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <Btn v="d" onClick={()=>setModal(null)} style={{flex:1}}>Cancelar</Btn>
+        <Btn v="g" onClick={async()=>{
+          const select = document.getElementById("direct-client-select");
+          const clientId = select?.value;
+          setModal(null);
+          if(clientId){
+            const client = data.clients.find(c=>c._id===clientId);
+            const directChoice = {
+              orderId: "",
+              orderNumber: "",
+              clientId: client._id,
+              clientName: client.name,
+              model: ex?.model || "",
+              th: ex?.th || 0
+            };
+            await applyPrepareShipment(sn, ex, prevSituacao, null, directChoice);
+          } else {
+            await applyPrepareShipment(sn, ex, prevSituacao, null, null);
+          }
+        }} style={{flex:2}}>Confirmar e Iniciar</Btn>
+      </div>
+    </Modal>);
+  };
+
   const prepareForShipment=async()=>{
     const sn=macInput.toUpperCase().trim();
     if(!sn){setErr("Digite ou bipe o SN da máquina primeiro.");return}
@@ -8614,7 +8648,10 @@ function TestePage({ctx}){
       if(!await checkSessionConflicts(actualSN))return;
       const prevSituacao=ex?ex.situacao:"";
       const avail=availableOrderItems();
-      if(avail.length===0){await applyPrepareShipment(actualSN,ex,prevSituacao,null);return}
+      if(avail.length===0){
+        chooseDirectClientModal(actualSN,ex,prevSituacao);
+        return;
+      }
       setModal(<Modal title="📦 Vincular a um Pedido?" onClose={()=>setModal(null)}>
         <div style={{color:C.muted,fontSize:12,marginBottom:12}}>Essa máquina vai ajudar a completar algum pedido em aberto?</div>
         <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
@@ -8632,12 +8669,12 @@ function TestePage({ctx}){
             </div>;
           })}
         </div>
-        <Btn v="s" onClick={async()=>{setModal(null);await applyPrepareShipment(actualSN,ex,prevSituacao,null)}} style={{width:"100%"}}>Nenhum pedido (fluxo padrão)</Btn>
+        <Btn v="s" onClick={async()=>{setModal(null);chooseDirectClientModal(actualSN,ex,prevSituacao)}} style={{width:"100%"}}>Nenhum pedido (fluxo padrão)</Btn>
       </Modal>);
     });
   };
 
-  const applyPrepareShipment=async(sn,ex,prevSituacao,orderChoice)=>{
+  const applyPrepareShipment=async(sn,ex,prevSituacao,orderChoice,directChoice=null)=>{
     if(ex){
       const u={...ex,situacao:"PREPARANDO",...audit(user)};
       mutate("machines",m=>m.map(x=>x._id===ex._id?u:x));
@@ -8657,6 +8694,8 @@ function TestePage({ctx}){
       if(!res.ok)alert(`⚠️ ERRO: não consegui reservar a vaga do pedido no banco de dados!\n\nErro: ${res.error}\n\nO app mostra reservado mas pode sumir se atualizar a página — avisa o Admin.`);
       await markChanged("orders");
       orderRef={orderId:order._id,orderNumber:order.number,itemIndex:idx,clientId:order.clientId,clientName:order.clientName,model:item.model,th:item.th};
+    } else if(directChoice){
+      orderRef=directChoice;
     }
     await startSession(sn,ex,true,prevSituacao,orderRef);
   };
@@ -9083,7 +9122,7 @@ function TestePage({ctx}){
         aviso (com o que acontece ao aprovar), fluxo padrão de Preparar pra
         Envio mostra o genérico. */}
     {session?.orderRef&&!session.rejected?
-      <Alrt type="ok">📋 Vinculada ao Pedido #{session.orderRef.orderNumber} — {session.orderRef.clientName}. Status já está PREPARANDO. Quando o Admin aprovar, a máquina vai direto pra esse cliente (SAIDA). Se cancelar essa sessão, volta pro status de antes e devolve a vaga do pedido.</Alrt>
+      <Alrt type="ok">{session.orderRef.orderNumber ? `📋 Vinculada ao Pedido #${session.orderRef.orderNumber} — ${session.orderRef.clientName}. Status já está PREPARANDO. Quando o Admin aprovar, a máquina vai direto pra esse cliente (SAIDA). Se cancelar essa sessão, volta pro status de antes e devolve a vaga do pedido.` : `📋 Preparação para Envio ao Cliente: ${session.orderRef.clientName}. Status já está PREPARANDO. Quando o Admin aprovar, a máquina vai direto para este cliente (SAIDA). Se cancelar essa sessão, volta ao status anterior.`}</Alrt>
       :session?.prepShipment&&!session.rejected&&<Alrt type="ok">📦 Preparação para Envio — status já está PREPARANDO (planilha atualizada). Quando o Admin aprovar, permanece PREPARANDO. Se cancelar essa sessão, volta pro status de antes.</Alrt>}
 
     <BenchConnectionPanel ctx={ctx} session={session} setMacInput={setMacInput} loadMachine={loadMachine} saveSession={saveSession} doSubmit={doSubmit} triggerToast={(msg) => alert(msg)} />
@@ -9492,6 +9531,12 @@ function ApprovalDetail({ctx,appr}){
     <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:15}}>{appr.model} · {appr.th}TH</div>
       <div style={{color:C.muted,fontSize:12,marginTop:4}}>👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
+      {appr.orderRef && (
+        <div style={{fontSize:11,color:C.purple,fontWeight:800,marginTop:6,display:"flex",alignItems:"center",gap:4}}>
+          <span>📋</span>
+          <span>{appr.orderRef.orderNumber ? `Pedido #${appr.orderRef.orderNumber} — Cliente: ${appr.orderRef.clientName}` : `Envio Direto ao Cliente: ${appr.orderRef.clientName}`}</span>
+        </div>
+      )}
       <Tag color={appr.status==="approved"?C.green:appr.status==="rejected"?C.red:C.accent} style={{marginTop:8}}>
         {appr.status==="approved"?"✓ Aprovada":appr.status==="rejected"?"✗ Reprovada":"⏳ Pendente / Em Revisão"}
       </Tag>
@@ -10026,7 +10071,7 @@ function ApprovalsPage({ctx}){
     </div>}
     {filteredPending.length===0&&filteredHashBad.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>{snQ?"🔍":"✅"}</div><div>{snQ?"Nenhuma pendência encontrada pra esse SN":"Nenhuma revisão pendente"}</div></div>
       :filteredPending.map(appr=>{const test=data.tests.find(t=>t._id===appr.testId);return<Card key={appr._id} accent={appr.machineBad?C.red:appr.orderRef?C.purple:appr.prepShipment?C.amber:C.blue}>
-        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>{appr.machineBad?"💀":appr.orderRef?"📋":appr.prepShipment?"📦":"🖥️"} {appr.machineSN||"SEM SN"} {appr.machineBad?<Tag color={C.red} small>Máquina Ruim</Tag>:appr.orderRef?<Tag color={C.purple} small>Pedido #{appr.orderRef.orderNumber} — {appr.orderRef.clientName}</Tag>:appr.prepShipment&&<Tag color={C.amber} small>Preparação p/ Envio</Tag>}</div>
+        <div style={{fontWeight:800,fontSize:15,marginBottom:4}}>{appr.machineBad?"💀":appr.orderRef?"📋":appr.prepShipment?"📦":"🖥️"} {appr.machineSN||"SEM SN"} {appr.machineBad?<Tag color={C.red} small>Máquina Ruim</Tag>:appr.orderRef?<Tag color={C.purple} small>{appr.orderRef.orderNumber ? `Pedido #${appr.orderRef.orderNumber} — ${appr.orderRef.clientName}` : `Direto Cliente: ${appr.orderRef.clientName}`}</Tag>:appr.prepShipment&&<Tag color={C.amber} small>Preparação p/ Envio</Tag>}</div>
         <div style={{color:C.muted,fontSize:12,marginBottom:8}}>{appr.model} · {appr.th}TH · 👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
         {test&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>{[test.slot0HashSN,test.slot1HashSN,test.slot2HashSN].map((sn,i)=>sn&&<span key={i} style={{background:"#0c1a2e",border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",fontSize:10,color:C.blue}}>S{i}: {sn}</span>)}</div>}
         {test?.testPhoto&&<PhotoView photoKey={test.testPhoto} style={{marginBottom:10,maxHeight:150}}/>}
