@@ -1815,7 +1815,7 @@ export default function App(){
   const myRevisit=data.machines.filter(m=>m.situacao==="REVISAR"&&m.lastTesterId===user._id);
 
   const TABS=[
-    {id:"home",icon:"🏠",label:"Início"},
+    ...(isAdmin?[{id:"home",icon:"🏠",label:"Início"}]:[]),
     ...(p.machines||isAdmin?[{id:"mac",icon:"🖥️",label:"Máquinas"}]:[]),
     ...(p.hashes||isAdmin?[{id:"hsh",icon:"⚡",label:"HASHs"}]:[]),
     ...(p.repairs?[{id:"conserto",icon:"🔧",label:"Conserto"}]:[]),
@@ -1825,6 +1825,13 @@ export default function App(){
     ...((p.repairs||p.testing)&&!isAdmin?[{id:"hist",icon:"📋",label:"Histórico"}]:[]),
     ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(user?.code==="019"?[{id:"scanner",icon:"📡",label:"Scanner"}]:[]),...(user?.code==="019"?[{id:"datacenter",icon:"🌐",label:"Fazenda"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
+
+  const tabsKey = TABS.map(t=>t.id).join(",");
+  useEffect(()=>{
+    if(TABS.length > 0 && !TABS.some(t=>t.id===tab)){
+      setTab(TABS[0].id);
+    }
+  }, [tab, tabsKey]);
 
   return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:1240,margin:"0 auto",position:"relative"}}>
     
