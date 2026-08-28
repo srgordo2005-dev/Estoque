@@ -8461,6 +8461,7 @@ function BenchConnectionPanel({ctx, session, setMacInput, loadMachine, saveSessi
 
 function TestePage({ctx}){
   const{data,mutate,user,webhookUrl,allModels,gTH,gChips,setModal}=ctx;const models=allModels();
+  const saveTimeoutRef=useRef(null);
   // Item 10: agora o testador pode ter VÁRIAS máquinas em teste ao mesmo tempo.
   // Cada sessão é um documento próprio (não fica mais 1 sessão por usuário).
   const[sessions,setSessions]=useState([]),[allSessions,setAllSessions]=useState([]),[activeId,setActiveId]=useState(null),[macInput,setMacInput]=useState(""),[err,setErr]=useState(""),[submitting,setSubmitting]=useState(false),[done,setDone]=useState(false),[ruimModal,setRuimModal]=useState(null),[scanning,setScanning]=useState(false),[unlinkPrompt,setUnlinkPrompt]=useState(null);
@@ -8523,10 +8524,17 @@ function TestePage({ctx}){
     return()=>{supabase.removeChannel(channel)};
   },[user._id,reloadSessions]);
   const session=sessions.find(s=>s._id===activeId)||null;
-  const saveSession=async s=>{
-    await fbSet("sessions",s._id,s);
+  const saveSession=useCallback(async(s, forceImmediate=false)=>{
     setSessions(prev=>prev.some(x=>x._id===s._id)?prev.map(x=>x._id===s._id?s:x):[...prev,s]);
-  };
+    if(saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    if(forceImmediate){
+      await fbSet("sessions",s._id,s);
+    }else{
+      saveTimeoutRef.current=setTimeout(async()=>{
+        await fbSet("sessions",s._id,s);
+      },400);
+    }
+  },[]);
   const setSlotTechConfig = async (slotIdx, config) => {
     const newSlots = session.slots.map((s, idx) => {
       if (idx === slotIdx) {
@@ -8716,13 +8724,18 @@ function TestePage({ctx}){
         {hashSN:ex?.hashSN1||"",status:"",photoKey:null},
         {hashSN:ex?.hashSN2||"",status:"",photoKey:null}
       ],controladora:"",fonte:"",fans:"",photoKey:null,adminNotes:[],prepShipment:!!prepShipment,prevSituacao:prevSituacao||"",orderRef:orderRef||null,updatedAt:stamp()};
-    await saveSession(s);setActiveId(id);
+    await saveSession(s, true);setActiveId(id);
   };
 
   // Só remove a sessão localmente (sem mexer em status de máquina) — usado
   // depois de ENVIAR com sucesso pra revisão, onde o PREPARANDO deve
   // continuar valendo.
-  const removeSessionLocal=async(id)=>{await fbDel("sessions",id);setSessions(prev=>prev.filter(x=>x._id!==id));if(activeId===id){setActiveId(null);setMacInput("")}};
+  const removeSessionLocal=async(id)=>{
+    if(saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    await fbDel("sessions",id);
+    setSessions(prev=>prev.filter(x=>x._id!==id));
+    if(activeId===id){setActiveId(null);setMacInput("")}
+  };
 
   // CANCELAR uma sessão de Preparar pra Envio (botão ✕/🗑, não o envio pra
   // revisão) desfaz a mudança pra PREPARANDO — a máquina volta pro status
@@ -8917,6 +8930,7 @@ function TestePage({ctx}){
 
   const doSubmit=async(s)=>{
     const sess=s||session;if(!sess)return;
+    if(saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     setSubmitting(true);
     try {
       // Movimentação imediata para o palete sem precisar de aprovação
