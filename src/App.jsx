@@ -9387,14 +9387,36 @@ function HistPage({ctx,canSeeEmp}){
 // motivo da reprovação (se foi o caso).
 function ApprovalDetail({ctx,appr}){
   const{data}=ctx;
-  const test=data.tests.find(t=>t._id===appr.testId);
+  let test=data.tests.find(t=>t._id===appr.testId);
+  if (!test) {
+    test = {
+      _id: appr.testId,
+      machineSN: appr.machineSN,
+      model: appr.model,
+      th: appr.th,
+      employeeId: appr.employeeId,
+      employeeName: appr.employeeName,
+      employeeCode: appr.employeeCode,
+      status: "pending",
+      slot0HashSN: "", slot0Result: "good",
+      slot1HashSN: "", slot1Result: "good",
+      slot2HashSN: "", slot2Result: "good",
+      controladora: "good", fonte: "good", fans: "good",
+      overallResult: "pending",
+      machineBad: appr.machineBad,
+      prepShipment: appr.prepShipment,
+      orderRef: appr.orderRef
+    };
+  }
   return<div>
     <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}>
       <div style={{fontWeight:800,fontSize:15}}>{appr.model} · {appr.th}TH</div>
       <div style={{color:C.muted,fontSize:12,marginTop:4}}>👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
-      <Tag color={appr.status==="approved"?C.green:C.red} style={{marginTop:8}}>{appr.status==="approved"?"✓ Aprovada":"✗ Reprovada"}</Tag>
+      <Tag color={appr.status==="approved"?C.green:appr.status==="rejected"?C.red:C.accent} style={{marginTop:8}}>
+        {appr.status==="approved"?"✓ Aprovada":appr.status==="rejected"?"✗ Reprovada":"⏳ Pendente / Em Revisão"}
+      </Tag>
     </div>
-    {appr.adminNote&&<Alrt type={appr.status==="approved"?"ok":"err"}>{appr.adminNote}</Alrt>}
+    {appr.adminNote&&<Alrt type={appr.status==="approved"?"ok":appr.status==="rejected"?"err":"warn"}>{appr.adminNote}</Alrt>}
     {test&&<>
       <SL>SLOTS TESTADOS</SL>
       {[0,1,2].map(i=>{
@@ -9407,7 +9429,7 @@ function ApprovalDetail({ctx,appr}){
       })}
       <SL mt={12}>COMPONENTES</SL>
       <div style={{display:"flex",gap:8,marginBottom:8}}>
-        {[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><div key={k} style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 0",textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>{l}</div><div style={{fontWeight:800,color:test[k]==="ON"?C.green:C.red}}>{test[k]||"—"}</div></div>)}
+        {[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><div key={k} style={{flex:1,background:C.card2,borderRadius:8,padding:"8px 0",textAlign:"center"}}><div style={{fontSize:10,color:C.muted}}>{l}</div><div style={{fontWeight:800,color:test[k]==="ON"||test[k]==="good"?C.green:C.red}}>{test[k]||"—"}</div></div>)}
       </div>
       {test.testPhoto&&<><SL mt={12}>FOTO DO TESTE</SL><PhotoView photoKey={test.testPhoto} style={{maxHeight:220}}/></>}
     </>}
@@ -9469,7 +9491,15 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
         slot1HashSN:slots[1].hashSN,slot1Result:slots[1].result,
         slot2HashSN:slots[2].hashSN,slot2Result:slots[2].result,
         controladora:ctr,fonte,fans};
-      await fbSet("tests",test._id,testU);mutate("tests",t=>t.map(x=>x._id===test._id?testU:x));
+      await fbSet("tests",test._id,testU);
+      mutate("tests",t=>{
+        const exists = t.some(x=>x._id===test._id);
+        if(exists){
+          return t.map(x=>x._id===test._id?testU:x);
+        } else {
+          return [...t, testU];
+        }
+      });
     }
     onSaved();
   };
