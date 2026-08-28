@@ -187,7 +187,18 @@ const FIELD_MAP={
   machineBad:"machine_bad",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
-function toDBRow(obj){const row={};for(const[k,v]of Object.entries(obj)){if(v===undefined)continue;row[FIELD_MAP[k]||k]=v}return row}
+function toDBRow(obj){
+  const row={};
+  for(const[k,v]of Object.entries(obj)){
+    if(v===undefined)continue;
+    row[FIELD_MAP[k]||k]=v;
+  }
+  if (obj.superseded && row.type && typeof row.type === "string" && !row.type.endsWith("_superseded")) {
+    row.type = row.type + "_superseded";
+    delete row.superseded;
+  }
+  return row;
+}
 function fromDBRow(row){
   if(!row)return null;
   const obj={};
@@ -201,6 +212,10 @@ function fromDBRow(row){
     for (const [tk, tv] of Object.entries(tech)) {
       obj[tk] = tv;
     }
+  }
+  if (obj.type && typeof obj.type === "string" && obj.type.endsWith("_superseded")) {
+    obj.type = obj.type.slice(0, -12);
+    obj.superseded = true;
   }
   return obj;
 }
@@ -8902,13 +8917,26 @@ function TestePage({ctx}){
         ...(sess.orderRef || {}),
         _tech: techData
       };
+
+      const existingHashes=sess.slots.map(sl=>sl.hashSN?data.hashes.find(h=>h.sn===sl.hashSN.toUpperCase()):null).filter(Boolean);
+      const templateHash=existingHashes[0] || data.hashes.find(h=>(h.model||"").toUpperCase()===(sess.model||"").toUpperCase()) || null;
+      const defaultModel = templateHash?.model || sess.model || "M30S";
+      const defaultMaterial = templateHash?.material || "";
+      const defaultChips = templateHash?.chips || gChips(defaultModel, defaultMaterial) || "";
+      
+      const inferredChars = sess.newHashChars || {
+        model: defaultModel,
+        material: defaultMaterial,
+        chips: defaultChips
+      };
+
       const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,...audit(user),date:TODAY(),status:"pending",
         slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
         slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
         slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
         controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
         prepShipment:!!sess.prepShipment,orderRef:orderRefWithTech,machineBad:!!sess.machineBad,
-        newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
+        newHashModel:inferredChars.model||"",newHashMaterial:inferredChars.material||"",newHashChips:inferredChars.chips||""};
       const insertRes = await fbSet("tests",id,rec);
       if (!insertRes.ok) {
          alert(`⚠️ Erro ao salvar o registro de teste no banco de dados!\n\nDetalhes: ${insertRes.error}\n\nPor favor, contate o administrador.`);
@@ -8960,8 +8988,8 @@ function TestePage({ctx}){
   // Se tiver 1 HASH já existente nesse teste, usa as características dela
   // como ponto de partida pra preencher as novas (não muda nada nela).
   const existingHashesInSession=session?session.slots.map(s=>s.hashSN?data.hashes.find(h=>h.sn===s.hashSN.toUpperCase()):null).filter(Boolean):[];
-  const templateHash=existingHashesInSession.length===1?existingHashesInSession[0]:null;
-  const needsChars=unknownSlots.length>0&&!session?.newHashChars;
+  const templateHash = existingHashesInSession[0] || (session ? data.hashes.find(h=>(h.model||"").toUpperCase()===(session.model||"").toUpperCase()) : null) || null;
+  const needsChars=false;
   // Slot marcado RUIM sem HASH substituta nele — não pode liberar "TUDO
   // BOA" assim (o botão já fica desabilitado, não é só um erro depois de clicar).
   const hasEmptyBadSlot=session?session.slots.some(s=>s.status==="bad"&&!s.hashSN):false;
@@ -9077,7 +9105,14 @@ function TestePage({ctx}){
       {session&&<div style={{marginTop:8}}>
         <div style={{fontWeight:800,color:C.accent,marginBottom:6}}>{session.machineSN}</div>
         <div style={{display:"flex",gap:8}}>
-          <Sel value={session.model} onChange={e=>{const newModel=e.target.value;saveSession({...session,model:newModel,th:gTH(newModel),updatedAt:stamp()})}} style={{flex:2,marginBottom:0}}>{models.map(m=><option key={m.m}>{m.m}</option>)}{session.model&&!models.some(m=>m.m===session.model)&&<option key={session.model}>{session.model}</option>}</Sel>
+          <Sel value={session.model} onChange={e=>{
+            const newModel=e.target.value;
+            const updated={...session,model:newModel,th:gTH(newModel),updatedAt:stamp()};
+            if(session.newHashChars){
+              updated.newHashChars={...session.newHashChars,model:newModel};
+            }
+            saveSession(updated);
+          }} style={{flex:2,marginBottom:0}}>{models.map(m=><option key={m.m}>{m.m}</option>)}{session.model&&!models.some(m=>m.m===session.model)&&<option key={session.model}>{session.model}</option>}</Sel>
           <Inp type="number" value={session.th} onChange={e=>saveSession({...session,th:Number(e.target.value),updatedAt:stamp()})} placeholder="TH" style={{width:70,marginBottom:0}}/>
         </div>
       </div>}
@@ -9090,9 +9125,11 @@ function TestePage({ctx}){
         const slot=session.slots[i];
         const h=slot.hashSN?data.hashes.find(x=>x.sn===slot.hashSN.toUpperCase()):null;
         const modelMismatch=h&&h.model&&session.model&&h.model!==session.model;
+        const mat = h ? h.material : (slot.newHashModel ? slot.newHashMaterial : (session.newHashChars?.material || templateHash?.material || ""));
+        const matLabel = mat === "FIBRA" ? "FIBRA" : (mat === "ALUMINIO" || mat === "ALUMÍNIO" || mat === "ALUMINIO" ? "ALUMÍNIO" : "");
         return<div key={i} style={{background:C.card,borderRadius:14,padding:14,marginBottom:8,border:"1px solid "+(slot.status==="bad"?C.red:slot.status==="good"?C.green:C.border)}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div style={{fontWeight:800,fontSize:12,color:C.subtle}}>SLOT {i+1}</div>
+            <div style={{fontWeight:800,fontSize:12,color:C.subtle}}>SLOT {i+1} {matLabel && <span style={{color: C.accent, marginLeft: 6}}>({matLabel})</span>}</div>
             {slot.status==="good"&&<Tag color={C.green}>✓ BOA</Tag>}
             {slot.status==="bad"&&<Tag color={C.red}>✗ RUIM</Tag>}
             {!slot.status&&<Tag color={C.muted}>Aguardando</Tag>}
@@ -9195,21 +9232,24 @@ function TestePage({ctx}){
         </select>
       </div>
 
-      {unknownSlots.length>0&&<div style={{background:needsChars?C.red+"15":C.green+"15",border:`1px solid ${needsChars?C.red:C.green}44`,borderRadius:12,padding:14,marginBottom:12}}>
-        <div style={{fontWeight:800,fontSize:13,color:needsChars?C.red:C.green,marginBottom:6}}>{needsChars?"⚠️":"✓"} {unknownSlots.length} HASH(s) nova(s) {needsChars?"— falta definir as características":"— características definidas"}</div>
-        {!needsChars&&session.newHashChars&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>{session.newHashChars.model}{session.newHashChars.material?` · ${session.newHashChars.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{session.newHashChars.chips?` · ${session.newHashChars.chips} chips`:""}</div>}
-        <Btn v={needsChars?"d":"s"} onClick={()=>setModal(<Modal title="Características das HASHs novas" onClose={()=>setModal(null)}><NewHashCharsForm ctx={ctx} unknownSlots={unknownSlots} initial={session.newHashChars} templateHash={templateHash} onSave={async(chars)=>{await saveSession({...session,newHashChars:chars,model:chars.model||session.model,updatedAt:stamp()});setModal(null)}}/></Modal>)} style={{width:"100%"}}>{needsChars?"📋 Definir características (obrigatório)":"✏️ Editar características"}</Btn>
+      {unknownSlots.length>0&&<div style={{background:C.green+"15",border:`1px solid ${C.green}44`,borderRadius:12,padding:14,marginBottom:12}}>
+        <div style={{fontWeight:800,fontSize:13,color:C.green,marginBottom:6}}>✓ {unknownSlots.length} HASH(s) nova(s) — características automáticas baseadas em {templateHash ? `placa cadastrada (${templateHash.model})` : `modelo da máquina (${session.model})`}</div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:8}}>
+          Modelo: {session.newHashChars?.model || templateHash?.model || session.model}
+          { (session.newHashChars?.material || templateHash?.material) ? ` · Material: ${(session.newHashChars?.material || templateHash?.material) === "FIBRA" ? "Fibra" : "Alumínio"}` : "" }
+          { (session.newHashChars?.chips || templateHash?.chips || gChips(session.newHashChars?.model || templateHash?.model || session.model, session.newHashChars?.material || templateHash?.material)) ? ` · ${session.newHashChars?.chips || templateHash?.chips || gChips(session.newHashChars?.model || templateHash?.model || session.model, session.newHashChars?.material || templateHash?.material)} chips` : "" }
+        </div>
+        <Btn v="s" onClick={()=>setModal(<Modal title="Características das HASHs novas" onClose={()=>setModal(null)}><NewHashCharsForm ctx={ctx} unknownSlots={unknownSlots} initial={session.newHashChars} templateHash={templateHash} onSave={async(chars)=>{await saveSession({...session,newHashChars:chars,model:chars.model||session.model,updatedAt:stamp()});setModal(null)}}/></Modal>)} style={{width:"100%"}}>✏️ Ajustar características (opcional)</Btn>
       </div>}
 
-      <Btn v="g" onClick={markAllGood} disabled={submitting||needsChars} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
+      <Btn v="g" onClick={markAllGood} disabled={submitting} style={{width:"100%",padding:"16px",fontSize:15,marginBottom:8}}>
         {submitting?"Enviando...":session.prepShipment?"📦 Enviar Preparação para Revisão":"✅ TUDO BOA — Enviar para Revisão"}
       </Btn>
-      <Btn v="d" onClick={markMachineBad} disabled={submitting||needsChars} style={{width:"100%",padding:"12px",fontSize:13,marginBottom:8}}>💀 Máquina Ruim — Enviar para Revisão</Btn>
+      <Btn v="d" onClick={markMachineBad} disabled={submitting} style={{width:"100%",padding:"12px",fontSize:13,marginBottom:8}}>💀 Máquina Ruim — Enviar para Revisão</Btn>
       <div style={{display:"flex",gap:8}}>
         <Btn v="s" onClick={()=>{setActiveId(null);setMacInput("")}} style={{flex:1,fontSize:12}}>👋 Deixar na fila e trocar de máquina</Btn>
         <Btn v="d" onClick={()=>closeSession(session._id)} style={{flex:1,fontSize:12}}>🗑 Cancelar esta</Btn>
       </div>
-      {needsChars&&<div style={{color:C.red,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Defina as características das HASHs novas pra enviar</div>}
       {hasEmptyBadSlot&&<div style={{color:C.amber,fontSize:11,textAlign:"center",marginTop:6}}>⚠️ Tem slot RUIM sem HASH substituta — pode mandar assim, mas vai pedir confirmação</div>}
     </>}
 
