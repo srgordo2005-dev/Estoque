@@ -8832,85 +8832,93 @@ function TestePage({ctx}){
   const doSubmit=async(s)=>{
     const sess=s||session;if(!sess)return;
     setSubmitting(true);
-    
-    // Movimentação imediata para o palete sem precisar de aprovação
-    const palletId=sess.slots?.[0]?.palletId;
-    if(palletId){
-      const pallet=data.pallets.find(p=>p._id===palletId);
-      if(pallet){
-        for(const pl of data.pallets){
-          if(pl._id===palletId) continue;
-          if((pl.machinesSN||[]).includes(sess.machineSN)){
-            const ns=(pl.machinesSN||[]).filter(sn=>sn!==sess.machineSN);
-            const upd2={...pl,machinesSN:ns,...audit(user)};
-            mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));
-            await fbSet("pallets",pl._id,upd2);
+    try {
+      // Movimentação imediata para o palete sem precisar de aprovação
+      const palletId=sess.slots?.[0]?.palletId;
+      if(palletId){
+        const pallet=data.pallets.find(p=>p._id===palletId);
+        if(pallet){
+          for(const pl of data.pallets){
+            if(pl._id===palletId) continue;
+            if((pl.machinesSN||[]).includes(sess.machineSN)){
+              const ns=(pl.machinesSN||[]).filter(sn=>sn!==sess.machineSN);
+              const upd2={...pl,machinesSN:ns,...audit(user)};
+              mutate("pallets",arr=>arr.map(x=>x._id===pl._id?upd2:x));
+              await fbSet("pallets",pl._id,upd2);
+            }
           }
+          const upd={...pallet,machinesSN:[...new Set([...(pallet.machinesSN||[]),sess.machineSN])],...audit(user)};
+          mutate("pallets",arr=>arr.map(x=>x._id===pallet._id?upd:x));
+          await fbSet("pallets",pallet._id,upd);
+          await markChanged("pallets");
         }
-        const upd={...pallet,machinesSN:[...new Set([...(pallet.machinesSN||[]),sess.machineSN])],...audit(user)};
-        mutate("pallets",arr=>arr.map(x=>x._id===pallet._id?upd:x));
-        await fbSet("pallets",pallet._id,upd);
-        await markChanged("pallets");
       }
-    }
 
-    const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
-    const prevSituacao=exMac?exMac.situacao:"";
-    const id=uid();
-    const techData = {
-      prevSituacao,
-      slot0TechId:sess.slots[0].techId||"",slot0TechName:sess.slots[0].techName||"",slot0TechCode:sess.slots[0].techCode||"",slot0TechDate:sess.slots[0].techDate||"",
-      slot0NewHashModel:sess.slots[0].newHashModel||"",slot0NewHashMaterial:sess.slots[0].newHashMaterial||"",slot0NewHashChips:sess.slots[0].newHashChips||"",
-      slot1TechId:sess.slots[1].techId||"",slot1TechName:sess.slots[1].techName||"",slot1TechCode:sess.slots[1].techCode||"",slot1TechDate:sess.slots[1].techDate||"",
-      slot1NewHashModel:sess.slots[1].newHashModel||"",slot1NewHashMaterial:sess.slots[1].newHashMaterial||"",slot1NewHashChips:sess.slots[1].newHashChips||"",
-      slot2TechId:sess.slots[2].techId||"",slot2TechName:sess.slots[2].techName||"",slot2TechCode:sess.slots[2].techCode||"",slot2TechDate:sess.slots[2].techDate||"",
-      slot2NewHashModel:sess.slots[2].newHashModel||"",slot2NewHashMaterial:sess.slots[2].newHashMaterial||"",slot2NewHashChips:sess.slots[2].newHashChips||"",
-    };
-    const orderRefWithTech = {
-      ...(sess.orderRef || {}),
-      _tech: techData
-    };
-    const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,...audit(user),date:TODAY(),status:"pending",
-      slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
-      slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
-      slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
-      controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
-      prepShipment:!!sess.prepShipment,orderRef:orderRefWithTech,machineBad:!!sess.machineBad,
-      newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
-    const insertRes = await fbSet("tests",id,rec);
-    if (!insertRes.ok) {
-       alert(`⚠️ Erro ao salvar o registro de teste no banco de dados!\n\nDetalhes: ${insertRes.error}\n\nPor favor, contate o administrador.`);
-    }
-    mutate("tests",t=>[...t,{...rec,_id:id}]);
-    const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,machineBad:!!sess.machineBad,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
-    await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
-    // Preparar pra Envio já deixou a máquina em PREPARANDO (e já sincronizou
-    // a planilha) desde que a sessão começou — aqui só garante isso e marca
-    // quem testou. Teste comum vai pra AGUARD. REVISÃO (só some quando o
-    // Admin aprovar/reprovar de verdade). Se foi marcada RUIM, também fica
-    // AGUARD. REVISÃO até o Admin decidir (nunca continua "PREPARANDO" pra
-    // um pedido/envio com máquina possivelmente quebrada).
-    const pendingSituacao=(sess.prepShipment&&!sess.machineBad)?"PREPARANDO":"AGUARD. REVISÃO";
-    if(exMac){const u={...exMac,situacao:pendingSituacao,lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
-    // Máquina Ruim vinculada a um Pedido: a vaga volta na hora, já no envio
-    // pra revisão — não precisa esperar o Admin decidir, já que essa máquina
-    // não vai cumprir o pedido de jeito nenhum. O orderRef continua salvo no
-    // teste/aprovação só pra aparecer no histórico ("era pro pedido tal"),
-    // mas o "fulfilled" do pedido já libera pra outra máquina ser vinculada.
-    if(sess.machineBad&&sess.orderRef){
-      const order=data.orders.find(o=>o._id===sess.orderRef.orderId);
-      if(order){
-        const newItems=order.items.map((it,i)=>i===sess.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
-        const u={...order,items:newItems};
-        mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
-        const res=await fbSet("orders",order._id,u);
-        if(!res.ok)alert(`⚠️ ERRO: não consegui devolver a vaga do pedido no banco de dados!\n\nErro: ${res.error}\n\nAvisa o Admin — o pedido pode ficar com a contagem errada.`);
-        await markChanged("orders");
+      const exMac=data.machines.find(m=>normSNField(m.sn)===sess.machineSN);
+      const prevSituacao=exMac?exMac.situacao:"";
+      const id=uid();
+      const techData = {
+        prevSituacao,
+        slot0TechId:sess.slots[0].techId||"",slot0TechName:sess.slots[0].techName||"",slot0TechCode:sess.slots[0].techCode||"",slot0TechDate:sess.slots[0].techDate||"",
+        slot0NewHashModel:sess.slots[0].newHashModel||"",slot0NewHashMaterial:sess.slots[0].newHashMaterial||"",slot0NewHashChips:sess.slots[0].newHashChips||"",
+        slot1TechId:sess.slots[1].techId||"",slot1TechName:sess.slots[1].techName||"",slot1TechCode:sess.slots[1].techCode||"",slot1TechDate:sess.slots[1].techDate||"",
+        slot1NewHashModel:sess.slots[1].newHashModel||"",slot1NewHashMaterial:sess.slots[1].newHashMaterial||"",slot1NewHashChips:sess.slots[1].newHashChips||"",
+        slot2TechId:sess.slots[2].techId||"",slot2TechName:sess.slots[2].techName||"",slot2TechCode:sess.slots[2].techCode||"",slot2TechDate:sess.slots[2].techDate||"",
+        slot2NewHashModel:sess.slots[2].newHashModel||"",slot2NewHashMaterial:sess.slots[2].newHashMaterial||"",slot2NewHashChips:sess.slots[2].newHashChips||"",
+      };
+      const orderRefWithTech = {
+        ...(sess.orderRef || {}),
+        _tech: techData
+      };
+      const rec={machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,...audit(user),date:TODAY(),status:"pending",
+        slot0HashSN:sess.slots[0].hashSN||"",slot0Result:sess.slots[0].status||"",slot0Photo:sess.slots[0].photoKey||"",
+        slot1HashSN:sess.slots[1].hashSN||"",slot1Result:sess.slots[1].status||"",slot1Photo:sess.slots[1].photoKey||"",
+        slot2HashSN:sess.slots[2].hashSN||"",slot2Result:sess.slots[2].status||"",slot2Photo:sess.slots[2].photoKey||"",
+        controladora:sess.controladora,fonte:sess.fonte,fans:sess.fans,testPhoto:sess.photoKey,overallResult:"pending",
+        prepShipment:!!sess.prepShipment,orderRef:orderRefWithTech,machineBad:!!sess.machineBad,
+        newHashModel:sess.newHashChars?.model||"",newHashMaterial:sess.newHashChars?.material||"",newHashChips:sess.newHashChars?.chips||""};
+      const insertRes = await fbSet("tests",id,rec);
+      if (!insertRes.ok) {
+         alert(`⚠️ Erro ao salvar o registro de teste no banco de dados!\n\nDetalhes: ${insertRes.error}\n\nPor favor, contate o administrador.`);
       }
+      mutate("tests",t=>[...t,{...rec,_id:id}]);
+      const apprId=uid();const appr={testId:id,machineSN:sess.machineSN,model:sess.model,th:sess.th,employeeId:user._id,employeeName:user.name,employeeCode:user.code,date:TODAY(),status:"pending",prepShipment:!!sess.prepShipment,orderRef:sess.orderRef||null,machineBad:!!sess.machineBad,adminNote:(sess.adminNotes||[]).join(" | "),...audit(user)};
+      await fbSet("pendingApprovals",apprId,appr);mutate("approvals",a=>[...a,{...appr,_id:apprId}]);
+      // Preparar pra Envio já deixou a máquina em PREPARANDO (e já sincronizou
+      // a planilha) desde que a sessão começou — aqui só garante isso e marca
+      // quem testou. Teste comum vai pra AGUARD. REVISÃO (só some quando o
+      // Admin aprovar/reprovar de verdade). Se foi marcada RUIM, também fica
+      // AGUARD. REVISÃO até o Admin decidir (nunca continua "PREPARANDO" pra
+      // um pedido/envio com máquina possivelmente quebrada).
+      const pendingSituacao=(sess.prepShipment&&!sess.machineBad)?"PREPARANDO":"AGUARD. REVISÃO";
+      if(exMac){const u={...exMac,situacao:pendingSituacao,lastTesterId:user._id,...audit(user)};mutate("machines",m=>m.map(x=>x._id===exMac._id?u:x));await fbSet("machines",exMac._id,u);}
+      // Máquina Ruim vinculada a um Pedido: a vaga volta na hora, já no envio
+      // pra revisão — não precisa esperar o Admin decidir, já que essa máquina
+      // não vai cumprir o pedido de jeito nenhum. O orderRef continua salvo no
+      // teste/aprovação só pra aparecer no histórico ("era pro pedido tal"),
+      // mas o "fulfilled" do pedido já libera pra outra máquina ser vinculada.
+      if(sess.machineBad&&sess.orderRef){
+        const order=data.orders.find(o=>o._id===sess.orderRef.orderId);
+        if(order){
+          const newItems=order.items.map((it,i)=>i===sess.orderRef.itemIndex?{...it,fulfilled:Math.max(0,(it.fulfilled||0)-1)}:it);
+          const u={...order,items:newItems};
+          mutate("orders",arr=>arr.map(x=>x._id===order._id?u:x));
+          const res=await fbSet("orders",order._id,u);
+          if(!res.ok)alert(`⚠️ ERRO: não consegui devolver a vaga do pedido no banco de dados!\n\nErro: ${res.error}\n\nAvisa o Admin — o pedido pode ficar com a contagem errada.`);
+          await markChanged("orders");
+        }
+      }
+      await markChanged("tests");await markChanged("approvals");await markChanged("machines");
+      syncSheet(webhookUrl,"test",{...rec,employeeCode:user.code,employeeName:user.name});
+      await removeSessionLocal(sess._id);
+      setDone(true);
+      setTimeout(()=>setDone(false),3000);
+    } catch (err) {
+      console.error("doSubmit error:", err);
+      alert(`⚠️ Um erro inesperado impediu o salvamento!\n\nDetalhes: ${err.message || err}\n\nPor favor, contate o administrador.`);
+    } finally {
+      setSubmitting(false);
     }
-    await markChanged("tests");await markChanged("approvals");await markChanged("machines");
-    syncSheet(webhookUrl,"test",{...rec,employeeCode:user.code,employeeName:user.name});
-    await removeSessionLocal(sess._id);setSubmitting(false);setDone(true);setTimeout(()=>setDone(false),3000);
   };
 
   const otherSessions=sessions.filter(s=>s._id!==activeId);
