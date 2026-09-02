@@ -12538,22 +12538,10 @@ function PalletQRCode({pallet,macs,hashes}){
 }
 
 /* === CLIENTES === */
-/* === CLIENTES === */
 function ClientesPage({ctx}){
   const{data,mutate,setModal}=ctx;
   const clients=data.clients||[];
-  const[search,setSearch]=useState("");
-  const[modelFilter,setModelFilter]=useState("");
-  const[dateFrom,setDateFrom]=useState("");
-  const[dateTo,setDateTo]=useState("");
-
-  // Todos os modelos usados por máquinas/hashes de clientes
-  const allModelsUsed=useMemo(()=>{
-    const set=new Set();
-    (data.machines||[]).forEach(m=>{if(m.destino||m.situacao==="SAIDA")set.add(m.model);});
-    (data.hashes||[]).forEach(h=>{if(h.status==="SAIDA")set.add(h.model);});
-    return [...set].filter(Boolean).sort();
-  },[data.machines,data.hashes]);
+  const[selectedClient,setSelectedClient]=useState(null);
 
   // Processa cada cliente com dados agregados
   const enrichedClients=useMemo(()=>{
@@ -12563,97 +12551,30 @@ function ClientesPage({ctx}){
       const allItems=[...macs,...hshs];
       const dates=allItems.map(x=>(x._at||x.date||x.addedAt||"").slice(0,10)).filter(Boolean).sort().reverse();
       const lastShipDate=dates[0]||(c._at?c._at.slice(0,10):(c.createdAt||""));
-      const modelsUsed=[...new Set(allItems.map(x=>x.model).filter(Boolean))];
-      return { client:c, macs, hshs, allItems, dates, lastShipDate, modelsUsed };
+      return { client:c, macs, hshs, lastShipDate };
     });
   },[clients,data.machines,data.hashes]);
 
-  // Filtra clientes por texto (nome, telefone, notas, SNs), modelo e intervalo de data de envio
-  const filteredClients=useMemo(()=>{
-    const s=search.trim().toUpperCase();
-    return enrichedClients.filter(({client:c, macs, hshs, dates, lastShipDate, modelsUsed})=>{
-      // Filtro de texto
-      if(s){
-        const nameMatch=(c.name||"").toUpperCase().includes(s);
-        const phoneMatch=(c.phone||"").toUpperCase().includes(s);
-        const notesMatch=(c.notes||"").toUpperCase().includes(s);
-        const macMatch=macs.some(m=>(m.sn||"").toUpperCase().includes(s));
-        const hashMatch=hshs.some(h=>(h.sn||"").toUpperCase().includes(s));
-        if(!nameMatch && !phoneMatch && !notesMatch && !macMatch && !hashMatch) return false;
-      }
-      // Filtro de modelo
-      if(modelFilter){
-        if(!modelsUsed.includes(modelFilter)) return false;
-      }
-      // Filtro por Data de Envio
-      if(dateFrom || dateTo){
-        const hasDateInRange = dates.some(d=>{
-          if(dateFrom && d < dateFrom) return false;
-          if(dateTo && d > dateTo) return false;
-          return true;
-        });
-        const lastDateInRange = lastShipDate ? (() => {
-          if(dateFrom && lastShipDate < dateFrom) return false;
-          if(dateTo && lastShipDate > dateTo) return false;
-          return true;
-        })() : false;
-
-        if(!hasDateInRange && !lastDateInRange) return false;
-      }
-      return true;
-    });
-  },[enrichedClients,search,modelFilter,dateFrom,dateTo]);
-
   const openAdd=()=>setModal(<Modal title="Novo Cliente" onClose={()=>setModal(null)}><AddClientForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
-  const openDetail=c=>setModal(<Modal title={"👤 "+c.name} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={c}/></Modal>);
 
-  const hasActiveFilters = search || modelFilter || dateFrom || dateTo;
+  // Se houver um cliente selecionado, abre a visão completa na TELA INTEIRA (sem popup!)
+  if (selectedClient) {
+    const currentClientData = data.clients.find(c => c._id === selectedClient._id) || selectedClient;
+    return <ClientDetailView ctx={ctx} client={currentClientData} onBack={()=>setSelectedClient(null)}/>;
+  }
 
   return<div>
     <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}>
       <div>
         <div style={{fontWeight:900,fontSize:18}}>Clientes</div>
-        <div style={{color:C.muted,fontSize:12}}>
-          {hasActiveFilters ? `${filteredClients.length} de ${clients.length} cliente(s)` : `${clients.length} cliente(s)`}
-        </div>
+        <div style={{color:C.muted,fontSize:12}}>{clients.length} cliente(s)</div>
       </div>
       <Btn onClick={openAdd}>+ Cliente</Btn>
     </div>
 
-    {/* Barra de Pesquisa e Filtros Avançados de Envio */}
-    <div style={{background:C.card,borderRadius:12,padding:14,marginBottom:14,border:`1px solid ${C.border}`}}>
-      <div style={{color:C.subtle,fontSize:10,fontWeight:800,letterSpacing:1,marginBottom:8}}>
-        🔍 PESQUISAR CLIENTES (NOME, TELEFONE, MODELO, SN E DATA DE ENVIO)
-      </div>
-      <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-        <input 
-          value={search} 
-          onChange={e=>setSearch(e.target.value)} 
-          placeholder="Pesquisar por nome, telefone, SN..." 
-          style={{...inp,flex:2,minWidth:180,marginBottom:0}}
-        />
-        {allModelsUsed.length>0&&(
-          <select value={modelFilter} onChange={e=>setModelFilter(e.target.value)} style={{...inp,flex:1,minWidth:130,marginBottom:0}}>
-            <option value="">Todos os modelos</option>
-            {allModelsUsed.map(m=><option key={m} value={m}>{m}</option>)}
-          </select>
-        )}
-      </div>
-      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:120}}><DateInp label="Data Envio De" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/></div>
-        <div style={{flex:1,minWidth:120}}><DateInp label="Data Envio Até" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></div>
-        {hasActiveFilters&&(
-          <Btn v="s" onClick={()=>{setSearch("");setModelFilter("");setDateFrom("");setDateTo("");}} style={{fontSize:11,height:36,marginBottom:0}}>
-            Limpar Filtros
-          </Btn>
-        )}
-      </div>
-    </div>
-
     {clients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente cadastrado</div></div>
-      :filteredClients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>🔍</div><div>Nenhum cliente encontrado com estes filtros</div></div>
-      :filteredClients.map(({client:c, macs, hshs, lastShipDate})=>{
-        return<Card key={c._id} onClick={()=>openDetail(c)} style={{marginBottom:10,cursor:"pointer"}}>
+      :enrichedClients.map(({client:c, macs, hshs, lastShipDate})=>{
+        return<Card key={c._id} onClick={()=>setSelectedClient(c)} style={{marginBottom:10,cursor:"pointer"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
             <div>
               <div style={{fontWeight:800,fontSize:15,color:C.text}}>👤 {c.name}</div>
@@ -12795,106 +12716,16 @@ function OrderHistory({ctx,order:o}){
   </div>;
 }
 
-function AddOrderForm({ctx,onClose}){
-  const{data,mutate,user,allModels,gTH,setModal}=ctx;const models=allModels();
-  const[clientId,setClientId]=useState("");
-  const[date,setDate]=useState(TODAY());
-  const[items,setItems]=useState([{model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),qty:1}]);
-  const[showNewClient,setShowNewClient]=useState(false);
-  const prevClientsCountRef=useRef(data.clients.length);
-  useEffect(()=>{
-    if(data.clients.length>prevClientsCountRef.current){
-      const newest=data.clients[data.clients.length-1];
-      setClientId(newest._id);
-    }
-    prevClientsCountRef.current=data.clients.length;
-  },[data.clients.length]);
-  const setItem=(i,k,v)=>setItems(arr=>arr.map((it,idx)=>idx===i?{...it,[k]:v}:it));
-  const addItem=()=>setItems(arr=>[...arr,{model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),qty:1}]);
-  const removeItem=i=>setItems(arr=>arr.filter((_,idx)=>idx!==i));
-  const openNewClient=()=>setShowNewClient(true);
-  const client=data.clients.find(c=>c._id===clientId);
-  const valid=clientId&&items.length>0&&items.every(it=>it.model&&Number(it.qty)>0);
-  const save=async()=>{
-    if(!valid)return;
-    const id=uid();
-    const number=Math.max(0,...(data.orders||[]).map(o=>o.number||0))+1;
-    const d={number,clientId,clientName:client.name,date,employeeId:user._id,employeeName:user.name,employeeCode:user.code,
-      items:items.map(it=>({model:it.model,th:Number(it.th)||0,qty:Number(it.qty),fulfilled:0})),
-      status:"open",...audit(user),createdAt:TODAY()};
-    const res=await fbSet("orders",id,d);
-    if(!res.ok){alert(`⚠️ ERRO: o pedido NÃO foi salvo no banco de dados!\n\nErro: ${res.error}\n\nAvisa o Admin pra corrigir isso antes de continuar usando Pedidos.`);return}
-    mutate("orders",arr=>[...arr,{...d,_id:id}]);await markChanged("orders");
-    onClose();
-  };
-  return<div>
-    <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-      <div style={{flex:1}}>
-        <Sel label="CLIENTE" value={clientId} onChange={e=>setClientId(e.target.value)}>
-          <option value="">Selecionar...</option>
-          {data.clients.map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
-        </Sel>
-      </div>
-      <Btn v="b" onClick={openNewClient} style={{marginBottom:12}}>+ Novo</Btn>
-    </div>
-    <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:6,letterSpacing:1}}>DATA</div>
-    <div style={{display:"flex",gap:8,marginBottom:8}}>
-      <Btn v={date===TODAY()?"g":"s"} onClick={()=>setDate(TODAY())} style={{flex:1,fontSize:12}}>Hoje</Btn>
-      <Btn v={date===TOMORROW()?"g":"s"} onClick={()=>setDate(TOMORROW())} style={{flex:1,fontSize:12}}>Amanhã</Btn>
-    </div>
-    <DateInp value={date} onChange={e=>setDate(e.target.value)}/>
-    <SL mt={8}>ITENS DO PEDIDO</SL>
-    {items.map((it,i)=><div key={i} style={{background:C.card2,borderRadius:10,padding:10,marginBottom:8}}>
-      <div style={{display:"flex",gap:8}}>
-        <div style={{flex:2}}><Sel label="MODELO" value={it.model} onChange={e=>{setItem(i,"model",e.target.value);setItem(i,"th",gTH(e.target.value))}} style={{marginBottom:8}}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel></div>
-        <Inp label="T/H" type="number" value={it.th} onChange={e=>setItem(i,"th",e.target.value)} style={{width:70}}/>
-        <Inp label="QTD" type="number" value={it.qty} onChange={e=>setItem(i,"qty",e.target.value)} style={{width:60}}/>
-      </div>
-      {items.length>1&&<button onClick={()=>removeItem(i)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:12}}>✕ Remover item</button>}
-    </div>)}
-    <Btn v="s" onClick={addItem} style={{width:"100%",marginBottom:14}}>+ Adicionar Item</Btn>
-    <div style={{display:"flex",gap:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!valid} style={{flex:1}}>Criar Pedido</Btn></div>
-    {showNewClient && (
-      <Modal title="Novo Cliente" onClose={()=>setShowNewClient(false)}>
-        <AddClientForm ctx={ctx} onClose={()=>setShowNewClient(false)}/>
-      </Modal>
-    )}
-  </div>;
-}
-
-function ClientLoadPhotos({ctx,client}){
-  const{data,mutate,user}=ctx;
-  const[adding,setAdding]=useState(false);
-  const myPhotos=(data.loadPhotos||[]).filter(p=>p.clientId===client._id).sort((a,b)=>(b._at||"").localeCompare(a._at||""));
-  const addPhoto=async(photoKey)=>{
-    if(!photoKey)return;
-    const id=uid();
-    const d={clientId:client._id,clientName:client.name,photoKey,date:TODAY(),...audit(user)};
-    await fbSet("loadPhotos",id,d);mutate("loadPhotos",arr=>[...arr,{...d,_id:id}]);await markChanged("loadPhotos");
-    setAdding(false);
-  };
-  const removePhoto=async(photoDoc)=>{
-    if(!confirm("Deseja realmente excluir esta foto da carga?"))return;
-    await fbDel("loadPhotos",photoDoc._id);
-    mutate("loadPhotos",arr=>arr.filter(x=>x._id!==photoDoc._id));
-    await markChanged("loadPhotos");
-  };
-  return<div style={{marginBottom:14}}>
-    <SL>📸 Fotos da Carga do Envio ({myPhotos.length})</SL>
-    <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Pode adicionar quantas quiser — cada uma fica salva com a data de hoje, sem apagar as anteriores.</div>
-    {!adding?<Btn v="b" onClick={()=>setAdding(true)} style={{width:"100%",marginBottom:10}}>➕ Adicionar Foto da Carga</Btn>
-      :<div style={{marginBottom:10}}><PhotoCapture photoKey={null} onChange={addPhoto} folder="cargas" snHint={client.name}/></div>}
-    {myPhotos.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-      {myPhotos.map(p=><div key={p._id} style={{position:"relative",background:C.card2,borderRadius:10,padding:6,border:`1px solid ${C.border}`}}><PhotoView photoKey={p.photoKey} style={{maxHeight:120,borderRadius:6}}/><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}><span style={{fontSize:10,color:C.muted}}>{fmtDate(p.date)}</span><button onClick={()=>removePhoto(p)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:10,fontWeight:"bold"}}>✕ Excluir</button></div></div>)}
-    </div>}
-  </div>;
-}
-
-function ClientDetail({ctx,client}){
+function ClientDetailView({ctx,client,onBack}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
-  const[c,setC]=useState(client),[itemType,setItemType]=useState("machine"),[pending,setPending]=useState([]),[removeInput,setRemoveInput]=useState(""),[saving,setSaving]=useState(false),[blockMsg,setBlockMsg]=useState("");
+  const[c,setC]=useState(client);
+  const[itemType,setItemType]=useState("machine");
+  const[pending,setPending]=useState([]);
+  const[removeInput,setRemoveInput]=useState("");
+  const[saving,setSaving]=useState(false);
+  const[blockMsg,setBlockMsg]=useState("");
 
-  // Filtros internos do Modal (Data, Modelo e SN)
+  // Filtros internos do cliente (Data, Modelo e SN)
   const[modelFilter,setModelFilter]=useState("");
   const[dateFrom,setDateFrom]=useState("");
   const[dateTo,setDateTo]=useState("");
@@ -12920,7 +12751,7 @@ function ClientDetail({ctx,client}){
     return true;
   }, [dateFrom, dateTo]);
 
-  // Filtragem dinâmica das máquinas e HASHs no popup
+  // Filtragem dinâmica das máquinas e HASHs na visão do cliente
   const filteredMacs = useMemo(() => {
     return macs.filter(m => {
       if (modelFilter && m.model !== modelFilter) return false;
@@ -12945,8 +12776,7 @@ function ClientDetail({ctx,client}){
     const upd2={...c,machinesSN:(c.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(c.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
     setC(upd2);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd2:x));await fbSet("clients",c._id,upd2);await markChanged("clients");
   };
-  // Item 1+2: bipagem em lote — cada SN bipado entra numa lista mostrando se
-  // já existe (modelo/status) ou se é novo; só grava tudo quando aperta Salvar.
+
   const addToPending=(raw)=>{
     const sn=raw.toUpperCase().trim();if(!sn)return;
     setBlockMsg("");
@@ -12963,8 +12793,9 @@ function ClientDetail({ctx,client}){
       }
     });
   };
+
   const removeFromPending=sn=>setPending(p=>p.filter(x=>x.sn!==sn));
-  // Ao vender, tira automaticamente de qualquer palete que a máquina/HASH estava
+
   const removeFromAllPallets=async(sn,isHash)=>{
     const field=isHash?"hashesSN":"machinesSN";
     for(const pl of data.pallets){
@@ -12977,6 +12808,7 @@ function ClientDetail({ctx,client}){
     }
     await markChanged("pallets");
   };
+
   const saveAll=async()=>{
     if(!pending.length)return;
     setSaving(true);
@@ -13034,6 +12866,7 @@ function ClientDetail({ctx,client}){
     setPending([]);
     setSaving(false);
   };
+
   const remMac=async(sn)=>{
     if(!confirm(`Desvincular a máquina ${sn} deste cliente e devolvê-la ao estoque?`))return;
     const ex=data.machines.find(m=>m.sn===sn && m.destino===c.name) || data.machines.find(m=>m.sn===sn);
@@ -13063,6 +12896,7 @@ function ClientDetail({ctx,client}){
     await markChanged("clients");
     await markChanged("machines");
   };
+
   const remHash=async(sn)=>{
     if(!confirm(`Desvincular a HASH ${sn} deste cliente e devolvê-la ao estoque?`))return;
     const ex=data.hashes.find(h=>h.sn===sn && h.location.includes(c.name)) || data.hashes.find(h=>h.sn===sn);
@@ -13081,15 +12915,27 @@ function ClientDetail({ctx,client}){
     await markChanged("clients");
     await markChanged("hashes");
   };
+
   const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))remMac(sn);else if((c.hashesSN||[]).includes(sn))remHash(sn);setRemoveInput("")};
-  const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
+  const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");if(onBack)onBack();};
 
   return<div>
-    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}>
-      <div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>
-      {c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}
+    {/* Cabeçalho de Navegação com Botão Voltar */}
+    <div className="sticky-header" style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,padding:"10px 0"}}>
+      <Btn v="b" onClick={onBack} style={{fontSize:13,padding:"8px 16px",fontWeight:800,display:"flex",alignItems:"center",gap:6}}>
+        ⬅️ Voltar para Clientes
+      </Btn>
+      <div style={{fontWeight:900,fontSize:20,color:C.text}}>
+        👤 {c.name}
+      </div>
+    </div>
+
+    {/* Ficha Principal do Cliente */}
+    <div style={{background:C.card,borderRadius:14,padding:16,marginBottom:16,border:`1px solid ${C.border}`}}>
+      <div style={{fontWeight:900,fontSize:18,color:C.text,marginBottom:4}}>👤 {c.name}</div>
+      {c.phone&&<div style={{color:C.blue,fontSize:13,fontWeight:700}}>📱 {c.phone}</div>}
       {c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}
-      <div style={{marginTop:8,display:"flex",gap:8}}>
+      <div style={{marginTop:12,display:"flex",gap:10}}>
         <div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}>
           <div style={{fontWeight:900,color:C.accent,fontSize:20}}>{macs.length}</div>
           <div style={{fontSize:10,color:C.muted}}>Máquinas</div>
