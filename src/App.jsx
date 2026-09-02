@@ -12538,19 +12538,157 @@ function PalletQRCode({pallet,macs,hashes}){
 }
 
 /* === CLIENTES === */
+/* === CLIENTES === */
 function ClientesPage({ctx}){
   const{data,mutate,setModal}=ctx;
   const clients=data.clients||[];
+  const[search,setSearch]=useState("");
+  const[modelFilter,setModelFilter]=useState("");
+  const[dateFrom,setDateFrom]=useState("");
+  const[dateTo,setDateTo]=useState("");
+
+  // Todos os modelos usados por máquinas/hashes de clientes
+  const allModelsUsed=useMemo(()=>{
+    const set=new Set();
+    (data.machines||[]).forEach(m=>{if(m.destino||m.situacao==="SAIDA")set.add(m.model);});
+    (data.hashes||[]).forEach(h=>{if(h.status==="SAIDA")set.add(h.model);});
+    return [...set].filter(Boolean).sort();
+  },[data.machines,data.hashes]);
+
+  // Processa cada cliente com dados agregados
+  const enrichedClients=useMemo(()=>{
+    return clients.map(c=>{
+      const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
+      const hshs=(c.hashesSN||[]).map(sn=>data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
+      const allItems=[...macs,...hshs];
+      const dates=allItems.map(x=>(x._at||x.date||x.addedAt||"").slice(0,10)).filter(Boolean).sort().reverse();
+      const lastShipDate=dates[0]||(c._at?c._at.slice(0,10):(c.createdAt||""));
+      const modelsUsed=[...new Set(allItems.map(x=>x.model).filter(Boolean))];
+      return { client:c, macs, hshs, allItems, dates, lastShipDate, modelsUsed };
+    });
+  },[clients,data.machines,data.hashes]);
+
+  // Filtra clientes por texto (nome, telefone, notas, SNs), modelo e intervalo de data de envio
+  const filteredClients=useMemo(()=>{
+    const s=search.trim().toUpperCase();
+    return enrichedClients.filter(({client:c, macs, hshs, dates, lastShipDate, modelsUsed})=>{
+      // Filtro de texto
+      if(s){
+        const nameMatch=(c.name||"").toUpperCase().includes(s);
+        const phoneMatch=(c.phone||"").toUpperCase().includes(s);
+        const notesMatch=(c.notes||"").toUpperCase().includes(s);
+        const macMatch=macs.some(m=>(m.sn||"").toUpperCase().includes(s));
+        const hashMatch=hshs.some(h=>(h.sn||"").toUpperCase().includes(s));
+        if(!nameMatch && !phoneMatch && !notesMatch && !macMatch && !hashMatch) return false;
+      }
+      // Filtro de modelo
+      if(modelFilter){
+        if(!modelsUsed.includes(modelFilter)) return false;
+      }
+      // Filtro por Data de Envio
+      if(dateFrom || dateTo){
+        const hasDateInRange = dates.some(d=>{
+          if(dateFrom && d < dateFrom) return false;
+          if(dateTo && d > dateTo) return false;
+          return true;
+        });
+        const lastDateInRange = lastShipDate ? (() => {
+          if(dateFrom && lastShipDate < dateFrom) return false;
+          if(dateTo && lastShipDate > dateTo) return false;
+          return true;
+        })() : false;
+
+        if(!hasDateInRange && !lastDateInRange) return false;
+      }
+      return true;
+    });
+  },[enrichedClients,search,modelFilter,dateFrom,dateTo]);
+
   const openAdd=()=>setModal(<Modal title="Novo Cliente" onClose={()=>setModal(null)}><AddClientForm ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openDetail=c=>setModal(<Modal title={"👤 "+c.name} onClose={()=>setModal(null)}><ClientDetail ctx={ctx} client={c}/></Modal>);
+
+  const hasActiveFilters = search || modelFilter || dateFrom || dateTo;
+
   return<div>
-    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}><div><div style={{fontWeight:900,fontSize:18}}>Clientes</div><div style={{color:C.muted,fontSize:12}}>{clients.length} clientes</div></div><Btn onClick={openAdd}>+ Cliente</Btn></div>
-    {clients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente</div></div>
-      :clients.map(c=>{const macs=(c.machinesSN||[]).map(sn=>data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);return<Card key={c._id} onClick={()=>openDetail(c)}>
-        <div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:800,fontSize:14}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.muted,fontSize:12}}>📱 {c.phone}</div>}</div><Tag color={C.accent}>{macs.length} máq.</Tag></div>
-        {macs.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:6}}>{macs.slice(0,4).map(m=><span key={m._id} style={{background:(SIT_C[m.situacao]||C.muted)+"22",borderRadius:6,padding:"2px 6px",fontSize:10,color:SIT_C[m.situacao]||C.muted}}>{m.sn?.slice(0,10)||"s/sn"}</span>)}{macs.length>4&&<span style={{color:C.muted,fontSize:10}}>+{macs.length-4}</span>}</div>}
-        <By by={c._byName} at={c._at}/>
-      </Card>;})}
+    <div className="sticky-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14, padding: "10px 0"}}>
+      <div>
+        <div style={{fontWeight:900,fontSize:18}}>Clientes</div>
+        <div style={{color:C.muted,fontSize:12}}>
+          {hasActiveFilters ? `${filteredClients.length} de ${clients.length} cliente(s)` : `${clients.length} cliente(s)`}
+        </div>
+      </div>
+      <Btn onClick={openAdd}>+ Cliente</Btn>
+    </div>
+
+    {/* Barra de Pesquisa e Filtros Avançados de Envio */}
+    <div style={{background:C.card,borderRadius:12,padding:14,marginBottom:14,border:`1px solid ${C.border}`}}>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,letterSpacing:1,marginBottom:8}}>
+        🔍 PESQUISAR CLIENTES (NOME, TELEFONE, MODELO, SN E DATA DE ENVIO)
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+        <input 
+          value={search} 
+          onChange={e=>setSearch(e.target.value)} 
+          placeholder="Pesquisar por nome, telefone, SN..." 
+          style={{...inp,flex:2,minWidth:180,marginBottom:0}}
+        />
+        {allModelsUsed.length>0&&(
+          <select value={modelFilter} onChange={e=>setModelFilter(e.target.value)} style={{...inp,flex:1,minWidth:130,marginBottom:0}}>
+            <option value="">Todos os modelos</option>
+            {allModelsUsed.map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:120}}><DateInp label="Data Envio De" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/></div>
+        <div style={{flex:1,minWidth:120}}><DateInp label="Data Envio Até" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></div>
+        {hasActiveFilters&&(
+          <Btn v="s" onClick={()=>{setSearch("");setModelFilter("");setDateFrom("");setDateTo("");}} style={{fontSize:11,height:36,marginBottom:0}}>
+            Limpar Filtros
+          </Btn>
+        )}
+      </div>
+    </div>
+
+    {clients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>👥</div><div>Nenhum cliente cadastrado</div></div>
+      :filteredClients.length===0?<div style={{textAlign:"center",color:C.muted,padding:40}}><div style={{fontSize:40}}>🔍</div><div>Nenhum cliente encontrado com estes filtros</div></div>
+      :filteredClients.map(({client:c, macs, hshs, lastShipDate})=>{
+        return<Card key={c._id} onClick={()=>openDetail(c)} style={{marginBottom:10,cursor:"pointer"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:15,color:C.text}}>👤 {c.name}</div>
+              {c.phone&&<div style={{color:C.blue,fontSize:12,marginTop:2}}>📱 {c.phone}</div>}
+              {c.notes&&<div style={{color:C.subtle,fontSize:11,marginTop:2,maxHeight:32,overflow:"hidden"}}>{c.notes}</div>}
+            </div>
+            <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              <Tag color={macs.length>0?C.accent:C.muted} small>🖥️ {macs.length} máq.</Tag>
+              {hshs.length>0&&<Tag color={C.purple} small>⚡ {hshs.length} HASHs</Tag>}
+            </div>
+          </div>
+          
+          {/* Data do Último Envio */}
+          {lastShipDate&&(
+            <div style={{fontSize:11,color:C.subtle,marginTop:6,display:"flex",alignItems:"center",gap:4}}>
+              <span>📅</span>
+              <span style={{fontWeight:700}}>Último envio:</span>
+              <span style={{color:C.accent}}>{fmtDate(lastShipDate)}</span>
+            </div>
+          )}
+
+          {/* Previsualização das máquinas */}
+          {macs.length>0&&(
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:8}}>
+              {macs.slice(0,5).map(m=>(
+                <span key={m._id} style={{background:(SIT_C[m.situacao]||C.muted)+"22",border:`1px solid ${(SIT_C[m.situacao]||C.muted)}44`,borderRadius:6,padding:"2px 6px",fontSize:10,color:SIT_C[m.situacao]||C.muted,fontWeight:700}}>
+                  {m.model ? `${m.model} · ` : ""}{m.sn?.slice(0,10)||"s/sn"}
+                </span>
+              ))}
+              {macs.length>5&&<span style={{color:C.muted,fontSize:10,alignSelf:"center"}}>+{macs.length-5}</span>}
+            </div>
+          )}
+          <By by={c._byName} at={c._at}/>
+        </Card>;
+      })}
   </div>;
 }
 function AddClientForm({ctx,onClose}){
@@ -12663,8 +12801,6 @@ function AddOrderForm({ctx,onClose}){
   const[date,setDate]=useState(TODAY());
   const[items,setItems]=useState([{model:models[0]?.m||"M30S",th:gTH(models[0]?.m||"M30S"),qty:1}]);
   const[showNewClient,setShowNewClient]=useState(false);
-  // Se o usuário criar um cliente novo pelo botão "+ Novo" (modal aninhado),
-  // seleciona ele sozinho assim que a lista de clientes crescer.
   const prevClientsCountRef=useRef(data.clients.length);
   useEffect(()=>{
     if(data.clients.length>prevClientsCountRef.current){
@@ -12725,10 +12861,7 @@ function AddOrderForm({ctx,onClose}){
     )}
   </div>;
 }
-// Fotos da carga do envio — pode adicionar VÁRIAS, cada uma soma na lista
-// (não substitui a anterior), sempre com a data de hoje. Serve pra registrar
-// o carregamento físico (caminhão, palete, etc.) além das fotos de cada
-// máquina/HASH individual.
+
 function ClientLoadPhotos({ctx,client}){
   const{data,mutate,user}=ctx;
   const[adding,setAdding]=useState(false);
@@ -12760,10 +12893,54 @@ function ClientLoadPhotos({ctx,client}){
 function ClientDetail({ctx,client}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
   const[c,setC]=useState(client),[itemType,setItemType]=useState("machine"),[pending,setPending]=useState([]),[removeInput,setRemoveInput]=useState(""),[saving,setSaving]=useState(false),[blockMsg,setBlockMsg]=useState("");
+
+  // Filtros internos do Modal (Data, Modelo e SN)
+  const[modelFilter,setModelFilter]=useState("");
+  const[dateFrom,setDateFrom]=useState("");
+  const[dateTo,setDateTo]=useState("");
+  const[searchSN,setSearchSN]=useState("");
+
   const macs=[...(c.machinesSN||[])].reverse().map(sn=>data.machines.find(m=>m.sn===sn)||data.machines.find(m=>normSNField(m.sn)===normSNField(sn))).filter(Boolean);
   const hshs=[...(c.hashesSN||[])].reverse().map(sn=>data.hashes.find(h=>h.sn===sn)||data.hashes.find(h=>normSNField(h.sn)===normSNField(sn))).filter(Boolean);
   const ghostM=(c.machinesSN||[]).filter(sn=>!data.machines.find(m=>m.sn===sn)&&!data.machines.find(m=>normSNField(m.sn)===normSNField(sn)));
   const ghostH=(c.hashesSN||[]).filter(sn=>!data.hashes.find(h=>h.sn===sn)&&!data.hashes.find(h=>normSNField(h.sn)===normSNField(sn)));
+
+  const allModelsUsed=useMemo(()=>{
+    return [...new Set([...macs.map(m=>m.model),...hshs.map(h=>h.model)].filter(Boolean))].sort();
+  },[macs,hshs]);
+
+  // Função auxiliar para conferir se a data de envio está no intervalo
+  const matchDate = useCallback((item) => {
+    const at = item._at || item.date || item.addedAt || item._updatedAt || "";
+    if (!dateFrom && !dateTo) return true;
+    if (!at) return false;
+    const d = at.slice(0, 10);
+    if (dateFrom && d < dateFrom) return false;
+    if (dateTo && d > dateTo) return false;
+    return true;
+  }, [dateFrom, dateTo]);
+
+  // Filtragem dinâmica das máquinas e HASHs no popup
+  const filteredMacs = useMemo(() => {
+    return macs.filter(m => {
+      if (modelFilter && m.model !== modelFilter) return false;
+      if (searchSN && !(m.sn || "").toUpperCase().includes(searchSN.toUpperCase())) return false;
+      if (!matchDate(m)) return false;
+      return true;
+    });
+  }, [macs, modelFilter, searchSN, matchDate]);
+
+  const filteredHshs = useMemo(() => {
+    return hshs.filter(h => {
+      if (modelFilter && h.model !== modelFilter) return false;
+      if (searchSN && !(h.sn || "").toUpperCase().includes(searchSN.toUpperCase())) return false;
+      if (!matchDate(h)) return false;
+      return true;
+    });
+  }, [hshs, modelFilter, searchSN, matchDate]);
+
+  const hasModalFilters = modelFilter || dateFrom || dateTo || searchSN;
+
   const limparFantasmasCliente=async()=>{
     const upd2={...c,machinesSN:(c.machinesSN||[]).filter(sn=>!ghostM.includes(sn)),hashesSN:(c.hashesSN||[]).filter(sn=>!ghostH.includes(sn)),...audit(user)};
     setC(upd2);mutate("clients",arr=>arr.map(x=>x._id===c._id?upd2:x));await fbSet("clients",c._id,upd2);await markChanged("clients");
@@ -12906,11 +13083,63 @@ function ClientDetail({ctx,client}){
   };
   const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))remMac(sn);else if((c.hashesSN||[]).includes(sn))remHash(sn);setRemoveInput("")};
   const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");setModal(null)};
+
   return<div>
-    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}><div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>{c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}{c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}<div style={{marginTop:8,display:"flex",gap:8}}><div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.accent,fontSize:20}}>{macs.length}</div><div style={{fontSize:10,color:C.muted}}>Máquinas</div></div><div style={{background:C.purple+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}><div style={{fontWeight:900,color:C.purple,fontSize:20}}>{hshs.length}</div><div style={{fontSize:10,color:C.muted}}>HASHs</div></div></div></div>
-    <div style={{color:C.muted,fontSize:11,marginBottom:10}}>ℹ️ Isso mostra só as máquinas/HASHs que ainda existem no estoque. O histórico de tudo que já foi enviado — mesmo se a máquina depois for apagada — fica sempre no "📋 Relatório de Envios" abaixo, não some daqui.</div>
+    <div style={{background:C.card2,borderRadius:12,padding:14,marginBottom:14}}>
+      <div style={{fontWeight:900,fontSize:16,marginBottom:4}}>👤 {c.name}</div>
+      {c.phone&&<div style={{color:C.blue,fontSize:13}}>📱 {c.phone}</div>}
+      {c.notes&&<div style={{color:C.subtle,fontSize:12,marginTop:4}}>{c.notes}</div>}
+      <div style={{marginTop:8,display:"flex",gap:8}}>
+        <div style={{background:C.accent+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}>
+          <div style={{fontWeight:900,color:C.accent,fontSize:20}}>{macs.length}</div>
+          <div style={{fontSize:10,color:C.muted}}>Máquinas</div>
+        </div>
+        <div style={{background:C.purple+"22",borderRadius:8,padding:"6px 12px",textAlign:"center",flex:1}}>
+          <div style={{fontWeight:900,color:C.purple,fontSize:20}}>{hshs.length}</div>
+          <div style={{fontSize:10,color:C.muted}}>HASHs</div>
+        </div>
+      </div>
+    </div>
+
+    <div style={{color:C.muted,fontSize:11,marginBottom:10}}>ℹ️ Isso mostra só as máquinas/HASHs que ainda existem no estoque. O histórico de tudo que já foi enviado — mesmo se a máquina depois for apagada — fica sempre no "📋 Relatório de Envios" abaixo.</div>
     <Btn v="b" onClick={()=>setModal(<Modal title={`📋 Relatório — ${c.name}`} onClose={()=>setModal(null)}><ClientReport ctx={ctx} client={c}/></Modal>)} style={{width:"100%",marginBottom:14}}>📋 Relatório de Envios</Btn>
     <ClientLoadPhotos ctx={ctx} client={c}/>
+
+    {/* Filtros no Pop-Up do Cliente: Data, Modelo e SN */}
+    <div style={{background:C.bg,borderRadius:10,padding:12,marginBottom:14,border:`1px solid ${C.border}`}}>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,letterSpacing:1,marginBottom:8}}>
+        🔍 FILTRAR MÁQUINAS E HASHS POR MODELO, DATA E SN
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+        <input 
+          value={searchSN} 
+          onChange={e=>setSearchSN(e.target.value.toUpperCase())} 
+          placeholder="Buscar por SN..." 
+          style={{...inp,flex:1,marginBottom:0,fontSize:12,padding:"6px 10px"}}
+        />
+        {allModelsUsed.length>0&&(
+          <select value={modelFilter} onChange={e=>setModelFilter(e.target.value)} style={{...inp,flex:1,marginBottom:0,fontSize:12,padding:"6px 10px"}}>
+            <option value="">Todos os modelos</option>
+            {allModelsUsed.map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:110}}><DateInp label="Data Envio De" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/></div>
+        <div style={{flex:1,minWidth:110}}><DateInp label="Data Envio Até" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></div>
+        {hasModalFilters&&(
+          <Btn v="s" onClick={()=>{setModelFilter("");setDateFrom("");setDateTo("");setSearchSN("");}} style={{fontSize:11,padding:"6px 10px",height:36,marginBottom:0}}>
+            Limpar
+          </Btn>
+        )}
+      </div>
+      {hasModalFilters&&(
+        <div style={{fontSize:11,color:C.accent,marginTop:8,fontWeight:700}}>
+          ✓ Exibindo {filteredMacs.length} de {macs.length} máquina(s) e {filteredHshs.length} de {hshs.length} HASH(s)
+        </div>
+      )}
+    </div>
+
     <div style={{color:C.amber,fontSize:11,marginBottom:8}}>⚠️ Ao salvar, vai tudo pra SAIDA (máquina e HASHs internas dela também)</div>
     <div style={{background:C.bg,borderRadius:10,padding:14,marginBottom:14}}>
       <SL>O QUE VOCÊ VAI ADICIONAR?</SL>
@@ -12930,10 +13159,51 @@ function ClientDetail({ctx,client}){
       <SL>REMOVER DO CLIENTE POR SN</SL>
       <div style={{display:"flex",gap:8}}><input value={removeInput} onChange={e=>setRemoveInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&removeBySN()} placeholder="Bipe ou digite o SN pra remover..." style={{...inp,flex:1}}/><Btn v="d" onClick={removeBySN} style={{fontSize:12}}>Remover</Btn></div>
     </div>
-    <SL>Máquinas ({macs.length})</SL>
-    {macs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma máquina</div>:macs.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div><div style={{fontSize:10,color:C.muted}}>{m.model} · {m.th}TH</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button><button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div></div>)}
-    <SL mt={14}>HASHs avulsas ({hshs.length})</SL>
-    {hshs.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>Nenhuma HASH avulsa</div>:hshs.map(h=><div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}><div><div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"} <HP s={h.status}/></div><div style={{fontSize:10,color:C.muted}}>{h.model}</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button><button onClick={()=>remHash(h.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button></div></div>)}
+    
+    <SL>Máquinas ({filteredMacs.length}{hasModalFilters?` de ${macs.length}`:""})</SL>
+    {filteredMacs.length===0?
+      <div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>
+        {hasModalFilters?"Nenhuma máquina encontrada com este filtro":"Nenhuma máquina"}
+      </div>
+      :filteredMacs.map(m=>{
+        const shipDate = m._at ? fmtTS(m._at) : (m.date ? fmtDate(m.date) : (m.addedAt ? fmtDate(m.addedAt) : null));
+        return <div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div>
+            <div style={{fontSize:10,color:C.muted}}>
+              {m.model} · {m.th}TH {shipDate ? ` · 📅 Enviada: ${shipDate}` : ""}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>
+            <button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button>
+          </div>
+        </div>;
+      })
+    }
+    
+    <SL mt={14}>HASHs avulsas ({filteredHshs.length}{hasModalFilters?` de ${hshs.length}`:""})</SL>
+    {filteredHshs.length===0?
+      <div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>
+        {hasModalFilters?"Nenhuma HASH avulsa encontrada com este filtro":"Nenhuma HASH avulsa"}
+      </div>
+      :filteredHshs.map(h=>{
+        const shipDate = h._at ? fmtTS(h._at) : (h.date ? fmtDate(h.date) : (h.addedAt ? fmtDate(h.addedAt) : null));
+        return <div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"} <HP s={h.status}/></div>
+            <div style={{fontSize:10,color:C.muted}}>
+              {h.model} {shipDate ? ` · 📅 Enviada: ${shipDate}` : ""}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>
+            <button onClick={()=>remHash(h.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button>
+          </div>
+        </div>;
+      })
+    }
+
     <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Cliente</Btn>
   </div>;
 }
