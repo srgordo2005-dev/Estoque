@@ -12896,7 +12896,6 @@ function ClientDetailView({ctx,client,onBack}){
   };
 
   const remMac=async(sn)=>{
-    if(!confirm(`Desvincular a máquina ${sn} deste cliente e devolvê-la ao estoque?`))return;
     const ex=data.machines.find(m=>m.sn===sn && m.destino===c.name) || data.machines.find(m=>m.sn===sn);
     if(ex){
       const u={...ex,situacao:"BOA",destino:"",changeLog:[{field:"situacao",label:"Situação",from:ex.situacao,to:"BOA (desvinculada de "+c.name+")",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
@@ -12926,10 +12925,9 @@ function ClientDetailView({ctx,client,onBack}){
   };
 
   const remHash=async(sn)=>{
-    if(!confirm(`Desvincular a HASH ${sn} deste cliente e devolvê-la ao estoque?`))return;
     const ex=data.hashes.find(h=>h.sn===sn && h.location.includes(c.name)) || data.hashes.find(h=>h.sn===sn);
     if(ex){
-      const hu={...ex,status:"STOCK",location:"",changeLog:[{field:"status",label:"Status",from:ex.status,to:"STOCK (desvinculada do cliente)",by:user.name,at:stamp()},...(ex.changeLog||[])].slice(0,80),...audit(user)};
+      const hu={...ex,status:"STOCK",location:"",changeLog:[{field:"status",label:"Status",from:ex.status,to:"STOCK (desvinculada do cliente)",by:user.name,at:stamp()},...(h.changeLog||[])].slice(0,80),...audit(user)};
       mutate("hashes",arr=>arr.map(x=>x._id===ex._id?hu:x));
       await fbSet("hashes",ex._id,hu);
       syncSheet(webhookUrl,"updateHash",{sn:hu.sn,model:hu.model,status:"STOCK",machineSN:"",employeeName:user.name,employeeCode:user.code});
@@ -12944,7 +12942,58 @@ function ClientDetailView({ctx,client,onBack}){
     await markChanged("hashes");
   };
 
-  const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))remMac(sn);else if((c.hashesSN||[]).includes(sn))remHash(sn);setRemoveInput("")};
+  // Pop-ups de confirmação personalizados para desvincular
+  const askRemMac=(m)=>{
+    setModal(
+      <Modal title="⚠️ Confirmar Desvinculação" onClose={()=>setModal(null)}>
+        <div>
+          <div style={{fontSize:14,color:C.text,marginBottom:12}}>
+            Deseja realmente desvincular esta máquina do cliente <strong style={{color:C.accent}}>{c.name}</strong> e devolvê-la ao estoque?
+          </div>
+          <Card accent={C.amber} style={{marginBottom:14,padding:12}}>
+            <div style={{fontWeight:900,fontSize:15,color:C.text}}>🖥️ {m.sn||"SEM SN"}</div>
+            <div style={{fontSize:12,color:C.muted,marginTop:2}}>{m.model} · {m.th}TH</div>
+          </Card>
+          <div style={{color:C.muted,fontSize:11,marginBottom:16}}>
+            ℹ️ A máquina voltará para a situação <strong>BOA</strong> no estoque. As HASHs internas dela também voltarão ao status <strong>NA MÁQUINA</strong>.
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn v="s" onClick={()=>setModal(null)} style={{flex:1}}>Cancelar</Btn>
+            <Btn v="d" onClick={async()=>{setModal(null);await remMac(m.sn||"");}} style={{flex:1}}>
+              🗑️ Desvincular e Devolver
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+    );
+  };
+
+  const askRemHash=(h)=>{
+    setModal(
+      <Modal title="⚠️ Confirmar Desvinculação" onClose={()=>setModal(null)}>
+        <div>
+          <div style={{fontSize:14,color:C.text,marginBottom:12}}>
+            Deseja realmente desvincular esta HASH avulsa do cliente <strong style={{color:C.accent}}>{c.name}</strong> e devolvê-la ao estoque?
+          </div>
+          <Card accent={C.purple} style={{marginBottom:14,padding:12}}>
+            <div style={{fontWeight:900,fontSize:15,color:C.text}}>⚡ {h.sn||"SEM SN"}</div>
+            <div style={{fontSize:12,color:C.muted,marginTop:2}}>{h.model}</div>
+          </Card>
+          <div style={{color:C.muted,fontSize:11,marginBottom:16}}>
+            ℹ️ A HASH voltará para o status <strong>STOCK</strong> no estoque principal.
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn v="s" onClick={()=>setModal(null)} style={{flex:1}}>Cancelar</Btn>
+            <Btn v="d" onClick={async()=>{setModal(null);await remHash(h.sn||"");}} style={{flex:1}}>
+              🗑️ Desvincular e Devolver
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+    );
+  };
+
+  const removeBySN=()=>{const sn=removeInput.toUpperCase().trim();if(!sn)return;if((c.machinesSN||[]).includes(sn))askRemMac(data.machines.find(m=>m.sn===sn)||{sn});else if((c.hashesSN||[]).includes(sn))askRemHash(data.hashes.find(h=>h.sn===sn)||{sn});setRemoveInput("")};
   const del=async()=>{if(!confirm("Remover "+c.name+"?"))return;mutate("clients",arr=>arr.filter(x=>x._id!==c._id));await fbDel("clients",c._id);await markChanged("clients");if(onBack)onBack();};
 
   return<div>
@@ -12975,22 +13024,35 @@ function ClientDetailView({ctx,client,onBack}){
       </div>
     </div>
 
-    <div style={{color:C.muted,fontSize:11,marginBottom:10}}>ℹ️ Isso mostra só as máquinas/HASHs que ainda existem no estoque. O histórico de tudo que já foi enviado — mesmo se a máquina depois for apagada — fica sempre no "📋 Relatório de Envios" abaixo.</div>
-    <Btn v="b" onClick={()=>setModal(<Modal title={`📋 Relatório — ${c.name}`} onClose={()=>setModal(null)}><ClientReport ctx={ctx} client={c}/></Modal>)} style={{width:"100%",marginBottom:14}}>📋 Relatório de Envios</Btn>
+    {/* Barra de Pesquisa Rápida por SN */}
+    <div style={{background:C.card,borderRadius:14,padding:"12px 16px",display:"flex",gap:12,alignItems:"center",marginBottom:14,border:`1px solid ${C.border}`,boxShadow:"inset 0 0 10px rgba(255,215,0,0.05)"}}>
+      <span style={{fontSize:20}}>🔍</span>
+      <input 
+        value={searchSN} 
+        onChange={e=>setSearchSN(e.target.value.toUpperCase())} 
+        placeholder="Pesquisar por SN da máquina ou HASH..." 
+        style={{background:"none",border:"none",color:C.text,fontSize:15,flex:1,outline:"none",fontWeight:600}}
+      />
+      {searchSN&&(
+        <button onClick={()=>setSearchSN("")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:16}}>✕ Limpar</button>
+      )}
+    </div>
+
+    {/* Ações e Fotos */}
+    <div style={{display:"flex",gap:10,marginBottom:16}}>
+      <Btn v="b" onClick={()=>setModal(<Modal title={`📋 Relatório — ${c.name}`} onClose={()=>setModal(null)}><ClientReport ctx={ctx} client={c}/></Modal>)} style={{flex:1,padding:12}}>
+        📋 Relatório de Envios
+      </Btn>
+    </div>
+
     <ClientLoadPhotos ctx={ctx} client={c}/>
 
     {/* Filtros no Pop-Up do Cliente: Data, Modelo e SN */}
     <div style={{background:C.bg,borderRadius:10,padding:12,marginBottom:14,border:`1px solid ${C.border}`}}>
       <div style={{color:C.subtle,fontSize:10,fontWeight:800,letterSpacing:1,marginBottom:8}}>
-        🔍 FILTRAR MÁQUINAS E HASHS POR MODELO, DATA E SN
+        🔍 FILTRAR POR MODELO E PERÍODO DE ENVIO
       </div>
       <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-        <input 
-          value={searchSN} 
-          onChange={e=>setSearchSN(e.target.value.toUpperCase())} 
-          placeholder="Buscar por SN..." 
-          style={{...inp,flex:1,marginBottom:0,fontSize:12,padding:"6px 10px"}}
-        />
         {allModelsUsed.length>0&&(
           <select value={modelFilter} onChange={e=>setModelFilter(e.target.value)} style={{...inp,flex:1,marginBottom:0,fontSize:12,padding:"6px 10px"}}>
             <option value="">Todos os modelos</option>
@@ -13003,7 +13065,7 @@ function ClientDetailView({ctx,client,onBack}){
         <div style={{flex:1,minWidth:110}}><DateInp label="Data Envio Até" value={dateTo} onChange={e=>setDateTo(e.target.value)}/></div>
         {hasModalFilters&&(
           <Btn v="s" onClick={()=>{setModelFilter("");setDateFrom("");setDateTo("");setSearchSN("");}} style={{fontSize:11,padding:"6px 10px",height:36,marginBottom:0}}>
-            Limpar
+            Limpar Filtros
           </Btn>
         )}
       </div>
