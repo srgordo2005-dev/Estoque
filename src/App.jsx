@@ -13034,49 +13034,123 @@ function ClientDetailView({ctx,client,onBack}){
       <div style={{display:"flex",gap:8}}><input value={removeInput} onChange={e=>setRemoveInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&removeBySN()} placeholder="Bipe ou digite o SN pra remover..." style={{...inp,flex:1}}/><Btn v="d" onClick={removeBySN} style={{fontSize:12}}>Remover</Btn></div>
     </div>
     
-    <SL>Máquinas ({filteredMacs.length}{hasModalFilters?` de ${macs.length}`:""})</SL>
-    {filteredMacs.length===0?
-      <div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>
-        {hasModalFilters?"Nenhuma máquina encontrada com este filtro":"Nenhuma máquina"}
+    {/* Listagem de Máquinas */}
+    <div style={{marginBottom:24}}>
+      <div style={{fontWeight:900,fontSize:16,marginBottom:12,color:C.text,display:"flex",alignItems:"center",gap:8}}>
+        <span>🖥️ Máquinas ({filteredMacs.length}{hasModalFilters?` de ${macs.length}`:""})</span>
       </div>
-      :filteredMacs.map(m=>{
-        const shipDate = m._at ? fmtTS(m._at) : (m.date ? fmtDate(m.date) : (m.addedAt ? fmtDate(m.addedAt) : null));
-        return <div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:12}}>{m.sn||"SEM SN"} <SP s={m.situacao}/></div>
-            <div style={{fontSize:10,color:C.muted}}>
-              {m.model} · {m.th}TH {shipDate ? ` · 📅 Enviada: ${shipDate}` : ""}
+
+      {filteredMacs.length===0?
+        <div style={{background:C.card,borderRadius:12,padding:24,textAlign:"center",color:C.muted}}>
+          {hasModalFilters?"Nenhuma máquina encontrada com este filtro":"Nenhuma máquina vinculada a este cliente"}
+        </div>
+        :filteredMacs.map(m=>{
+          const shipDate = m._at ? fmtTS(m._at) : (m.date ? fmtDate(m.date) : (m.addedAt ? fmtDate(m.addedAt) : null));
+          return <Card key={m._id} accent={SIT_C[m.situacao]||C.accent} style={{marginBottom:10,padding:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+              {/* Esquerda: SN + Status */}
+              <div style={{display:"flex",alignItems:"center",gap:10,minWidth:220}}>
+                <span style={{fontWeight:900,fontSize:16,fontFamily:"monospace",color:!m.sn?C.red:C.text}}>
+                  {m.sn||"SEM SN"}
+                </span>
+                <SP s={m.situacao}/>
+              </div>
+
+              {/* Centro-Esquerda: Modelo e TH */}
+              <div style={{display:"flex",alignItems:"center",gap:8,minWidth:140}}>
+                <span style={{fontWeight:800,fontSize:14,color:C.accent,background:C.accent+"15",padding:"3px 10px",borderRadius:8,border:`1px solid ${C.accent}33`}}>
+                  {m.model||"S/M"}
+                </span>
+                {m.th? <span style={{fontWeight:700,fontSize:13,color:C.subtle}}>{m.th} TH</span> : null}
+              </div>
+
+              {/* Centro-Direita: Data de Envio (Espaçada e Destacada) */}
+              <div style={{flex:1,display:"flex",justifyContent:"flex-end",alignItems:"center",minWidth:180}}>
+                {shipDate ? (
+                  <div style={{fontSize:13,color:C.subtle,fontWeight:700,background:C.card2,padding:"4px 12px",borderRadius:8,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:14}}>📅</span>
+                    <span>Enviada:</span>
+                    <span style={{color:C.accent,fontWeight:900}}>{shipDate}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Slots de HASH */}
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <HP s={m.hash0}/>
+                <HP s={m.hash1}/>
+                <HP s={m.hash2}/>
+              </div>
+
+              {/* Ações na ponta direita */}
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m} readOnly={true}/></Modal>)} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                  Ver mais
+                </button>
+                <button onClick={()=>remMac(m.sn||"")} style={{background:"rgba(255,0,0,0.12)",border:`1px solid ${C.red}`,color:C.red,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,fontWeight:800}} title="Desvincular do cliente">
+                  ✕
+                </button>
+              </div>
             </div>
-          </div>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <button onClick={()=>setModal(<Modal title={`🖥️ ${m.sn||"SEM SN"}`} onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={m} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>
-            <button onClick={()=>remMac(m.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button>
-          </div>
-        </div>;
-      })
-    }
-    
-    <SL mt={14}>HASHs avulsas ({filteredHshs.length}{hasModalFilters?` de ${hshs.length}`:""})</SL>
-    {filteredHshs.length===0?
-      <div style={{color:C.muted,fontSize:12,textAlign:"center",padding:12}}>
-        {hasModalFilters?"Nenhuma HASH avulsa encontrada com este filtro":"Nenhuma HASH avulsa"}
+          </Card>;
+        })
+      }
+    </div>
+
+    {/* Listagem de HASHs Avulsas */}
+    <div style={{marginBottom:24}}>
+      <div style={{fontWeight:900,fontSize:16,marginBottom:12,color:C.text,display:"flex",alignItems:"center",gap:8}}>
+        <span>⚡ HASHs Avulsas ({filteredHshs.length}{hasModalFilters?` de ${hshs.length}`:""})</span>
       </div>
-      :filteredHshs.map(h=>{
-        const shipDate = h._at ? fmtTS(h._at) : (h.date ? fmtDate(h.date) : (h.addedAt ? fmtDate(h.addedAt) : null));
-        return <div key={h._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid "+C.border}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:12}}>{h.sn||"SEM SN"} <HP s={h.status}/></div>
-            <div style={{fontSize:10,color:C.muted}}>
-              {h.model} {shipDate ? ` · 📅 Enviada: ${shipDate}` : ""}
+
+      {filteredHshs.length===0?
+        <div style={{background:C.card,borderRadius:12,padding:24,textAlign:"center",color:C.muted}}>
+          {hasModalFilters?"Nenhuma HASH avulsa encontrada com este filtro":"Nenhuma HASH avulsa vinculada a este cliente"}
+        </div>
+        :filteredHshs.map(h=>{
+          const shipDate = h._at ? fmtTS(h._at) : (h.date ? fmtDate(h.date) : (h.addedAt ? fmtDate(h.addedAt) : null));
+          return <Card key={h._id} accent={C.purple} style={{marginBottom:10,padding:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+              {/* Esquerda: SN + Status */}
+              <div style={{display:"flex",alignItems:"center",gap:10,minWidth:220}}>
+                <span style={{fontWeight:900,fontSize:16,fontFamily:"monospace",color:C.text}}>
+                  ⚡ {h.sn||"SEM SN"}
+                </span>
+                <HP s={h.status}/>
+              </div>
+
+              {/* Centro-Esquerda: Modelo */}
+              <div style={{display:"flex",alignItems:"center",gap:8,minWidth:140}}>
+                <span style={{fontWeight:800,fontSize:14,color:C.purple,background:C.purple+"15",padding:"3px 10px",borderRadius:8,border:`1px solid ${C.purple}33`}}>
+                  {h.model||"S/M"}
+                </span>
+              </div>
+
+              {/* Centro-Direita: Data de Envio */}
+              <div style={{flex:1,display:"flex",justifyContent:"flex-end",alignItems:"center",minWidth:180}}>
+                {shipDate ? (
+                  <div style={{fontSize:13,color:C.subtle,fontWeight:700,background:C.card2,padding:"4px 12px",borderRadius:8,border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:14}}>📅</span>
+                    <span>Enviada:</span>
+                    <span style={{color:C.purple,fontWeight:900}}>{shipDate}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Ações na ponta direita */}
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h} readOnly={true}/></Modal>)} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                  Ver mais
+                </button>
+                <button onClick={()=>remHash(h.sn||"")} style={{background:"rgba(255,0,0,0.12)",border:`1px solid ${C.red}`,color:C.red,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,fontWeight:800}} title="Desvincular do cliente">
+                  ✕
+                </button>
+              </div>
             </div>
-          </div>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <button onClick={()=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h} readOnly={true}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>
-            <button onClick={()=>remHash(h.sn||"")} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>✕</button>
-          </div>
-        </div>;
-      })
-    }
+          </Card>;
+        })
+      }
+    </div>
 
     <Btn v="d" onClick={del} style={{width:"100%",marginTop:14}}>🗑 Remover Cliente</Btn>
   </div>;
