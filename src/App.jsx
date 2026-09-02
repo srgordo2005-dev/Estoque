@@ -12716,6 +12716,34 @@ function OrderHistory({ctx,order:o}){
   </div>;
 }
 
+function ClientLoadPhotos({ctx,client}){
+  const{data,mutate,user}=ctx;
+  const[adding,setAdding]=useState(false);
+  const myPhotos=(data.loadPhotos||[]).filter(p=>p.clientId===client._id).sort((a,b)=>(b._at||"").localeCompare(a._at||""));
+  const addPhoto=async(photoKey)=>{
+    if(!photoKey)return;
+    const id=uid();
+    const d={clientId:client._id,clientName:client.name,photoKey,date:TODAY(),...audit(user)};
+    await fbSet("loadPhotos",id,d);mutate("loadPhotos",arr=>[...arr,{...d,_id:id}]);await markChanged("loadPhotos");
+    setAdding(false);
+  };
+  const removePhoto=async(photoDoc)=>{
+    if(!confirm("Deseja realmente excluir esta foto da carga?"))return;
+    await fbDel("loadPhotos",photoDoc._id);
+    mutate("loadPhotos",arr=>arr.filter(x=>x._id!==photoDoc._id));
+    await markChanged("loadPhotos");
+  };
+  return<div style={{marginBottom:14}}>
+    <SL>📸 Fotos da Carga do Envio ({myPhotos.length})</SL>
+    <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Pode adicionar quantas quiser — cada uma fica salva com a data de hoje, sem apagar as anteriores.</div>
+    {!adding?<Btn v="b" onClick={()=>setAdding(true)} style={{width:"100%",marginBottom:10}}>➕ Adicionar Foto da Carga</Btn>
+      :<div style={{marginBottom:10}}><PhotoCapture photoKey={null} onChange={addPhoto} folder="cargas" snHint={client.name}/></div>}
+    {myPhotos.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+      {myPhotos.map(p=><div key={p._id} style={{position:"relative",background:C.card2,borderRadius:10,padding:6,border:`1px solid ${C.border}`}}><PhotoView photoKey={p.photoKey} style={{maxHeight:120,borderRadius:6}}/><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}><span style={{fontSize:10,color:C.muted}}>{fmtDate(p.date)}</span><button onClick={()=>removePhoto(p)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:10,fontWeight:"bold"}}>✕ Excluir</button></div></div>)}
+    </div>}
+  </div>;
+}
+
 function ClientDetailView({ctx,client,onBack}){
   const{data,mutate,setModal,user,webhookUrl}=ctx;
   const[c,setC]=useState(client);
