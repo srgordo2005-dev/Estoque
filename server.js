@@ -1,6 +1,12 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,12 +14,18 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Serve static files from Vite build directory if available
+const distPath = path.join(__dirname, 'dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+}
+
 const supabaseUrl = process.env.SUPABASE_URL || 'https://paelbarlmayswqilhoxa.supabase.co';
 const supabaseKey = process.env.SUPABASE_KEY || 'sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-console.log('[HashStock Cloud Worker] Servidor 24/7 de Sincronização em Nuvem iniciado!');
+console.log('[HashStock Cloud Worker] Servidor 24/7 de Sincronização em Nuvem (Render) iniciado!');
 
 // Worker de segundo plano 24/7 para envio da planilha do Google
 async function processCloudSheetQueue() {
@@ -70,19 +82,25 @@ async function processCloudSheetQueue() {
 // Inicia o worker a cada 4 segundos na nuvem
 setInterval(processCloudSheetQueue, 4000);
 
-// Endpoint de Health Check pro Render manter o serviço ativo
-app.get('/', (req, res) => {
-    res.json({
-        ok: true,
-        service: 'HashStock 24/7 Cloud Sheet Sync Worker',
-        status: 'online',
-        uptimeSeconds: Math.floor(process.uptime()),
-        timestamp: new Date().toISOString()
-    });
-});
-
+// Health check endpoint
 app.get('/health', (req, res) => {
     res.send('OK');
+});
+
+// Fallback route: serve index.html or worker status JSON
+app.get('*', (req, res) => {
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.json({
+            ok: true,
+            service: 'HashStock 24/7 Cloud Sheet Sync Worker (Render)',
+            status: 'online',
+            uptimeSeconds: Math.floor(process.uptime()),
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
 app.listen(PORT, () => {
