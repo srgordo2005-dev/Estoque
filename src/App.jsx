@@ -1644,53 +1644,41 @@ export default function App(){
     });
   },[]);
 
-  const CACHE_FRESH_MS=3*60*1000; // 3 minutos — dentro desse tempo, reabrir o app não gasta leitura nova
   const bootLoad=useCallback(async()=>{
-    setLoading(true);
     const cachedEmps=JSON.parse(localStorage.getItem("hs_employees")||"[]");
-    const lastFetch=Number(localStorage.getItem("hs_lastFullFetch")||0);
-    const isFresh=Date.now()-lastFetch<CACHE_FRESH_MS;
-    if(isFresh&&cachedEmps.length>0){
-      // Já buscamos tudo há pouquíssimo tempo (ex: reabriu a aba, trocou de
-      // tela) — usa o que já está salvo neste aparelho em vez de gastar
-      // leitura nova do Firebase. O polling (a cada 15min) mantém tudo
-      // atualizado depois disso.
-      setCol("employees",cachedEmps);
-      setData(d=>({
-        ...d,
-        machines:JSON.parse(localStorage.getItem("hs_machines")||"[]"),
-        hashes:JSON.parse(localStorage.getItem("hs_hashes")||"[]"),
-        pallets:JSON.parse(localStorage.getItem("hs_pallets")||"[]"),
-        clients:JSON.parse(localStorage.getItem("hs_clients")||"[]"),
-        orders:JSON.parse(localStorage.getItem("hs_orders")||"[]"),
-        shipments:JSON.parse(localStorage.getItem("hs_shipments")||"[]"),
-        farmMachines:JSON.parse(localStorage.getItem("hs_farmMachines")||"[]"),
-        repairs:JSON.parse(localStorage.getItem("hs_repairs")||"[]"),
-        tests:JSON.parse(localStorage.getItem("hs_tests")||"[]"),
-        feedbacks:JSON.parse(localStorage.getItem("hs_feedbacks")||"[]"),
-        approvals:JSON.parse(localStorage.getItem("hs_approvals")||"[]"),
-        customModels:JSON.parse(localStorage.getItem("hs_customModels")||"[]"),
-        loadPhotos:JSON.parse(localStorage.getItem("hs_loadPhotos")||"[]"),
-      }));
-      setLoading(false);
-      return;
-    }
+    
+    // 1. Carrega dados salvos localmente instantaneamente (0ms de tela de carregamento)
+    setCol("employees",cachedEmps);
+    setData(d=>({
+      ...d,
+      machines:JSON.parse(localStorage.getItem("hs_machines")||"[]"),
+      hashes:JSON.parse(localStorage.getItem("hs_hashes")||"[]"),
+      pallets:JSON.parse(localStorage.getItem("hs_pallets")||"[]"),
+      clients:JSON.parse(localStorage.getItem("hs_clients")||"[]"),
+      orders:JSON.parse(localStorage.getItem("hs_orders")||"[]"),
+      shipments:JSON.parse(localStorage.getItem("hs_shipments")||"[]"),
+      farmMachines:JSON.parse(localStorage.getItem("hs_farmMachines")||"[]"),
+      repairs:JSON.parse(localStorage.getItem("hs_repairs")||"[]"),
+      tests:JSON.parse(localStorage.getItem("hs_tests")||"[]"),
+      feedbacks:JSON.parse(localStorage.getItem("hs_feedbacks")||"[]"),
+      approvals:JSON.parse(localStorage.getItem("hs_approvals")||"[]"),
+      customModels:JSON.parse(localStorage.getItem("hs_customModels")||"[]"),
+      loadPhotos:JSON.parse(localStorage.getItem("hs_loadPhotos")||"[]"),
+    }));
+    setLoading(false);
+
+    // 2. Busca imediatamente a versão mais recente em tempo real do banco Supabase em nuvem
     try{
       let emps=[];
       let empsFailed=false;
       try{emps=await fbList("employees")}catch(e){empsFailed=true;console.error("Falha ao carregar funcionários:",e)}
       if(empsFailed){
-        // Falha na leitura: NUNCA recriar admin nem apagar a lista — usa o
-        // cache local (se existir) e avisa o Admin, sem mexer no Firebase.
         setCol("employees",cachedEmps);
-        setDataWarnings(w=>[{msg:"⚠️ Não consegui carregar a lista de funcionários do Firebase agora. Mostrando a última cópia salva neste aparelho ("+cachedEmps.length+" pessoas). Recarregue a página em instantes.",at:stamp()},...w]);
+        setDataWarnings(w=>[{msg:"⚠️ Não consegui carregar a lista de funcionários do Supabase agora. Mostrando a última cópia salva neste aparelho ("+cachedEmps.length+" pessoas). Recarregue a página em instantes.",at:stamp()},...w]);
       }else if(emps.length===0&&cachedEmps.length>0){
-        // Veio vazio mas já tínhamos gente cadastrada antes — provável leitura
-        // incompleta, NÃO cria admin novo. Usa o cache e avisa.
         setCol("employees",cachedEmps);
         setDataWarnings(w=>[{msg:"⚠️ Leitura de funcionários voltou vazia, mas já existiam "+cachedEmps.length+" cadastrados. Mantendo a cópia salva por segurança — nada foi apagado.",at:stamp()},...w]);
       }else if(emps.length===0){
-        // Realmente não existe ninguém cadastrado ainda (primeira vez) — cria o admin padrão
         const id=uid();const pwHash=await hashPwd("018");const adm={code:"019",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true,passwordHash:pwHash};
         await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}]);
         localStorage.setItem("hs_employees",JSON.stringify([{...adm,_id:id}]));
@@ -1757,22 +1745,17 @@ export default function App(){
       setCol("employees",cachedEmps);
       setDataWarnings(w=>[{msg:"⚠️ Falha ao carregar dados iniciais: "+e.message+". Usando última cópia salva.",at:stamp()},...w]);
     }
-    setLoading(false);
   },[]);
   useEffect(()=>{bootLoad()},[bootLoad]);
   useEffect(()=>{onSyncSheetError=(msg)=>setDataWarnings(w=>[{msg:"⚠️ "+msg,at:stamp()},...w].slice(0,20))},[]);
-  // Avisa (com o prompt nativo do navegador) se tentar fechar/recarregar a
-  // aba enquanto uma foto ainda está subindo pro Drive — mesmo motivo da
-  // blindagem no changeTab: sem isso, a foto fica órfã no Drive.
   useEffect(()=>{
     const onBeforeUnload=e=>{if(hasActivePhotoUpload()){e.preventDefault();e.returnValue=""}};
     window.addEventListener("beforeunload",onBeforeUnload);
     return()=>window.removeEventListener("beforeunload",onBeforeUnload);
   },[]);
+
   // Supabase Realtime: qualquer mudança em qualquer tabela avisa todo mundo
-  // na hora (substitui o polling de 15 em 15 minutos do Firebase). Como o
-  // Supabase não cobra por leitura, não tem problema reler a coleção inteira
-  // sempre que algo mudar.
+  // na hora em tempo real (substitui polling).
   useEffect(()=>{
     const TABLE_TO_META={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",pending_approvals:"approvals",custom_models:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",load_photos:"loadPhotos",orders:"orders",farm_machines:"farmMachines"};
     const channel=supabase.channel("hashstock-realtime");
@@ -1781,20 +1764,31 @@ export default function App(){
         const metaKey=TABLE_TO_META[table];
         if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
            const newObj = fromDBRow(payload.new);
+           if (!newObj || !newObj._id) return;
            setData(prev => {
               const list = prev[metaKey] || [];
               const exists = list.some(x => x._id === newObj._id);
+              let nextList;
               if (exists) {
-                 return { ...prev, [metaKey]: list.map(x => x._id === newObj._id ? newObj : x) };
+                 nextList = list.map(x => x._id === newObj._id ? newObj : x);
               } else {
-                 return { ...prev, [metaKey]: [...list, newObj] };
+                 nextList = [newObj, ...list];
               }
+              if (metaKey === "machines") localStorage.setItem("hs_machines", JSON.stringify(nextList));
+              if (metaKey === "hashes") localStorage.setItem("hs_hashes", JSON.stringify(nextList));
+              if (metaKey === "approvals") localStorage.setItem("hs_approvals", JSON.stringify(nextList));
+              if (metaKey === "tests") localStorage.setItem("hs_tests", JSON.stringify(nextList));
+              if (metaKey === "repairs") localStorage.setItem("hs_repairs", JSON.stringify(nextList));
+              return { ...prev, [metaKey]: nextList };
            });
         } else if (payload.eventType === "DELETE") {
-           const deletedId = payload.old.id;
+           const deletedId = payload.old?.id;
+           if (!deletedId) return;
            setData(prev => {
               const list = prev[metaKey] || [];
-              return { ...prev, [metaKey]: list.filter(x => x._id !== deletedId) };
+              const nextList = list.filter(x => x._id !== deletedId);
+              if (metaKey === "approvals") localStorage.setItem("hs_approvals", JSON.stringify(nextList));
+              return { ...prev, [metaKey]: nextList };
            });
         }
       });
@@ -1802,6 +1796,15 @@ export default function App(){
     channel.subscribe();
     return()=>{supabase.removeChannel(channel)};
   },[]);
+
+  // Polling automático de segurança para a aba de Revisões (Admin) a cada 10 segundos pra garantir que novas revisões apareçam sem F5
+  useEffect(() => {
+    if (!user || (user.role !== "admin" && user.code !== "019")) return;
+    const interval = setInterval(() => {
+      loadAll(["pendingApprovals"]);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [user, loadAll]);
 
   useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
