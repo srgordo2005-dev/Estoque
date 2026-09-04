@@ -1,10 +1,11 @@
 services:
   - type: web
-    name: hashstock-helper
-    plan: free
-    runtime: node
+    name: hashstock-sheet-worker
+    env: node
     buildCommand: npm install
-    startCommand: node local-helper.cjs
+    startCommand: npm start
     envVars:
-      - key: PORT
-        value: 3001
+      - key: SUPABASE_URL
+        value: https://paelbarlmayswqilhoxa.supabase.co
+      - key: SUPABASE_KEY
+        value: sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h

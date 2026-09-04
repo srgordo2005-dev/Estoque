@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "start": "node server.js",
+    "worker": "node server.js",
     "helper": "node local-helper.cjs"
   },
   "dependencies": {
