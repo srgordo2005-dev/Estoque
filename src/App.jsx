@@ -420,25 +420,34 @@ async function triggerSheetSync(url) {
   
   incrementWrites();
   try {
-    const r=await fetch(currentUrl,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({batch:b})});
+    const r=await fetch(currentUrl,{
+      method:"POST",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:JSON.stringify({batch:b.map(({action,payload})=>({action,payload}))}),
+      keepalive:true
+    });
     const d=await r.json().catch(()=>({}));
     if(d.error){
       console.error("syncSheet erro:",d.error);
       onSyncSheetError?.(`Planilha não salvou "${b[0]?.action}": ${d.error}`);
-      // Re-queue
       wQ = [...b, ...wQ];
       saveSheetQueue();
-      setTimeout(() => triggerSheetSync(currentUrl), 15000); // Tenta de novo em 15s
+      setTimeout(() => triggerSheetSync(currentUrl), 10000);
     } else {
       console.log(`✓ syncSheet: ${b.length} ação(ões) enviada(s) pra planilha`,b.map(x=>x.action));
+      // Limpa os IDs da fila no Supabase que foram enviados com sucesso pelo navegador
+      b.forEach(item => {
+        if (item.queueId) {
+          fbDel("sessions", item.queueId).catch(() => null);
+        }
+      });
     }
   }catch(e){
     console.error("syncSheet falhou:",e);
     onSyncSheetError?.(`Planilha não respondeu pra "${b[0]?.action}": ${e.message}`);
-    // Re-queue
     wQ = [...b, ...wQ];
     saveSheetQueue();
-    setTimeout(() => triggerSheetSync(currentUrl), 15000); // Tenta de novo em 15s
+    setTimeout(() => triggerSheetSync(currentUrl), 10000);
   } finally {
     decrementWrites();
   }
@@ -460,10 +469,49 @@ function syncSheet(url,action,payload){
   } else if (action === "addMachine") {
     p.situacao = mapSituacao(p.situacao);
   }
-  wQ.push({action,payload:p});
+
+  const queueId = "sq_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
+  const queueItem = { queueId, action, payload: p };
+
+  wQ.push(queueItem);
   saveSheetQueue();
+
+  // 1. Salva imediatamente no banco em nuvem Supabase (fila do servidor) pra garantir 100% de persistência
+  fbSet("sessions", queueId, {
+    employee_id: "sheet_sync_queue",
+    machine_sn: "SHEET_QUEUE",
+    admin_notes: JSON.stringify({ url, action, payload: p, queueId }),
+    updated_at: new Date().toISOString()
+  }).catch(() => null);
+
+  // 2. Dispara o envio instantaneamente (100ms debounce em vez de 1.2s)
   clearTimeout(wT);
-  wT=setTimeout(()=>triggerSheetSync(url),1200);
+  wT = setTimeout(() => triggerSheetSync(url), 100);
+}
+
+// Proteção ao fechar a aba/janela ou trocar de aba: dispara envio imediato com beacon/keepalive
+if (typeof window !== "undefined") {
+  const flushSheetOnUnload = () => {
+    const url = localStorage.getItem("hs_webhook_url");
+    if (!url || !wQ.length) return;
+    const b = [...wQ];
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(url, JSON.stringify({ batch: b.map(({ action, payload }) => ({ action, payload })) }));
+      } else {
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ batch: b.map(({ action, payload }) => ({ action, payload })) }),
+          keepalive: true
+        }).catch(() => null);
+      }
+    } catch(e) {}
+  };
+  window.addEventListener("beforeunload", flushSheetOnUnload);
+  window.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushSheetOnUnload();
+  });
 }
 
 // Resgata e executa o sync pendente ao carregar o app, depois que ele estiver montado

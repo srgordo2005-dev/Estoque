@@ -829,6 +829,56 @@ app.post('/api/miner-action', async (req, res) => {
     }
 });
 
+// Worker de segundo plano 24/7 para garantia de envio da planilha
+async function processCloudSheetQueue() {
+    try {
+        const { data: queueRows, error } = await supabase
+            .from('sessions')
+            .select('*')
+            .eq('employee_id', 'sheet_sync_queue')
+            .limit(20);
+
+        if (error || !queueRows || queueRows.length === 0) return;
+
+        console.log(`[HashStock Sheet Worker] Processando ${queueRows.length} item(ns) pendente(s) da planilha...`);
+
+        for (const row of queueRows) {
+            try {
+                const item = JSON.parse(row.admin_notes || '{}');
+                const { url, action, payload } = item;
+
+                if (!url) {
+                    await supabase.from('sessions').delete().eq('id', row.id);
+                    continue;
+                }
+
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ batch: [{ action, payload }] }),
+                    redirect: 'follow'
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (!data.error) {
+                    console.log(`[HashStock Sheet Worker] ✓ Sucesso: "${action}" enviado pra planilha (ID: ${row.id})`);
+                    await supabase.from('sessions').delete().eq('id', row.id);
+                } else {
+                    console.error(`[HashStock Sheet Worker] Erro da planilha no item ${row.id}:`, data.error);
+                }
+            } catch (err) {
+                console.error(`[HashStock Sheet Worker] Falha ao enviar item ${row.id}:`, err.message);
+            }
+        }
+    } catch (e) {
+        console.error('[HashStock Sheet Worker] Erro no worker:', e.message);
+    }
+}
+
+// Inicia o loop do worker a cada 5 segundos
+setInterval(processCloudSheetQueue, 5000);
+
 app.listen(PORT, () => {
     console.log(`✅ HashStock Local Helper Service running on http://localhost:${PORT}`);
 });
+
