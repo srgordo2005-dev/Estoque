@@ -2108,20 +2108,18 @@ export default function App(){
             <div style={{display: "flex", gap: 6}}>
               <div title="Supabase" style={{width: 8, height: 8, borderRadius: "50%", background: dbConnected ? '#4ade80' : '#f87171', boxShadow:`0 0 8px ${dbConnected ? '#4ade80' : '#f87171'}`}} />
               <div onClick={() => {
-                  if (!localConnected) {
-                    if (confirm("Deseja baixar diretamente o instalador do Servidor Local (HashStock-Setup.exe)?")) {
-                      window.location.href = "https://github.com/srgordo2005-dev/Estoque/releases/latest/download/HashStock-Setup.exe";
-                    }
+                  if (confirm("Deseja baixar o instalador do Servidor Local HashStock (HashStock-Setup.exe)?")) {
+                    window.location.href = "https://github.com/srgordo2005-dev/Estoque/releases/latest/download/HashStock-Setup.exe";
                   }
                 }}
-                title={localConnected ? "Local Helper: Conectado (Online)" : "Local Helper: DESCONECTADO (Offline) - Clique para baixar o instalador (.exe)"}
+                title={localConnected ? "Local Helper: Conectado (Online) - Clique para baixar o instalador (.exe)" : "Local Helper: DESCONECTADO (Offline) - Clique para baixar o instalador (.exe)"}
                 style={{
                   width: 8, 
                   height: 8, 
                   borderRadius: "50%", 
                   background: localConnected ? '#4ade80' : '#f87171', 
                   boxShadow:`0 0 8px ${localConnected ? '#4ade80' : '#f87171'}`,
-                  cursor: !localConnected ? 'pointer' : 'default'
+                  cursor: 'pointer'
                 }} />
             </div>
           </div>
@@ -4006,7 +4004,9 @@ function EditFarmModal({ ctx, farmName, onClose }) {
   const [webhook, setWebhook] = useState("");
   
   const handleDownloadNode = () => {
-    alert("Iniciando download do 'HashStock Farm Node' (hs-farm-node-win64.exe)...\n\nInstruções: Coloque este executável em um PC que fique 24h ligado na rede local desta fazenda. Ele atuará de forma oculta como uma torre de transmissão para a Nuvem, permitindo que você controle as máquinas pelo celular de qualquer lugar do mundo!");
+    if (confirm("Deseja baixar o instalador do Servidor Local HashStock (HashStock-Setup.exe)?")) {
+      window.location.href = "https://github.com/srgordo2005-dev/Estoque/releases/latest/download/HashStock-Setup.exe";
+    }
   };
 
   return (
