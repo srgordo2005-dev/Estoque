@@ -6412,6 +6412,9 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
         hashSN0: existing.hashSN0 || "",
         hashSN1: existing.hashSN1 || "",
         hashSN2: existing.hashSN2 || "",
+        hashTech0: "",
+        hashTech1: "",
+        hashTech2: "",
         controladora: existing.controladora || "OFF",
         fonte: existing.fonte || "OFF",
         fans: existing.fans || "OFF",
@@ -6432,6 +6435,9 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
       hashSN0: "",
       hashSN1: "",
       hashSN2: "",
+      hashTech0: "",
+      hashTech1: "",
+      hashTech2: "",
       controladora: "OFF",
       fonte: "OFF",
       fans: "OFF",
@@ -6475,19 +6481,22 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
       destino:""
     });
     // Cria (se for nova) ou vincula (se já existir) a HASH de cada slot —
-    // antes isso nunca acontecia, só ficava o texto do SN salvo na máquina,
-    // sem criar a HASH nem mandar o SN pra planilha de verdade.
+    // com vínculo direto ao técnico de conserto selecionado.
     for(let i=0;i<3;i++){
       const slotSN=(d[`hashSN${i}`]||"").trim();if(!slotSN)continue;
       const slotOn=d[`hash${i}`]==="ON";
+      const techId=f[`hashTech${i}`];
+      const techEmp=techId?data.employees.find(e=>e._id===techId):null;
+      const techPatch=techEmp?{repairedBy:techEmp._id,repairedByName:techEmp.name}:{};
+
       const existingHash=data.hashes.find(h=>h.sn===slotSN);
       if(existingHash){
-        const hu={...existingHash,machineSN:d.sn,slot:i,status:slotOn?"NA MAQUINA":existingHash.status,...audit(user)};
+        const hu={...existingHash,machineSN:d.sn,slot:i,status:slotOn?"NA MAQUINA":existingHash.status,...techPatch,...audit(user)};
         mutate("hashes",arr=>arr.map(x=>x._id===existingHash._id?hu:x));
         const resH = await fbSet("hashes",existingHash._id,hu);
         if (!resH.ok) alert("⚠️ Não consegui atualizar a HASH " + slotSN + " no banco: " + resH.error);
       }else{
-        const hid=uid();const hd={sn:slotSN,model:d.model,status:slotOn?"NA MAQUINA":"STOCK",machineSN:d.sn,slot:i,...audit(user),addedAt:TODAY()};
+        const hid=uid();const hd={sn:slotSN,model:d.model,status:slotOn?"NA MAQUINA":"STOCK",machineSN:d.sn,slot:i,...techPatch,...audit(user),addedAt:TODAY()};
         const resH = await fbSet("hashes",hid,hd);
         if (resH.ok) mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
         else alert("⚠️ Não consegui criar a HASH " + slotSN + " no banco: " + resH.error);
@@ -6498,8 +6507,6 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     await markChanged("hashes");
     setSaving(false);onClose(finalSN);
   };
-  // Gera um SN "livre" (SN-2, SN-3...) quando o usuário confirma que são
-  // duas máquinas físicas diferentes com o mesmo SN impresso (acontece).
   const nextFreeSN=()=>{
     const base=f.sn.toUpperCase().trim();let i=2;
     while(data.machines.find(m=>m.sn===`${base}-${i}`))i++;
@@ -6507,7 +6514,16 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
   };
   const save=()=>{if(dupMachine){setConfirmOverwrite(true);return}doSave()};
   return<div>
-    <SNInput label="SN" value={f.sn} onChange={v=>{set("sn",v);setConfirmOverwrite(false)}} placeholder="Deixe vazio se não tiver"/>
+    <SNInput 
+      label="SN MÁQUINA" 
+      value={f.sn} 
+      onChange={v=>{set("sn",v);setConfirmOverwrite(false)}} 
+      onEnter={()=>{
+        const el = document.getElementById("add_mac_hash_sn_0");
+        if(el) el.focus();
+      }}
+      placeholder="Deixe vazio se não tiver"
+    />
     {dupMachine&&<div style={{background:"#3a0a0a",border:"1px solid "+C.red,borderRadius:10,padding:10,marginBottom:10}}>
       <div style={{color:C.red,fontWeight:800}}>⚠️ SN já existe no estoque!</div>
       <div style={{fontSize:12,color:C.muted,marginTop:2}}>{dupMachine.model} · <SP s={dupMachine.situacao}/></div>
@@ -6520,20 +6536,44 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     <>{[0,1,2].map(i=>{
       const slotSN=(f[`hashSN${i}`]||"").trim();
       const existingHash=slotSN?data.hashes.find(h=>h.sn===slotSN):null;
+      const jumpToNext = () => {
+        const nextId = i < 2 ? `add_mac_hash_sn_${i+1}` : "add_mac_ctr_sel";
+        const el = document.getElementById(nextId);
+        if(el) el.focus();
+      };
       return<div key={i} style={{marginBottom:8}}>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{color:C.subtle,fontSize:11,width:50}}>HASH {i}</span>
-          <input value={f[`hashSN${i}`]} onChange={e=>set(`hashSN${i}`,e.target.value.toUpperCase())} placeholder="SN" style={{...inp,flex:1,fontSize:12,padding:"7px 10px"}}/>
-          <select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:85,padding:"7px 8px",fontSize:12}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{color:C.subtle,fontSize:11,width:45,flexShrink:0,fontWeight:800}}>HASH {i+1}</span>
+          <input 
+            id={`add_mac_hash_sn_${i}`}
+            value={f[`hashSN${i}`]} 
+            onChange={e=>{
+              const val = e.target.value.toUpperCase();
+              set(`hashSN${i}`, val);
+            }} 
+            onKeyDown={e=>{
+              if(e.key==="Enter"){
+                e.preventDefault();
+                jumpToNext();
+              }
+            }}
+            placeholder="SN da HASH" 
+            style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}
+          />
+          <select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:72,padding:"7px 6px",fontSize:11}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select>
+          <select value={f[`hashTech${i}`]||""} onChange={e=>set(`hashTech${i}`,e.target.value)} style={{...inp,width:115,padding:"7px 6px",fontSize:10}} title="Técnico responsável pelo conserto">
+            <option value="">🔧 Técnico</option>
+            {(data.employees||[]).map(e=><option key={e._id} value={e._id}>{e.name}</option>)}
+          </select>
         </div>
         {slotSN&&(existingHash?
-          <div style={{fontSize:11,color:C.blue,marginLeft:58,marginTop:2}}>⚡ Já existe: {existingHash.model} · <HP s={existingHash.status}/></div>
-          :<div style={{fontSize:11,color:C.green,marginLeft:58,marginTop:2}}>✓ Nova — vai ser criada como {f.model} ao salvar</div>
+          <div style={{fontSize:11,color:C.blue,marginLeft:51,marginTop:2}}>⚡ Já existe: {existingHash.model} · <HP s={existingHash.status}/> {existingHash.repairedByName && ` · 🔧 Conserto: ${existingHash.repairedByName}`}</div>
+          :<div style={{fontSize:11,color:C.green,marginLeft:51,marginTop:2}}>✓ Nova — vai ser criada como {f.model} ao salvar {f[`hashTech${i}`] && `(Técnico: ${data.employees.find(e=>e._id===f[`hashTech${i}`])?.name})`}</div>
         )}
       </div>;
-    })}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]].map(([k,l])=><Sel key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
+    })}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR","add_mac_ctr_sel"],["fonte","FONTE","add_mac_fonte_sel"],["fans","FANS","add_mac_fans_sel"]].map(([k,l,elemId])=><Sel id={elemId} key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
     <PhotoCapture label="FOTO" photoKey={photoKey} onChange={setPhotoKey} folder="maquinas" snHint={f.sn} onUploadFail={setPhotoBlocked}/>
-    {photoBlocked&&<Alrt type="err">⚠️ A foto não subiu pro Drive — corrige isso (ou tira a foto) antes de salvar.</Alrt>}
+    {photoBlocked&&<Alrt type="err">⚠️ A foto não subiu pro Drive — corrige isso (or tira a foto) antes de salvar.</Alrt>}
     {confirmOverwrite&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
       <div style={{fontWeight:800,color:C.amber,marginBottom:4}}>Tem certeza?</div>
       <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Essa máquina já existe como <SP s={dupMachine.situacao}/>{dupMachine.destino?` (foi pro cliente ${dupMachine.destino})`:""}. Vou atualizar ela pra <b><SP s={f.situacao}/></b> e devolver ao ciclo normal do estoque (o histórico dela no cliente continua existindo, só não fica mais marcada como saída).</div>
@@ -6577,7 +6617,6 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
       }
       // A HASH nova colocada aqui passa a estar NA MAQUINA — reflete isso nela
       if(found){
-        // Nunca deixa a carcaça com um modelo e a HASH com outro — corrige sozinho
         if(found.model&&found.model!==m.model)await upd("model",found.model);
         const fu={...found,status:"NA MAQUINA",machineSN:m.sn,slot:i,...audit(user)};
         mutate("hashes",arr=>arr.map(x=>x._id===found._id?fu:x));await fbSet("hashes",found._id,fu);
@@ -6590,19 +6629,56 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
   return<div style={{marginBottom:8}}>
     <div style={{display:"flex",gap:6,alignItems:"center"}}>
       <span style={{color:C.subtle,fontSize:10,width:50,flexShrink:0,fontWeight:800}}>SLOT {i+1}</span>
-      <input value={localSN} onChange={e=>setLocalSN(e.target.value.toUpperCase())} onBlur={()=>commit()} onKeyDown={e=>e.key==="Enter"&&e.target.blur()} placeholder="SN da HASH" style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}/>
+      <input 
+        id={`machine_slot_input_${i}`}
+        value={localSN} 
+        onChange={e=>setLocalSN(e.target.value.toUpperCase())} 
+        onBlur={()=>commit()} 
+        onKeyDown={e=>{
+          if(e.key==="Enter"){
+            e.target.blur();
+            const nextEl = document.getElementById(`machine_slot_input_${i+1}`);
+            if(nextEl) nextEl.focus();
+          }
+        }} 
+        placeholder="SN da HASH" 
+        style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}
+      />
       <button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"7px 10px",cursor:"pointer",fontSize:13,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}} title="Escanear">📷</button>
-      <select value={m["hash"+i]||"OFF"} onChange={e=>upd("hash"+i,e.target.value)} style={{...inp,width:72,padding:"7px 6px",fontSize:10}}>
+      <select value={m["hash"+i]||"OFF"} onChange={e=>upd("hash"+i,e.target.value)} style={{...inp,width:68,padding:"7px 4px",fontSize:10}}>
         {CTR_OPTS.map(s=><option key={s}>{s}</option>)}
       </select>
+      <select 
+        value={slotHash?.repairedBy || ""} 
+        onChange={async(e)=>{
+          if(!slotHash)return;
+          const techId=e.target.value;
+          const techEmp=data.employees.find(emp=>emp._id===techId);
+          const hu={...slotHash,repairedBy:techId,repairedByName:techEmp?.name||"",...audit(user)};
+          mutate("hashes",arr=>arr.map(x=>x._id===slotHash._id?hu:x));
+          await fbSet("hashes",slotHash._id,hu);
+          await markChanged("hashes");
+        }} 
+        style={{...inp,width:105,padding:"7px 4px",fontSize:10}}
+        title="Técnico do Conserto"
+      >
+        <option value="">🔧 Técnico</option>
+        {(data.employees||[]).map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
+      </select>
     </div>
-    {sc&&<BarcodeScanner onScan={v=>{setLocalSN(v.toUpperCase());setSc(false);commit(v.toUpperCase())}} onClose={()=>setSc(false)}/>}
+    {sc&&<BarcodeScanner onScan={v=>{
+      setLocalSN(v.toUpperCase());
+      setSc(false);
+      commit(v.toUpperCase());
+      const nextEl = document.getElementById(`machine_slot_input_${i+1}`);
+      if(nextEl) nextEl.focus();
+    }} onClose={()=>setSc(false)}/>}
     {slotHash&&<div style={{width:"calc(100% - 58px)",marginLeft:58,marginTop:4}}>
       <div style={{background:HST_C[slotHash.status]+"15",border:"1px solid "+HST_C[slotHash.status]+"44",borderRadius:8,padding:"5px 12px",marginBottom:4,fontSize:11}}>
         <span style={{color:HST_C[slotHash.status],fontWeight:700}}>{"⚡ "+slotHash.model+" — "+(slotHash.sn||"").slice(0,14)}</span>
         <div style={{fontSize:10,color:C.muted,marginTop:2}}>
           {`${slotHash.chips || gChips(slotHash.model, slotHash.material) || 0} chips`}
-          {slotHash.repairedByName && ` · 🔧 ${slotHash.repairedByName}`}
+          {slotHash.repairedByName && ` · 🔧 Conserto: ${slotHash.repairedByName}`}
         </div>
       </div>
       <div style={{display:"flex",gap:6}}>
