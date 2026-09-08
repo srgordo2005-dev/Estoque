@@ -191,6 +191,7 @@ function toDBRow(obj){
   const row={};
   for(const[k,v]of Object.entries(obj)){
     if(v===undefined)continue;
+    if(k.startsWith("hashTech"))continue;
     row[FIELD_MAP[k]||k]=v;
   }
   if (obj.superseded && row.type && typeof row.type === "string" && !row.type.endsWith("_superseded")) {
@@ -6474,6 +6475,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     const forceOn=f.situacao==="BOA";
     const finalSN=asNewSN?asNewSN:f.sn.toUpperCase().trim();
     const d={...f,th:Number(f.th),sn:finalSN,...(forceOn?{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"}:{}),...audit(user),addedAt:TODAY(),photoKey:photoKey||""};
+    delete d.hashTech0; delete d.hashTech1; delete d.hashTech2;
     const saveRes = await fbSet("machines",id,d);
     if (!saveRes.ok) {
       alert("❌ Erro ao salvar máquina no banco de dados (Supabase):\n" + saveRes.error);
