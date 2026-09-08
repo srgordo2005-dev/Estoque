@@ -187,12 +187,29 @@ const FIELD_MAP={
   machineBad:"machine_bad",
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
-function toDBRow(obj){
+const TABLE_COLUMNS = {
+  machines: new Set(['id', 'sn', 'model', 'th', 'type', 'situacao', 'hash0', 'hash1', 'hash2', 'hash_sn0', 'hash_sn1', 'hash_sn2', 'controladora', 'fonte', 'fans', 'location', 'destino', 'ref', 'photo_key', 'change_log', 'admin_note', 'last_tester_id', 'reviewed_by_name', 'reviewed_at', 'added_at', 'by_id', 'by_name', 'at', 'created_at', 'sheet_row']),
+  hashes: new Set(['id', 'sn', 'model', 'status', 'location', 'machine_sn', 'slot', 'repaired_by', 'repaired_by_name', 'photo_key', 'change_log', 'obs', 'chips', 'defeito', 'tecnico', 'added_at', 'by_id', 'by_name', 'at', 'created_at', 'material']),
+  tests: new Set(['id', 'machine_sn', 'model', 'th', 'employee_id', 'date', 'status', 'slot0_hash_sn', 'slot0_result', 'slot0_photo', 'slot1_hash_sn', 'slot1_result', 'slot1_photo', 'slot2_hash_sn', 'slot2_result', 'slot2_photo', 'controladora', 'fonte', 'fans', 'test_photo', 'overall_result', 'by_id', 'by_name', 'at', 'created_at', 'admin_note', 'new_hash_model', 'new_hash_material', 'new_hash_chips', 'prep_shipment', 'order_ref', 'machine_bad']),
+  repairs: new Set(['id', 'hash_sn', 'model', 'type', 'chips', 'sensores', 'ldos', 'obs_manual', 'notes', 'photo_key', 'employee_id', 'date', 'status', 'by_id', 'by_name', 'at', 'created_at', 'material', 'board_chips']),
+  clients: new Set(['id', 'name', 'phone', 'notes', 'machines_sn', 'created_at_app', 'by_id', 'by_name', 'at', 'created_at', 'hashes_sn']),
+  pallets: new Set(['id', 'name', 'location', 'notes', 'machines_sn', 'hashes_sn', 'created_at_app', 'by_id', 'by_name', 'at', 'created_at']),
+  sessions: new Set(['id', 'employee_id', 'machine_sn', 'model', 'th', 'slots', 'controladora', 'fonte', 'fans', 'photo_key', 'updated_at', 'admin_notes', 'rejected', 'new_hash_chars', 'prep_shipment', 'prev_situacao', 'order_ref', 'machine_bad']),
+  pending_approvals: new Set(['id', 'test_id', 'machine_sn', 'model', 'th', 'employee_id', 'employee_name', 'employee_code', 'date', 'status', 'admin_note', 'by_id', 'by_name', 'at', 'created_at', 'type', 'sn', 'material', 'chips', 'existing_id', 'log_photo', 'notes', 'location', 'prep_shipment', 'order_ref', 'machine_bad']),
+  custom_models: new Set(['id', 'm', 'th', 'chips', 'material']),
+  load_photos: new Set(['id', 'client_id', 'client_name', 'photo_key', 'date', 'at', 'by_id', 'by_name']),
+  farm_machines: new Set(['id', 'sn', 'model', 'mac', 'ip', 'location', 'shelf', 'status', 'created_at', 'updated_at', 'employee_id', 'notes', 'slots'])
+};
+
+function toDBRow(obj, table){
   const row={};
+  const validCols = table ? TABLE_COLUMNS[table] : null;
   for(const[k,v]of Object.entries(obj)){
     if(v===undefined)continue;
-    if(k.startsWith("hashTech"))continue;
-    row[FIELD_MAP[k]||k]=v;
+    if(k.startsWith("hashTech") || k.startsWith("_pending"))continue;
+    const dbCol = FIELD_MAP[k]||k;
+    if(validCols && !validCols.has(dbCol))continue;
+    row[dbCol]=v;
   }
   if (obj.superseded && row.type && typeof row.type === "string" && !row.type.endsWith("_superseded")) {
     row.type = row.type + "_superseded";
@@ -283,7 +300,7 @@ async function fbSet(c,id,obj){
       delete cleanObj.employeeName;
       delete cleanObj.employeeCode;
     }
-    const row={id,...toDBRow(cleanObj)};
+    const row={id,...toDBRow(cleanObj, table)};
     const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
     if(error){console.error(`fbSet(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui salvar em "${c}": ${error.message}`);return{ok:false,error:error.message}}
     return{ok:true};
