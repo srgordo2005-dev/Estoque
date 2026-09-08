@@ -1,3 +1,5 @@
+if (require('electron-squirrel-startup')) return;
+
 try {
     const updateMod = require('update-electron-app');
     const updateFn = typeof updateMod === 'function' ? updateMod : (updateMod && updateMod.updateElectronApp);
@@ -19,8 +21,7 @@ let forceQuit = false;
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-    console.log("Uma instância do HashStock já está em execução. Abrindo apenas o painel Web...");
-    shell.openExternal('https://estoque-zeta-one.vercel.app/');
+    console.log("Uma instância do HashStock já está em execução.");
     app.quit();
 } else {
     app.on('second-instance', (event, commandLine, workingDirectory) => {
@@ -30,7 +31,7 @@ if (!gotTheLock) {
             mainWindow.show();
             mainWindow.focus();
         } else {
-            shell.openExternal('https://estoque-zeta-one.vercel.app/');
+            createWindow();
         }
     });
 }
@@ -136,9 +137,7 @@ function createTray() {
 app.whenReady().then(async () => {
     await startHelperNatively();
     createTray();
-    
-    // Abrir painel no navegador padrão de forma limpa
-    shell.openExternal('https://estoque-zeta-one.vercel.app/');
+    createWindow();
 });
 
 app.on('activate', () => {
