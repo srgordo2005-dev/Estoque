@@ -426,7 +426,27 @@ async function triggerSheetSync(url) {
       body:JSON.stringify({batch:b.map(({action,payload})=>({action,payload}))}),
       keepalive:true
     });
-    const d=await r.json().catch(()=>({}));
+    let d=await r.json().catch(()=>({}));
+
+    // Se o Webhook da planilha for uma versão antiga que não reconhece "addMachine" ou "hashApproved", retenta com o fallback equivalente
+    if (d.error && String(d.error).includes("Ação desconhecida")) {
+      const fallbackBatch = b.map(({ action, payload }) => {
+        if (action === "addMachine") return { action: "updateMachine", payload };
+        if (action === "hashApproved") return { action: "updateHash", payload: { sn: payload.sn, model: payload.model, status: "NA MAQUINA", machineSN: payload.machineSN || "" } };
+        return { action, payload };
+      });
+      const r2 = await fetch(currentUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ batch: fallbackBatch }),
+        keepalive: true
+      });
+      const d2 = await r2.json().catch(() => ({}));
+      if (!d2.error) {
+        d = d2;
+      }
+    }
+
     if(d.error){
       console.error("syncSheet erro:",d.error);
       onSyncSheetError?.(`Planilha não salvou "${b[0]?.action}": ${d.error}`);

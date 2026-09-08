@@ -56,14 +56,34 @@ async function processCloudSheetQueue() {
                 }
 
                 // Envia para o Webhook do Google Apps Script com suporte a redirecionamentos
-                const res = await fetch(url, {
+                let res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ batch: [{ action, payload }] }),
                     redirect: 'follow'
                 });
 
-                const data = await res.json().catch(() => ({}));
+                let data = await res.json().catch(() => ({}));
+
+                // Se a planilha estiver rodando uma versão antiga de Apps Script sem "addMachine" ou "hashApproved", tenta o fallback equivalente
+                if (data.error && String(data.error).includes("Ação desconhecida")) {
+                    let fallbackAction = action;
+                    let fallbackPayload = payload;
+                    if (action === "addMachine") fallbackAction = "updateMachine";
+                    if (action === "hashApproved") {
+                        fallbackAction = "updateHash";
+                        fallbackPayload = { sn: payload.sn, model: payload.model, status: "NA MAQUINA", machineSN: payload.machineSN || "" };
+                    }
+                    const resFb = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ batch: [{ action: fallbackAction, payload: fallbackPayload }] }),
+                        redirect: 'follow'
+                    });
+                    const dataFb = await resFb.json().catch(() => ({}));
+                    if (!dataFb.error) data = dataFb;
+                }
+
                 if (!data.error) {
                     console.log(`[HashStock Cloud Worker] ✓ Sucesso: "${action}" sincronizado na planilha (ID: ${row.id})`);
                     await supabase.from('sessions').delete().eq('id', row.id);
