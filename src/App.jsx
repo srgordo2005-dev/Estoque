@@ -1630,12 +1630,31 @@ export default function App(){
   const fetchAllCollections=async(onlyKeys)=>{
     const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments","loadPhotos","orders","farmMachines"];
     const cols=onlyKeys?onlyKeys.map(k=>META_TO_COL[k]).filter(Boolean):allCols;
+    
+    // CACHE SYSTEM TO SAVE SUPABASE QUOTA
+    let colsToFetch = [...cols];
+    if (!onlyKeys) {
+      const lastFetch = Number(localStorage.getItem("hs_lastFullFetch") || "0");
+      if (Date.now() - lastFetch < 4 * 60 * 60 * 1000) {
+        colsToFetch = colsToFetch.filter(c => {
+           let cacheKey = "hs_" + (c === "pendingApprovals" ? "approvals" : c);
+           return !localStorage.getItem(cacheKey);
+        });
+      }
+    }
     // Espaça o INÍCIO de cada leitura em 120ms — evita disparar tudo junto
     // de uma vez (rajada), o que ajuda a não estourar limites por minuto
     // além do limite diário.
-    const _res=await Promise.allSettled(cols.map((c,i)=>new Promise(res=>setTimeout(res,i*120)).then(()=>fbList(c))));
+    const _res=await Promise.allSettled(colsToFetch.map((c,i)=>new Promise(res=>setTimeout(res,i*120)).then(()=>fbList(c))));
     const out={};const errs=[];
-    cols.forEach((c,i)=>{if(_res[i].status==="fulfilled")out[c]=_res[i].value;else{out[c]=[];errs.push(`${c}: ${_res[i].reason?.message||"falha"}`)}});
+    colsToFetch.forEach((c,i)=>{if(_res[i].status==="fulfilled")out[c]=_res[i].value;else{out[c]=[];errs.push(`${c}: ${_res[i].reason?.message||"falha"}`)}});
+    cols.forEach(c => { 
+       if (!colsToFetch.includes(c)) {
+          let cacheKey = "hs_" + (c === "pendingApprovals" ? "approvals" : c);
+          out[c] = JSON.parse(localStorage.getItem(cacheKey) || "[]");
+       }
+    });
+    if (colsToFetch.length > 0 && !onlyKeys) localStorage.setItem("hs_lastFullFetch", String(Date.now()));
     return{out,errs};
   };
 
@@ -1835,14 +1854,7 @@ export default function App(){
     return()=>{supabase.removeChannel(channel)};
   },[]);
 
-  // Polling automático de segurança para a aba de Revisões (Admin) a cada 10 segundos pra garantir que novas revisões apareçam sem F5
-  useEffect(() => {
-    if (!user || (user.role !== "admin" && user.code !== "019")) return;
-    const interval = setInterval(() => {
-      loadAll(["pendingApprovals"]);
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [user, loadAll]);
+  // Polling removido para economizar banda do Supabase (Realtime já faz esse papel).
 
   useEffect(()=>{if(data.employees.length)localStorage.setItem("hs_employees",JSON.stringify(data.employees))},[data.employees]);
 
