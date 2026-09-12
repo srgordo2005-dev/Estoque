@@ -12287,8 +12287,8 @@ function SheetCompareReview({ctx,onClose}){
     {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
       <div style={{display:"flex",gap:8,marginBottom:10}}>
-        <Btn v="s" onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores do APP em ${all.length} item(ns), sobrescrevendo a planilha.`))return;for(const d of all)await resolveDiff(d,d.isMachine,false)}} style={{flex:1}}>Manter do App pra todos ({pendingDiffsM.length+pendingDiffsH.length})</Btn>
-        <Btn v="g" onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores da PLANILHA em ${all.length} item(ns), sobrescrevendo o app.`))return;for(const d of all)await resolveDiff(d,d.isMachine,true)}} style={{flex:1}}>Usar da Planilha pra todos</Btn>
+        <Btn v="s" disabled={saving} onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores do APP em ${all.length} item(ns), sobrescrevendo a planilha.`))return;setSaving(true);try{for(const d of all)await resolveDiff(d,d.isMachine,false);alert(`✓ Sucesso! ${all.length} item(ns) enviados e atualizados na planilha.`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Enviando...":`Manter do App pra todos (${pendingDiffsM.length+pendingDiffsH.length})`}</Btn>
+        <Btn v="g" disabled={saving} onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores da PLANILHA em ${all.length} item(ns), sobrescrevendo o app.`))return;setSaving(true);try{for(const d of all)await resolveDiff(d,d.isMachine,true);alert(`✓ Sucesso! ${all.length} item(ns) atualizados no app.`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Atualizando...":"Usar da Planilha pra todos"}</Btn>
       </div>
       {[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))].map(d=>
         <div key={(d.isMachine?"m:":"h:")+d.sn} style={{background:"#2a1a0c",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
@@ -12298,8 +12298,8 @@ function SheetCompareReview({ctx,onClose}){
             <span><span style={{color:C.accent}}>App: {String(x.appVal||"—")}</span> · <span style={{color:C.blue}}>Planilha: {String(x.sheetVal||"—")}</span></span>
           </div>)}
           <div style={{display:"flex",gap:8,marginTop:10}}>
-            <Btn v="s" onClick={()=>resolveDiff(d,d.isMachine,false)} style={{flex:1}}>Manter do App (corrige planilha)</Btn>
-            <Btn v="g" onClick={()=>resolveDiff(d,d.isMachine,true)} style={{flex:1}}>Usar da Planilha (corrige app)</Btn>
+            <Btn v="s" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,false)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Enviando...":"Manter do App (corrige planilha)"}</Btn>
+            <Btn v="g" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,true)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Salvando...":"Usar da Planilha (corrige app)"}</Btn>
           </div>
         </div>
       )}
