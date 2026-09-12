@@ -11928,7 +11928,11 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
 // comparação manual quanto na checagem diária automática.
 const M_FIELDS=[["situacao","Situação"],["model","Modelo"],["th","T/H"],["ref","Referência"],["destino","Destino (cliente)"],["hashSN0","Slot 1 (SN)"],["hashSN1","Slot 2 (SN)"],["hashSN2","Slot 3 (SN)"],["hash0","Slot 1 (status)"],["hash1","Slot 2 (status)"],["hash2","Slot 3 (status)"],["controladora","CTR"],["fonte","FONTE"],["fans","FANS"]];
 const H_FIELDS=[["status","Status"],["model","Modelo"],["machineSN","Máquina"]];
-const normCompare=v=>String(v??"").trim().toUpperCase();
+const normCompare = v => {
+  let s = String(v ?? "").trim().toUpperCase();
+  if (/^0+\d+$/.test(s)) s = Number(s).toString();
+  return s;
+};
 // Alguns SNs são só um texto de "placeholder" (tipo "SEM SN" escrito na
 // própria planilha) — isso NÃO é um SN de verdade e nunca pode ser usado
 // pra comparar/casar registros (foi exatamente isso que causou o bug de
