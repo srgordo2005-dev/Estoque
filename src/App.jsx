@@ -566,7 +566,7 @@ setTimeout(() => {
 const normSNField=s=>(s||"").toString().trim().toUpperCase();
 async function importMachinesFromSheet(url,onProgress){
   if(onProgress)onProgress(0,0);
-  const r=await fetch(`${url}?action=getMachines`);
+  const r=await fetch(`${url}?action=getMachines&t=${Date.now()}`);
   const text=await r.text();
   let d;try{d=JSON.parse(text)}catch{throw new Error("A planilha demorou demais ou travou (recebi uma página em vez de dados). Tente de novo em alguns segundos.")}
   if(d.error)throw new Error(d.error);
@@ -575,13 +575,13 @@ async function importMachinesFromSheet(url,onProgress){
   return machines;
 }
 async function importHashesFromSheet(url){
-  const r=await fetch(`${url}?action=getHashes`);
+  const r=await fetch(`${url}?action=getHashes&t=${Date.now()}`);
   const text=await r.text();
   let d;try{d=JSON.parse(text)}catch{throw new Error("A planilha demorou demais ou travou (recebi uma página em vez de dados). Tente de novo em alguns segundos.")}
   if(d.error)throw new Error(d.error);
   return(d.hashes||[]).map(h=>({...h,sn:normSNField(h.sn),machineSN:normSNField(h.machineSN)}));
 }
-async function importFromSheet(url){const r=await fetch(url+"?action=getMachines");const d=await r.json();return(d.machines||[]).map(m=>({...m,sn:normSNField(m.sn)}))}
+async function importFromSheet(url){const r=await fetch(url+"?action=getMachines&t="+Date.now());const d=await r.json();return(d.machines||[]).map(m=>({...m,sn:normSNField(m.sn)}))}
 const compress=f=>new Promise(res=>{const rd=new FileReader();rd.onload=e=>{const img=new Image();img.onload=()=>{const M=1280,r=Math.min(M/img.width,M/img.height,1),c=document.createElement("canvas");c.width=img.width*r;c.height=img.height*r;c.getContext("2d").drawImage(img,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.85))};img.src=e.target.result};rd.readAsDataURL(f)});
 
 /* ═══ CONSTANTS ═════════════════════════════════════════════════ */
