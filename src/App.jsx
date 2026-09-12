@@ -502,10 +502,12 @@ function syncSheet(url,action,payload){
     if (s === "AGUARD. REVISAO" || s === "AGUARD. REVISÃO" || s === "REVISAR" || s === "CASTANHAO") return "STOCK";
     return v;
   };
-  if (action === "updateMachine" && p.field === "situacao") {
-    p.to = mapSituacao(p.to);
+  if (action === "updateMachine") {
+    if (p.field === "situacao") p.to = mapSituacao(p.to);
+    if (p.field === "ref" && typeof p.to === "string" && /^0\d+$/.test(p.to)) p.to = "'" + p.to;
   } else if (action === "addMachine") {
     p.situacao = mapSituacao(p.situacao);
+    if (typeof p.ref === "string" && /^0\d+$/.test(p.ref)) p.ref = "'" + p.ref;
   }
 
   const queueId = "sq_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
