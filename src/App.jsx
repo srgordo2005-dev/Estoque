@@ -147,8 +147,8 @@ function injectFreshCtx(element,ctx){
 }
 
 /* ═══ SUPABASE ═══════════════════════════════════════════════════ */
-const SUPABASE_URL=import.meta.env.VITE_SUPABASE_URL||"https://paelbarlmayswqilhoxa.supabase.co";
-const SUPABASE_KEY=import.meta.env.VITE_SUPABASE_KEY||"";
+const SUPABASE_URL=import.meta.env.VITE_SUPABASE_URL||"https://ifhggdccxagnklhkuarw.supabase.co";
+const SUPABASE_KEY=import.meta.env.VITE_SUPABASE_KEY||"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmaGdnZGNjeGFnbmtsaGt1YXJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMzAwOTEsImV4cCI6MjEwNDgwNjA5MX0.7emMAX_R91pjl60CLQ3harcApyNMdoLvRPzLEjMZOYQ";
 const supabase=createClient(SUPABASE_URL,SUPABASE_KEY);
 
 // Nome da coleção (usado no resto do app, igual antes) → nome da tabela real no Postgres
