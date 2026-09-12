@@ -306,9 +306,6 @@ async function fbSet(c,id,obj){
     return{ok:true};
   } finally {
     decrementWrites();
-    if (wQ.length > 0) {
-      setTimeout(() => triggerSheetSync(currentUrl), 1500);
-    }
   }
 }
 async function fbDel(c,id){
@@ -435,7 +432,7 @@ async function triggerSheetSync(url) {
   const currentUrl = url || localStorage.getItem("hs_webhook_url");
   if (!currentUrl || !wQ.length) return;
   
-  const CHUNK_SIZE = 5;
+  const CHUNK_SIZE = 20;
   const b = wQ.slice(0, CHUNK_SIZE);
   wQ = wQ.slice(CHUNK_SIZE);
   saveSheetQueue();
@@ -483,6 +480,9 @@ async function triggerSheetSync(url) {
           fbDel("sessions", item.queueId).catch(() => null);
         }
       });
+      if (wQ.length > 0) {
+        setTimeout(() => triggerSheetSync(currentUrl), 300);
+      }
     }
   }catch(e){
     console.error("syncSheet falhou:",e);
@@ -506,12 +506,10 @@ function syncSheet(url,action,payload){
     if (s === "AGUARD. REVISAO" || s === "AGUARD. REVISÃO" || s === "REVISAR" || s === "CASTANHAO") return "STOCK";
     return v;
   };
-  if (action === "updateMachine") {
-    if (p.field === "situacao") p.to = mapSituacao(p.to);
-    if (p.field === "ref" && typeof p.to === "string" && /^0\d+$/.test(p.to)) p.to = "'" + p.to;
+  if (action === "updateMachine" && p.field === "situacao") {
+    p.to = mapSituacao(p.to);
   } else if (action === "addMachine") {
     p.situacao = mapSituacao(p.situacao);
-    if (typeof p.ref === "string" && /^0\d+$/.test(p.ref)) p.ref = "'" + p.ref;
   }
 
   const queueId = "sq_" + Date.now() + "_" + Math.random().toString(36).substring(2, 8);
@@ -12126,7 +12124,7 @@ function SheetCompareReview({ctx,onClose}){
         }else if(x.field==="chips"){
           syncSheet(webhookUrl,"updateHashChips",{sn:d.sn,model:d.appItem.model,chips:x.appVal,employeeName:user.name,employeeCode:user.code});
         }else{
-          syncSheet(webhookUrl,"updateHash",{sn:d.sn,model:d.appItem.model,status:x.field==="status"?x.appVal:d.appItem.status,machineSN:x.field==="machineSN"?x.appVal:d.appItem.machineSN,employeeName:user.name,employeeCode:user.code});
+          syncSheet(webhookUrl,"updateHash",{sn:d.sn,model:d.appItem.model,field:x.field,to:x.appVal,status:x.field==="status"?x.appVal:d.appItem.status,machineSN:x.field==="machineSN"?x.appVal:d.appItem.machineSN,employeeName:user.name,employeeCode:user.code});
         }
       });
     }
