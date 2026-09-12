@@ -12122,7 +12122,7 @@ function SheetCompareReview({ctx,onClose}){
       // Manda os valores do app pra planilha — cada campo tem seu jeito certo de sincronizar
       d.diffs.forEach(x=>{
         if(isMachine){
-          syncSheet(webhookUrl,"updateMachine",{sn:d.appItem.sn||undefined,row:!d.appItem.sn?d.sheetItem.sheetRow:undefined,field:x.field,to:x.appVal,employeeName:user.name,employeeCode:user.code});
+          syncSheet(webhookUrl,"updateMachine",{id:d.appItem._id,sn:d.appItem.sn||"SEM SN",row:d.sheetItem?.sheetRow,field:x.field,to:x.appVal,employeeName:user.name,employeeCode:user.code});
         }else if(x.field==="chips"){
           syncSheet(webhookUrl,"updateHashChips",{sn:d.sn,model:d.appItem.model,chips:x.appVal,employeeName:user.name,employeeCode:user.code});
         }else{
