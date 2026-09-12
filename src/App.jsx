@@ -306,6 +306,9 @@ async function fbSet(c,id,obj){
     return{ok:true};
   } finally {
     decrementWrites();
+    if (wQ.length > 0) {
+      setTimeout(() => triggerSheetSync(currentUrl), 1500);
+    }
   }
 }
 async function fbDel(c,id){
@@ -432,8 +435,9 @@ async function triggerSheetSync(url) {
   const currentUrl = url || localStorage.getItem("hs_webhook_url");
   if (!currentUrl || !wQ.length) return;
   
-  const b = [...wQ];
-  wQ = [];
+  const CHUNK_SIZE = 5;
+  const b = wQ.slice(0, CHUNK_SIZE);
+  wQ = wQ.slice(CHUNK_SIZE);
   saveSheetQueue();
   
   incrementWrites();
