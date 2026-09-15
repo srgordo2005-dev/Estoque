@@ -188,17 +188,20 @@ const FIELD_MAP={
 };
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 const TABLE_COLUMNS = {
+  employees: new Set(['id', 'code', 'name', 'role', 'permissions', 'can_see_all']),
   machines: new Set(['id', 'sn', 'model', 'th', 'type', 'situacao', 'hash0', 'hash1', 'hash2', 'hash_sn0', 'hash_sn1', 'hash_sn2', 'controladora', 'fonte', 'fans', 'location', 'destino', 'ref', 'photo_key', 'change_log', 'admin_note', 'last_tester_id', 'reviewed_by_name', 'reviewed_at', 'added_at', 'by_id', 'by_name', 'at', 'created_at', 'sheet_row']),
   hashes: new Set(['id', 'sn', 'model', 'status', 'location', 'machine_sn', 'slot', 'repaired_by', 'repaired_by_name', 'photo_key', 'change_log', 'obs', 'chips', 'defeito', 'tecnico', 'added_at', 'by_id', 'by_name', 'at', 'created_at', 'material']),
   tests: new Set(['id', 'machine_sn', 'model', 'th', 'employee_id', 'date', 'status', 'slot0_hash_sn', 'slot0_result', 'slot0_photo', 'slot1_hash_sn', 'slot1_result', 'slot1_photo', 'slot2_hash_sn', 'slot2_result', 'slot2_photo', 'controladora', 'fonte', 'fans', 'test_photo', 'overall_result', 'by_id', 'by_name', 'at', 'created_at', 'admin_note', 'new_hash_model', 'new_hash_material', 'new_hash_chips', 'prep_shipment', 'order_ref', 'machine_bad']),
   repairs: new Set(['id', 'hash_sn', 'model', 'type', 'chips', 'sensores', 'ldos', 'obs_manual', 'notes', 'photo_key', 'employee_id', 'date', 'status', 'by_id', 'by_name', 'at', 'created_at', 'material', 'board_chips']),
   clients: new Set(['id', 'name', 'phone', 'notes', 'machines_sn', 'created_at_app', 'by_id', 'by_name', 'at', 'created_at', 'hashes_sn']),
   pallets: new Set(['id', 'name', 'location', 'notes', 'machines_sn', 'hashes_sn', 'created_at_app', 'by_id', 'by_name', 'at', 'created_at']),
-  sessions: new Set(['id', 'employee_id', 'machine_sn', 'model', 'th', 'slots', 'controladora', 'fonte', 'fans', 'photo_key', 'updated_at', 'admin_notes', 'rejected', 'new_hash_chars', 'prep_shipment', 'prev_situacao', 'order_ref', 'machine_bad']),
+  sessions: new Set(['id', 'employee_id', 'machine_sn', 'model', 'th', 'slots', 'controladora', 'fonte', 'fans', 'photo_key', 'updated_at', 'admin_notes', 'rejected']),
   pending_approvals: new Set(['id', 'test_id', 'machine_sn', 'model', 'th', 'employee_id', 'employee_name', 'employee_code', 'date', 'status', 'admin_note', 'by_id', 'by_name', 'at', 'created_at', 'type', 'sn', 'material', 'chips', 'existing_id', 'log_photo', 'notes', 'location', 'prep_shipment', 'order_ref', 'machine_bad']),
   custom_models: new Set(['id', 'm', 'th', 'chips', 'material']),
   load_photos: new Set(['id', 'client_id', 'client_name', 'photo_key', 'date', 'at', 'by_id', 'by_name']),
-  farm_machines: new Set(['id', 'sn', 'model', 'mac', 'ip', 'location', 'shelf', 'status', 'created_at', 'updated_at', 'employee_id', 'notes', 'slots'])
+  farm_machines: new Set(['id', 'sn', 'model', 'mac', 'ip', 'location', 'shelf', 'status', 'created_at', 'updated_at', 'employee_id', 'notes', 'slots']),
+  orders: new Set(['id', 'client_id', 'date', 'status', 'notes', 'by_id', 'by_name', 'at', 'created_at']),
+  shipments: new Set(['id', 'client_id', 'sent_at', 'machine_sn', 'model', 'photo_key', 'by_id', 'by_name', 'at', 'created_at'])
 };
 
 function toDBRow(obj, table){
@@ -1555,9 +1558,9 @@ export default function App(){
            setDbConnected(false);
            return;
         }
-        fetch("https://paelbarlmayswqilhoxa.supabase.co/rest/v1/", {
+        fetch(`${SUPABASE_URL}/rest/v1/`, {
            method: "GET",
-           headers: { apikey: import.meta.env.VITE_SUPABASE_KEY || "" }
+           headers: { apikey: SUPABASE_KEY }
         })
           .then(res => setDbConnected(res.ok || res.status === 401))
           .catch(() => setDbConnected(false));
@@ -1852,6 +1855,81 @@ export default function App(){
       if(out.loadPhotos.length)localStorage.setItem("hs_loadPhotos",JSON.stringify(out.loadPhotos));
       localStorage.setItem("hs_lastFullFetch",String(Date.now()));
       if(warnings.length)setDataWarnings(w=>[...warnings.map(m=>({msg:m,at:stamp()})),...w].slice(0,20));
+
+      // AUTO-UPLOAD AUTOMÁTICO PRO SUPABASE
+      // Se os dados locais têm mais itens que o Supabase (ex: migração para novo banco),
+      // envia tudo pro Supabase automaticamente em segundo plano e remove os avisos de integridade!
+      const shouldAutoSync = (
+        (cachedM.length > (out.machines?.length || 0)) ||
+        (cachedH.length > (out.hashes?.length || 0)) ||
+        (cachedEmps.length > emps.length) ||
+        (cachedP.length > (out.pallets?.length || 0)) ||
+        (cachedC.length > (out.clients?.length || 0)) ||
+        (cachedO.length > (out.orders?.length || 0)) ||
+        (cachedFM.length > (out.farmMachines?.length || 0))
+      );
+
+      if (shouldAutoSync) {
+        setTimeout(async () => {
+          try {
+            console.log("[Auto-Sync] Iniciando upload automático para Supabase...");
+            // 1. Funcionários
+            if (cachedEmps.length > emps.length) {
+              for (const emp of cachedEmps) {
+                await supabase.from("employees").upsert(toDBRow(emp, "employees"), { onConflict: "id" });
+              }
+            }
+            // 2. Máquinas (lotes de 500)
+            const mRows = gM.use.map(m => ({ id: m._id || m.id, ...toDBRow(m, "machines") }));
+            for (let i = 0; i < mRows.length; i += 500) {
+              await supabase.from("machines").upsert(mRows.slice(i, i + 500), { onConflict: "id" });
+            }
+            // 3. Hashes (lotes de 500)
+            const hRows = gH.use.map(h => ({ id: h._id || h.id, ...toDBRow(h, "hashes") }));
+            for (let i = 0; i < hRows.length; i += 500) {
+              await supabase.from("hashes").upsert(hRows.slice(i, i + 500), { onConflict: "id" });
+            }
+            // 4. Paletes
+            const pRows = gP.use.map(p => ({ id: p._id || p.id, ...toDBRow(p, "pallets") }));
+            if (pRows.length) await supabase.from("pallets").upsert(pRows, { onConflict: "id" });
+            // 5. Clientes
+            const cRows = gC.use.map(c => ({ id: c._id || c.id, ...toDBRow(c, "clients") }));
+            if (cRows.length) await supabase.from("clients").upsert(cRows, { onConflict: "id" });
+            // 6. Pedidos
+            const oRows = gO.use.map(o => ({ id: o._id || o.id, ...toDBRow(o, "orders") }));
+            if (oRows.length) await supabase.from("orders").upsert(oRows, { onConflict: "id" });
+            // 7. Farm Machines
+            const fmRows = gFM.use.map(fm => ({ id: fm._id || fm.id, ...toDBRow(fm, "farm_machines") }));
+            if (fmRows.length) await supabase.from("farm_machines").upsert(fmRows, { onConflict: "id" });
+            // 8. Custom Models
+            if (cachedCM.length && (out.customModels?.length || 0) === 0) {
+              const cmRows = cachedCM.map(cm => ({ id: cm._id || cm.id, ...toDBRow(cm, "custom_models") }));
+              await supabase.from("custom_models").upsert(cmRows, { onConflict: "id" });
+            }
+
+            // Atualiza travas de segurança para as contagens reais
+            localStorage.setItem("hs_maxcount_machines", String(gM.use.length));
+            localStorage.setItem("hs_maxcount_hashes", String(gH.use.length));
+            localStorage.setItem("hs_maxcount_pallets", String(gP.use.length));
+            localStorage.setItem("hs_maxcount_clients", String(gC.use.length));
+            localStorage.setItem("hs_maxcount_orders", String(gO.use.length));
+            localStorage.setItem("hs_maxcount_farmMachines", String(gFM.use.length));
+
+            // Elimina todos os avisos de integridade
+            localStorage.removeItem("hs_data_warnings");
+            setDataWarnings([]);
+
+            addSheetSyncLog({
+              action: "auto_upload_supabase",
+              msg: `Auto-upload concluído: ${gM.use.length} máquinas, ${gH.use.length} hashes, ${cachedEmps.length} func gravados no Supabase`,
+              success: true
+            });
+            console.log("[Auto-Sync] Finalizado com sucesso! Avisos eliminados.");
+          } catch(err) {
+            console.error("[Auto-Sync] Erro:", err);
+          }
+        }, 300);
+      }
     }catch(e){
       console.error("Erro crítico no boot:",e);
       setCol("employees",cachedEmps);

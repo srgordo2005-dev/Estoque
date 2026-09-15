@@ -32,8 +32,8 @@ const TelegramBot = require('node-telegram-bot-api').default || require('node-te
 
 const { createClient } = require('@supabase/supabase-js');
 
-const supabaseUrl = 'https://paelbarlmayswqilhoxa.supabase.co';
-const supabaseKey = 'sb_publishable_6Kz2o4DWlxhBgc7oyDt2AA_KmphGK-h';
+const supabaseUrl = 'https://ifhggdccxagnklhkuarw.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlmaGdnZGNjeGFnbmtsaGt1YXJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMzAwOTEsImV4cCI6MjEwNDgwNjA5MX0.7emMAX_R91pjl60CLQ3harcApyNMdoLvRPzLEjMZOYQ';
 const WebSocket = require('ws');
 if (typeof globalThis.WebSocket === 'undefined') {
     globalThis.WebSocket = WebSocket;
