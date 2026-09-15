@@ -347,17 +347,27 @@ async function fbBatch(writes){
         delete cleanD.autoEnabled;
         delete cleanD.targetUptimeHours;
       }
-      (byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD)});
+      if (w.c === "tests") {
+        delete cleanD.employeeName;
+        delete cleanD.employeeCode;
+      }
+      const tName = tableName(w.c);
+      (byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD, tName)});
     }
     const errors=[];
     for(const[c,rows]of Object.entries(byCol)){
       const table=tableName(c);
       for(let i=0;i<rows.length;i+=500){
-        const{error}=await supabase.from(table).upsert(rows.slice(i,i+500),{onConflict:"id"});
+        const slice = rows.slice(i,i+500);
+        const{error}=await supabase.from(table).upsert(slice,{onConflict:"id"});
         if(error){console.error(`fbBatch(${c}):`,error.message);errors.push(`${c}: ${error.message}`)}
       }
     }
-    if(errors.length){onSyncSheetError?.("Lote não salvou tudo: "+errors.join(" | "));return{ok:false,errors}}
+    if(errors.length){
+      console.error("fbBatch errors:", errors);
+      onSyncSheetError?.("Lote não salvou tudo: "+errors.join(" | "));
+      return{ok:false,errors,error:errors.join("; ")};
+    }
     return{ok:true,errors:[]};
   } finally {
     decrementWrites();
@@ -1640,8 +1650,25 @@ export default function App(){
   const[webhookUrl,setWebhookUrl]=useState(()=>localStorage.getItem("webhookUrl")||DEFAULT_WEBHOOK_URL);
   const[geminiApiKey,setGeminiApiKey]=useState(()=>localStorage.getItem("geminiApiKey")||import.meta.env.VITE_GEMINI_API_KEY||"");
   const [farmsConfig, setFarmsConfig] = usePersistedField("hs_farmsConfig", []);
-  const setCol=(col,val)=>setData(d=>({...d,[col]:val}));
-  const mutate=(col,fn)=>setData(d=>({...d,[col]:fn(d[col])}));
+  const setCol = (col, val) => {
+    setData(d => {
+      try {
+        const cacheKey = "hs_" + (col === "pendingApprovals" ? "approvals" : col);
+        if (Array.isArray(val)) localStorage.setItem(cacheKey, JSON.stringify(val));
+      } catch(e) {}
+      return { ...d, [col]: val };
+    });
+  };
+  const mutate = (col, fn) => {
+    setData(d => {
+      const nextVal = fn(d[col]);
+      try {
+        const cacheKey = "hs_" + (col === "pendingApprovals" ? "approvals" : col);
+        if (Array.isArray(nextVal)) localStorage.setItem(cacheKey, JSON.stringify(nextVal));
+      } catch(e) {}
+      return { ...d, [col]: nextVal };
+    });
+  };
   const allModels=useCallback(()=>{
     const hiddenNames=new Set(data.customModels.filter(m=>m._hidden||m.th<0).map(m=>m.m));
     const customs=data.customModels.filter(m=>!m.chips&&!m._hidden&&m.th>=0);
@@ -1928,6 +1955,7 @@ export default function App(){
             addSheetSyncLog({
               action: "auto_upload_supabase",
               msg: `Auto-upload concluído: ${gM.use.length} máquinas, ${gH.use.length} hashes, ${cachedEmps.length} func gravados no Supabase`,
+              status: "ok",
               success: true
             });
             console.log("[Auto-Sync] Finalizado com sucesso! Avisos eliminados.");
@@ -11740,15 +11768,23 @@ function SheetSyncLogBox({limit=15}){
     </div>
     {logs.length===0?<div style={{fontSize:11,color:C.muted,padding:"8px 0",textAlign:"center"}}>Nenhum envio recente registrado ainda. As próximas alterações aparecerão aqui com a confirmação do Google.</div>:(
       <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
-        {logs.slice(0,limit).map(l=><div key={l.id} style={{padding:"6px 8px",borderRadius:6,background:l.status==="ok"?C.green+"11":C.red+"18",border:`1px solid ${l.status==="ok"?C.green+"33":C.red+"44"}`,fontSize:11}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
-            <span style={{color:l.status==="ok"?C.green:C.red,fontWeight:800}}>{l.status==="ok"?"✓ CONFIRMADO PELO GOOGLE":"❌ ERRO DO GOOGLE"}</span>
-            <span style={{color:C.muted,fontSize:10}}>{new Date(l.at).toLocaleTimeString()} ({l.count} itens)</span>
-          </div>
-          <div style={{color:C.subtle,wordBreak:"break-word",fontSize:10}}>{l.summary}</div>
-          {l.error&&<div style={{color:C.red,fontWeight:700,marginTop:2,fontSize:10}}>Erro: {l.error}</div>}
-          {l.msg&&<div style={{color:C.green,fontSize:10,marginTop:1}}>{l.msg}</div>}
-        </div>)}
+        {logs.slice(0,limit).map(l=>{
+          const isOk = l.status === "ok" || l.success === true;
+          const isSupabase = l.action === "auto_upload_supabase" || l.type === "supabase_auto_sync";
+          const title = isOk 
+            ? (isSupabase ? "✓ BANCO DE DADOS ATUALIZADO (SUPABASE)" : "✓ CONFIRMADO PELO GOOGLE")
+            : (isSupabase ? "❌ ERRO AO SALVAR NO SUPABASE" : "❌ ERRO DO GOOGLE");
+          return (
+            <div key={l.id} style={{padding:"6px 8px",borderRadius:6,background:isOk?C.green+"11":C.red+"18",border:`1px solid ${isOk?C.green+"33":C.red+"44"}`,fontSize:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                <span style={{color:isOk?C.green:C.red,fontWeight:800}}>{title}</span>
+                <span style={{color:C.muted,fontSize:10}}>{new Date(l.at).toLocaleTimeString()}{l.count !== undefined ? ` (${l.count} itens)` : ''}</span>
+              </div>
+              <div style={{color:isOk?C.green:C.subtle,wordBreak:"break-word",fontSize:10}}>{l.msg || l.summary}</div>
+              {l.error&&<div style={{color:C.red,fontWeight:700,marginTop:2,fontSize:10}}>Erro: {l.error}</div>}
+            </div>
+          );
+        })}
       </div>
     )}
   </div>;
@@ -12020,9 +12056,8 @@ function CfgPage({ctx}){
   const testDriveUrl=async()=>{try{const r=await fetch(driveUrl+"?action=test");const d=await r.json();setDriveTestRes(d.status==="ok"?"✓ Conectado! "+d.time:"✗ "+JSON.stringify(d))}catch(e){setDriveTestRes("✗ Falha: "+e.message)}};
   const saveWh=()=>{localStorage.setItem("webhookUrl",url);setWebhookUrl(url);alert("✓ Webhook salvo!")};
   const testWh=async()=>{try{const r=await fetch(url+"?action=test");const d=await r.json();setTestRes(d.status==="ok"?`✓ Conectado! ${d.time} — versão do script: ${d.version||"❌ SEM VERSÃO (é a v4 antiga, precisa reimplantar como v5!)"}`:"✗ "+JSON.stringify(d))}catch(e){setTestRes("✗ Falha: "+e.message)}};
-  const[importProg,setImportProg]=useState("");
-const doImportMachines=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);setImportProg("Buscando...");try{const machines=await importMachinesFromSheet(url,(cur,total)=>setImportProg(`${cur}/${total} recebidas...`));if(!machines.length){setImportRes("Nenhuma máquina.");setImporting(false);return}setImportProg(`Salvando ${machines.length}...`);const writes=machines.map(m=>{const id=uid();return{c:"machines",id,d:{...m,_id:undefined,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500){await fbBatch(writes.slice(i,i+500));setImportProg(`${Math.min(i+500,writes.length)}/${writes.length} salvas...`)}mutate("machines",existing=>[...existing,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("machines");setImportRes(`✓ ${machines.length} máquinas importadas!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false);setImportProg("")};
-const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);try{const hashes=await importHashesFromSheet(url);if(!hashes.length){setImportRes("Nenhuma HASH na aba REPARO DE HASH.");setImporting(false);return}const writes=hashes.map(h=>{const id=uid();let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id,d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));mutate("hashes",existing=>[...existing,...writes.map(w=>({...w.d,_id:w.id}))]);await markChanged("hashes");setImportRes(`✓ ${hashes.length} HASHs importadas!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false)};
+const doImportMachines=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);setImportProg("Buscando...");try{const machines=await importMachinesFromSheet(url,(cur,total)=>setImportProg(`${cur}/${total} recebidas...`));if(!machines.length){setImportRes("Nenhuma máquina.");setImporting(false);return}setImportProg(`Salvando ${machines.length}...`);const writes=machines.map(m=>{const id=uid();return{c:"machines",id,d:{...m,_id:undefined,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500){const res=await fbBatch(writes.slice(i,i+500));if(!res.ok)throw new Error(res.error||"Falha ao salvar no Supabase");setImportProg(`${Math.min(i+500,writes.length)}/${writes.length} salvas...`)}const newM=[...data.machines,...writes.map(w=>({...w.d,_id:w.id}))];mutate("machines",()=>newM);resetMaxCount("machines",newM.length,newM);await markChanged("machines");setImportRes(`✓ ${machines.length} máquinas importadas e salvas no banco!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false);setImportProg("")};
+const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);try{const hashes=await importHashesFromSheet(url);if(!hashes.length){setImportRes("Nenhuma HASH na aba REPARO DE HASH.");setImporting(false);return}const writes=hashes.map(h=>{const id=uid();let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id,d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500){const res=await fbBatch(writes.slice(i,i+500));if(!res.ok)throw new Error(res.error||"Falha ao salvar no Supabase")}const newH=[...data.hashes,...writes.map(w=>({...w.d,_id:w.id}))];mutate("hashes",()=>newH);resetMaxCount("hashes",newH.length,newH);await markChanged("hashes");setImportRes(`✓ ${hashes.length} HASHs importadas e salvas no banco!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false)};
   const addModel=async()=>{if(!newModel.trim()||!newTH)return;const id=uid();const d={m:newModel.trim(),th:Number(newTH)};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}]);setNewModel("");setNewTH("")};
   const delModel=async m=>{await fbDel("customModels",m._id);mutate("customModels",arr=>arr.filter(x=>x._id!==m._id))};
   const[chipsModel,setChipsModel]=useState(""),[chipsMaterial,setChipsMaterial]=useState(""),[chipsVal,setChipsVal]=useState("");
@@ -12377,7 +12412,10 @@ function SheetCompareReview({ctx,onClose}){
       if(isMachine&&d.sheetItem.sheetRow)patch.sheetRow=d.sheetItem.sheetRow;
       const u={...d.appItem,...patch,...audit(user)};
       mutate(isMachine?"machines":"hashes",arr=>arr.map(x=>x._id===d.appItem._id?u:x));
-      await fbSet(isMachine?"machines":"hashes",d.appItem._id,u);
+      const res = await fbSet(isMachine?"machines":"hashes",d.appItem._id,u);
+      if(!res.ok){
+        throw new Error(res.error || "Falha ao salvar no Supabase");
+      }
     }else{
       // Manda os valores do app pra planilha — cada campo tem seu jeito certo de sincronizar
       d.diffs.forEach(x=>{
@@ -12396,32 +12434,48 @@ function SheetCompareReview({ctx,onClose}){
   // Traz da planilha pro app (o que a planilha tem a mais)
   const importFromSheet=async()=>{
     setSaving(true);
-    const mToImport=newInSheetM.filter((_,i)=>selSheetM.has(i));
-    const hToImport=newInSheetH.filter((_,i)=>selSheetH.has(i));
-    const mWrites=mToImport.map(m=>({c:"machines",id:uid(),d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}));
-    const rWrites=[];
-    const hWrites=hToImport.map(h=>{
-      let status=h.status; // a aba "HASH" já manda o status pronto (TESTAR/NA MAQUINA/RUIM/SAIDA)
-      if(!status){const sit=String(h.situacao||"").toUpperCase();status="REPARO";if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";}
-      // Tenta casar o nome do técnico (texto solto da planilha) com um
-      // funcionário de verdade — sem isso, o app não sabia "quem" consertou.
-      const tecnicoName=(h.tecnico||"").trim();
-      const matchedEmp=tecnicoName?data.employees.find(e=>e.name.trim().toLowerCase()===tecnicoName.toLowerCase()):null;
-      // Se veio da aba de conserto e tem técnico, cria também o registro no
-      // histórico dele — sem chips/foto (a planilha não guarda esse
-      // detalhe), com a data que já estava lá.
-      if(tecnicoName){
-        rWrites.push({c:"repairs",id:uid(),d:{hashSN:h.sn||"",model:h.model||"",type:"repair",employeeId:matchedEmp?._id||"",_by:matchedEmp?._id||"",_byName:tecnicoName,_at:h.addedAt||TODAY(),date:h.addedAt||TODAY(),status:"TESTAR"}});
+    try{
+      const mToImport=newInSheetM.filter((_,i)=>selSheetM.has(i));
+      const hToImport=newInSheetH.filter((_,i)=>selSheetH.has(i));
+      const mWrites=mToImport.map(m=>({c:"machines",id:uid(),d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}));
+      const rWrites=[];
+      const hWrites=hToImport.map(h=>{
+        let status=h.status; // a aba "HASH" já manda o status pronto (TESTAR/NA MAQUINA/RUIM/SAIDA)
+        if(!status){const sit=String(h.situacao||"").toUpperCase();status="REPARO";if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";}
+        // Tenta casar o nome do técnico com funcionário real
+        const tecnicoName=(h.tecnico||"").trim();
+        const matchedEmp=tecnicoName?data.employees.find(e=>e.name.trim().toLowerCase()===tecnicoName.toLowerCase()):null;
+        if(tecnicoName){
+          rWrites.push({c:"repairs",id:uid(),d:{hashSN:h.sn||"",model:h.model||"",type:"repair",employeeId:matchedEmp?._id||"",_by:matchedEmp?._id||"",_byName:tecnicoName,_at:h.addedAt||TODAY(),date:h.addedAt||TODAY(),status:"TESTAR"}});
+        }
+        return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:tecnicoName,repairedBy:matchedEmp?.["_id"]||"",repairedByName:tecnicoName,machineSN:h.machineSN||"",slot:-1,addedAt:h.addedAt||TODAY()}};
+      });
+      const writes=[...mWrites,...hWrites,...rWrites];
+      for(let i=0;i<writes.length;i+=500){
+        const res = await fbBatch(writes.slice(i,i+500));
+        if(!res.ok){
+          throw new Error(res.error || (res.errors && res.errors.join("; ")) || "Falha ao gravar lote no Supabase");
+        }
       }
-      return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:tecnicoName,repairedBy:matchedEmp?.["_id"]||"",repairedByName:tecnicoName,machineSN:h.machineSN||"",slot:-1,addedAt:h.addedAt||TODAY()}};
-    });
-    const writes=[...mWrites,...hWrites,...rWrites];
-    for(let i=0;i<writes.length;i+=500)await fbBatch(writes.slice(i,i+500));
-    if(mWrites.length)mutate("machines",arr=>[...arr,...mWrites.map(w=>({...w.d,_id:w.id}))]);
-    if(hWrites.length)mutate("hashes",arr=>[...arr,...hWrites.map(w=>({...w.d,_id:w.id}))]);
-    if(rWrites.length)mutate("repairs",arr=>[...arr,...rWrites.map(w=>({...w.d,_id:w.id}))]);
-    await markChanged("machines");await markChanged("hashes");if(rWrites.length)await markChanged("repairs");
-    setSaving(false);onClose();
+      if(mWrites.length){
+        const newM = [...data.machines, ...mWrites.map(w=>({...w.d,_id:w.id}))];
+        mutate("machines", ()=>newM);
+        resetMaxCount("machines", newM.length, newM);
+      }
+      if(hWrites.length){
+        const newH = [...data.hashes, ...hWrites.map(w=>({...w.d,_id:w.id}))];
+        mutate("hashes", ()=>newH);
+        resetMaxCount("hashes", newH.length, newH);
+      }
+      if(rWrites.length)mutate("repairs",arr=>[...arr,...rWrites.map(w=>({...w.d,_id:w.id}))]);
+      await markChanged("machines");await markChanged("hashes");if(rWrites.length)await markChanged("repairs");
+      alert(`✓ Sucesso! ${mWrites.length} máquinas e ${hWrites.length} HASHs trazidos da planilha e gravados no banco de dados com sucesso.`);
+      onClose();
+    }catch(err){
+      alert(`❌ Erro ao trazer da planilha: ${err.message}`);
+    }finally{
+      setSaving(false);
+    }
   };
   // Apaga da PLANILHA os itens marcados (o que sobrou lá e você não quer trazer)
   const deleteFromSheet=async()=>{
@@ -12550,7 +12604,7 @@ function SheetCompareReview({ctx,onClose}){
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
       <div style={{display:"flex",gap:8,marginBottom:10}}>
         <Btn v="s" disabled={saving} onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores do APP em ${all.length} item(ns), sobrescrevendo a planilha.`))return;setSaving(true);try{for(const d of all)await resolveDiff(d,d.isMachine,false);await flushSheetQueue(webhookUrl);alert(`✓ Sucesso confirmado! ${all.length} item(ns) gravados na planilha do Google.`)}catch(err){alert(`❌ Erro ao enviar para a planilha: ${err.message}`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Gravando na planilha...":`Manter do App pra todos (${pendingDiffsM.length+pendingDiffsH.length})`}</Btn>
-        <Btn v="g" disabled={saving} onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores da PLANILHA em ${all.length} item(ns), sobrescrevendo o app.`))return;setSaving(true);try{for(const d of all)await resolveDiff(d,d.isMachine,true);alert(`✓ Sucesso! ${all.length} item(ns) atualizados no app.`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Atualizando...":"Usar da Planilha pra todos"}</Btn>
+        <Btn v="g" disabled={saving} onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores da PLANILHA em ${all.length} item(ns), sobrescrevendo o app e salvando no banco de dados.`))return;setSaving(true);try{for(const d of all)await resolveDiff(d,d.isMachine,true);alert(`✓ Sucesso! ${all.length} item(ns) atualizados no app e salvos no Supabase.`)}catch(err){alert(`❌ Erro ao gravar no banco: ${err.message}`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Salvando no banco...":"Usar da Planilha pra todos"}</Btn>
       </div>
       <div style={{marginBottom:14}}><SheetSyncLogBox limit={6}/></div>
       {[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))].map(d=>
@@ -12561,8 +12615,8 @@ function SheetCompareReview({ctx,onClose}){
             <span><span style={{color:C.accent}}>App: {String(x.appVal||"—")}</span> · <span style={{color:C.blue}}>Planilha: {String(x.sheetVal||"—")}</span></span>
           </div>)}
           <div style={{display:"flex",gap:8,marginTop:10}}>
-            <Btn v="s" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,false);await flushSheetQueue(webhookUrl)}catch(err){alert(`❌ Erro ao gravar: ${err.message}`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Gravando...":"Manter do App (corrige planilha)"}</Btn>
-            <Btn v="g" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,true)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Salvando...":"Usar da Planilha (corrige app)"}</Btn>
+            <Btn v="s" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,false);await flushSheetQueue(webhookUrl)}catch(err){alert(`❌ Erro ao gravar na planilha: ${err.message}`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Gravando...":"Manter do App (corrige planilha)"}</Btn>
+            <Btn v="g" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,true);alert("✓ Gravado no app e no Supabase com sucesso!")}catch(err){alert(`❌ Erro ao gravar no Supabase: ${err.message}`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Salvando...":"Usar da Planilha (corrige app)"}</Btn>
           </div>
         </div>
       )}
