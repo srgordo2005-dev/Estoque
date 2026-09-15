@@ -11841,7 +11841,7 @@ function MigrationPanel({ctx}){
 
 function CfgPage({ctx}){
   const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal,resetMaxCount,gTH,allModels}=ctx;
-  const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
+  const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[importProg,setImportProg]=useState(""),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
   const[resetConfirmText,setResetConfirmText]=useState(""),[resetting,setResetting]=useState(false),[resetProg,setResetProg]=useState(""),[resetRes,setResetRes]=useState("");
   // Apaga TODAS as máquinas do app e reimporta tudo de novo direto da
   // planilha, já com o número da linha certinho em cada uma. É uma ação
