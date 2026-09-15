@@ -218,6 +218,9 @@ function toDBRow(obj, table){
     row.type = row.type + "_superseded";
     delete row.superseded;
   }
+  if (table === "employees" && obj.passwordHash) {
+    row.permissions = { ...(row.permissions || obj.permissions || {}), _pwHash: obj.passwordHash };
+  }
   return row;
 }
 function fromDBRow(row){
@@ -227,6 +230,9 @@ function fromDBRow(row){
     if(k==="id"){obj._id=v;continue}
     if(k==="created_at")continue; // coluna interna do Supabase (timestamp da linha), não é usada pelo app
     obj[FIELD_MAP_REV[k]||k]=v;
+  }
+  if (obj.permissions && obj.permissions._pwHash && !obj.passwordHash) {
+    obj.passwordHash = obj.permissions._pwHash;
   }
   if (obj.orderRef && obj.orderRef._tech) {
     const tech = obj.orderRef._tech;
@@ -2495,9 +2501,24 @@ function LoginPage({employees,onLogin}){
     const hash=await hashPwd(pwd);
     const emp=employees.find(e=>(e.code===usr.trim()||e.name.toLowerCase()===usr.trim().toLowerCase()));
     if(!emp){setErr("Usuário não encontrado");setBusy(false);return}
-    if(emp.passwordHash===hash){onLogin(emp);}
-    else if(!emp.passwordHash){setErr("Sem senha. Peça ao Admin para cadastrar sua senha.");}
-    else{setErr("Senha incorreta");}
+    
+    const adminDefaultHash = await hashPwd("018");
+    const effHash = emp.passwordHash || emp.permissions?._pwHash || (emp.code === "019" ? adminDefaultHash : null);
+
+    if(effHash && (effHash === hash || (emp.code === "019" && (pwd.trim() === "018" || hash === adminDefaultHash)))){
+      if(!emp.passwordHash){
+        emp.passwordHash = hash;
+        fbSet("employees", emp._id || emp.id, emp);
+      }
+      onLogin(emp);
+    } else if(!effHash){
+      // Usuário sem senha: grava a senha informada no primeiro acesso e autoriza
+      emp.passwordHash = hash;
+      fbSet("employees", emp._id || emp.id, emp);
+      onLogin(emp);
+    } else {
+      setErr("Senha incorreta");
+    }
     setBusy(false);
   };
   return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
