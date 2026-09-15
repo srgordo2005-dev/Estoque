@@ -428,15 +428,31 @@ const saveSheetQueue = () => {
   }
 };
 
+const addSheetSyncLog = (entry) => {
+  try {
+    const existing = JSON.parse(localStorage.getItem("hs_sheet_sync_log") || "[]");
+    const item = {
+      id: "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+      at: new Date().toISOString(),
+      ...entry
+    };
+    const updated = [item, ...existing].slice(0, 80);
+    localStorage.setItem("hs_sheet_sync_log", JSON.stringify(updated));
+    window.dispatchEvent(new CustomEvent("hs_sheet_sync_log_changed"));
+  } catch(e) {}
+};
+
 async function triggerSheetSync(url) {
-  const currentUrl = url || localStorage.getItem("hs_webhook_url");
-  if (!currentUrl || !wQ.length) return;
+  const currentUrl = url || localStorage.getItem("hs_webhook_url") || localStorage.getItem("webhookUrl") || "https://script.google.com/macros/s/AKfycbxZ1WpUhjvKWYEUAvQdaRHuu-mb1WLorVMOreihxvSJlMrddJYa-U1obUlu5tGtRjBv/exec";
+  if (!currentUrl || !wQ.length) return { ok: true, count: 0 };
   
   const CHUNK_SIZE = 20;
   const b = wQ.slice(0, CHUNK_SIZE);
   wQ = wQ.slice(CHUNK_SIZE);
   saveSheetQueue();
   
+  const batchSummary = b.map(x => `${x.action}: ${x.payload?.sn || x.payload?.id || 'item'}${x.payload?.field ? ' (' + x.payload.field + '=' + (x.payload.to ?? '') + ')' : ''}`).join(" | ");
+
   incrementWrites();
   try {
     const r=await fetch(currentUrl,{
@@ -445,7 +461,13 @@ async function triggerSheetSync(url) {
       body:JSON.stringify({batch:b.map(({action,payload})=>({action,payload}))}),
       keepalive:true
     });
-    let d=await r.json().catch(()=>({}));
+    const text = await r.text();
+    let d = {};
+    try {
+      d = JSON.parse(text);
+    } catch(err) {
+      d = { error: "Google retornou HTML/erro em vez de JSON: " + text.slice(0, 150) };
+    }
 
     // Se o Webhook da planilha for uma versão antiga que não reconhece "addMachine" ou "hashApproved", retenta com o fallback equivalente
     if (d.error && String(d.error).includes("Ação desconhecida")) {
@@ -460,20 +482,28 @@ async function triggerSheetSync(url) {
         body: JSON.stringify({ batch: fallbackBatch }),
         keepalive: true
       });
-      const d2 = await r2.json().catch(() => ({}));
-      if (!d2.error) {
-        d = d2;
-      }
+      const text2 = await r2.text();
+      try {
+        const d2 = JSON.parse(text2);
+        if (!d2.error) d = d2;
+      } catch(e) {}
+    }
+
+    if (!d.error && d.status !== "ok") {
+      d.error = "Resposta inesperada da planilha: " + JSON.stringify(d);
     }
 
     if(d.error){
       console.error("syncSheet erro:",d.error);
+      addSheetSyncLog({ status: "error", count: b.length, summary: batchSummary, error: String(d.error) });
       onSyncSheetError?.(`Planilha não salvou "${b[0]?.action}": ${d.error}`);
       wQ = [...b, ...wQ];
       saveSheetQueue();
       setTimeout(() => triggerSheetSync(currentUrl), 10000);
+      return { ok: false, error: d.error, count: b.length };
     } else {
-      console.log(`✓ syncSheet: ${b.length} ação(ões) enviada(s) pra planilha`,b.map(x=>x.action));
+      console.log(`✓ syncSheet: ${b.length} ação(ões) gravada(s) na planilha`,b.map(x=>x.action));
+      addSheetSyncLog({ status: "ok", count: b.length, summary: batchSummary, msg: `Confirmado pelo Google (${d.status || 'ok'})` });
       // Limpa os IDs da fila no Supabase que foram enviados com sucesso pelo navegador
       b.forEach(item => {
         if (item.queueId) {
@@ -483,15 +513,36 @@ async function triggerSheetSync(url) {
       if (wQ.length > 0) {
         setTimeout(() => triggerSheetSync(currentUrl), 300);
       }
+      return { ok: true, count: b.length };
     }
   }catch(e){
     console.error("syncSheet falhou:",e);
+    addSheetSyncLog({ status: "error", count: b.length, summary: batchSummary, error: e.message });
     onSyncSheetError?.(`Planilha não respondeu pra "${b[0]?.action}": ${e.message}`);
     wQ = [...b, ...wQ];
     saveSheetQueue();
     setTimeout(() => triggerSheetSync(currentUrl), 10000);
+    return { ok: false, error: e.message, count: b.length };
   } finally {
     decrementWrites();
+  }
+}
+
+async function flushSheetQueue(url) {
+  const currentUrl = url || localStorage.getItem("hs_webhook_url") || localStorage.getItem("webhookUrl");
+  let attempts = 0;
+  while (wQ.length > 0 && attempts < 15) {
+    attempts++;
+    const res = await triggerSheetSync(currentUrl);
+    if (!res?.ok) {
+      throw new Error(res?.error || "Erro de conexão com o Google Sheets");
+    }
+    if (wQ.length > 0) {
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+  if (wQ.length > 0) {
+    throw new Error(`Restaram ${wQ.length} itens na fila. Tente novamente em instantes.`);
   }
 }
 
@@ -11568,6 +11619,42 @@ function AddEmpForm({ctx,onClose}){
   </div>;
 }
 
+/* ═══ SHEET SYNC LOG COMPONENT (ADMIN) ═════════════════════════ */
+function SheetSyncLogBox({limit=15}){
+  const[logs,setLogs]=useState(()=>JSON.parse(localStorage.getItem("hs_sheet_sync_log")||"[]"));
+  useEffect(()=>{
+    const handler=()=>setLogs(JSON.parse(localStorage.getItem("hs_sheet_sync_log")||"[]"));
+    window.addEventListener("hs_sheet_sync_log_changed",handler);
+    return()=>window.removeEventListener("hs_sheet_sync_log_changed",handler);
+  },[]);
+  const clearLogs=()=>{
+    localStorage.removeItem("hs_sheet_sync_log");
+    setLogs([]);
+  };
+  return <div style={{background:C.card2,borderRadius:10,padding:10,border:`1px solid ${C.border}`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+      <div style={{fontSize:12,fontWeight:800,color:C.accent}}>📋 Envios e Confirmações Recentes (Google Sheets)</div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={()=>setLogs(JSON.parse(localStorage.getItem("hs_sheet_sync_log")||"[]"))} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:4,color:C.muted,padding:"2px 6px",fontSize:10,cursor:"pointer"}}>🔄 Atualizar</button>
+        {logs.length>0&&<button onClick={clearLogs} style={{background:"none",border:`1px solid ${C.red}44`,borderRadius:4,color:C.red,padding:"2px 6px",fontSize:10,cursor:"pointer"}}>🗑️ Limpar</button>}
+      </div>
+    </div>
+    {logs.length===0?<div style={{fontSize:11,color:C.muted,padding:"8px 0",textAlign:"center"}}>Nenhum envio recente registrado ainda. As próximas alterações aparecerão aqui com a confirmação do Google.</div>:(
+      <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:4}}>
+        {logs.slice(0,limit).map(l=><div key={l.id} style={{padding:"6px 8px",borderRadius:6,background:l.status==="ok"?C.green+"11":C.red+"18",border:`1px solid ${l.status==="ok"?C.green+"33":C.red+"44"}`,fontSize:11}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+            <span style={{color:l.status==="ok"?C.green:C.red,fontWeight:800}}>{l.status==="ok"?"✓ CONFIRMADO PELO GOOGLE":"❌ ERRO DO GOOGLE"}</span>
+            <span style={{color:C.muted,fontSize:10}}>{new Date(l.at).toLocaleTimeString()} ({l.count} itens)</span>
+          </div>
+          <div style={{color:C.subtle,wordBreak:"break-word",fontSize:10}}>{l.summary}</div>
+          {l.error&&<div style={{color:C.red,fontWeight:700,marginTop:2,fontSize:10}}>Erro: {l.error}</div>}
+          {l.msg&&<div style={{color:C.green,fontSize:10,marginTop:1}}>{l.msg}</div>}
+        </div>)}
+      </div>
+    )}
+  </div>;
+}
+
 /* ═══ CONFIG ════════════════════════════════════════════════════ */
 // Painel temporário pra trazer os dados que já existiam no Firebase pro
 // Supabase, uma vez só. O Firebase continua no ar até você confirmar que
@@ -11704,7 +11791,74 @@ function CfgPage({ctx}){
   const recalcProtection=()=>{
     resetMaxCount("machines",data.machines.length);
     resetMaxCount("hashes",data.hashes.length);
-    alert(`✓ Recalculado! Máquinas: ${data.machines.length} · HASHs: ${data.hashes.length}\nAgora esses números viram a nova referência — sem avisos falsos de "sumiço".`);
+    resetMaxCount("pallets",data.pallets.length);
+    resetMaxCount("clients",data.clients.length);
+    resetMaxCount("orders",data.orders.length);
+    resetMaxCount("farmMachines",data.farmMachines.length);
+    localStorage.removeItem("hs_data_warnings");
+    setDataWarnings([]);
+    alert(`✓ Proteção recalculada com sucesso!\nMáquinas: ${data.machines.length} · HASHs: ${data.hashes.length} · Paletes: ${data.pallets.length} · Clientes: ${data.clients.length}\nTodos os avisos de integridade foram eliminados.`);
+  };
+
+  const [syncingCloud, setSyncingCloud] = useState(false);
+  const [cloudSyncProg, setCloudSyncProg] = useState("");
+  const [cloudSyncRes, setCloudSyncRes] = useState("");
+  const syncLocalToCloud = async () => {
+    const totalLocal = data.machines.length + data.hashes.length + data.employees.length + data.pallets.length + data.clients.length + data.orders.length + data.farmMachines.length;
+    if (!confirm(`Confirma salvar TODOS os dados locais no Supabase (${totalLocal} itens no total)?\n\nIsso vai preencher o banco de dados novo com tudo que já está no seu app:\n• ${data.employees.length} funcionários\n• ${data.machines.length} máquinas\n• ${data.hashes.length} HASHs\n• ${data.pallets.length} paletes\n• ${data.clients.length} clientes\n• ${data.orders.length} pedidos\n• ${data.farmMachines.length} máquinas da farm\n\nIsso garante que o banco novo fica 100% completo e elimina todos os avisos de integridade.`)) return;
+    setSyncingCloud(true);
+    setCloudSyncRes("");
+    try {
+      if (data.employees.length) {
+        setCloudSyncProg(`Salvando ${data.employees.length} funcionários no Supabase...`);
+        for (const emp of data.employees) {
+          await fbSet("employees", emp._id || uid(), emp);
+        }
+      }
+      if (data.pallets.length) {
+        setCloudSyncProg(`Salvando ${data.pallets.length} paletes no Supabase...`);
+        const writes = data.pallets.map(p => ({ c: "pallets", id: p._id || uid(), d: p }));
+        for (let i = 0; i < writes.length; i += 500) await fbBatch(writes.slice(i, i + 500));
+      }
+      if (data.clients.length) {
+        setCloudSyncProg(`Salvando ${data.clients.length} clientes no Supabase...`);
+        const writes = data.clients.map(c => ({ c: "clients", id: c._id || uid(), d: c }));
+        for (let i = 0; i < writes.length; i += 500) await fbBatch(writes.slice(i, i + 500));
+      }
+      if (data.orders.length) {
+        setCloudSyncProg(`Salvando ${data.orders.length} pedidos no Supabase...`);
+        const writes = data.orders.map(o => ({ c: "orders", id: o._id || uid(), d: o }));
+        for (let i = 0; i < writes.length; i += 500) await fbBatch(writes.slice(i, i + 500));
+      }
+      if (data.farmMachines.length) {
+        setCloudSyncProg(`Salvando ${data.farmMachines.length} máquinas da farm no Supabase...`);
+        const writes = data.farmMachines.map(fm => ({ c: "farmMachines", id: fm._id || uid(), d: fm }));
+        for (let i = 0; i < writes.length; i += 500) await fbBatch(writes.slice(i, i + 500));
+      }
+      if (data.hashes.length) {
+        setCloudSyncProg(`Salvando ${data.hashes.length} HASHs no Supabase...`);
+        const writes = data.hashes.map(h => ({ c: "hashes", id: h._id || uid(), d: h }));
+        for (let i = 0; i < writes.length; i += 500) await fbBatch(writes.slice(i, i + 500));
+      }
+      if (data.machines.length) {
+        setCloudSyncProg(`Salvando ${data.machines.length} máquinas no Supabase...`);
+        const writes = data.machines.map(m => ({ c: "machines", id: m._id || uid(), d: m }));
+        for (let i = 0; i < writes.length; i += 500) await fbBatch(writes.slice(i, i + 500));
+      }
+      resetMaxCount("machines", data.machines.length);
+      resetMaxCount("hashes", data.hashes.length);
+      resetMaxCount("pallets", data.pallets.length);
+      resetMaxCount("clients", data.clients.length);
+      resetMaxCount("orders", data.orders.length);
+      resetMaxCount("farmMachines", data.farmMachines.length);
+      localStorage.removeItem("hs_data_warnings");
+      setDataWarnings([]);
+      setCloudSyncRes(`✓ Sucesso! Todos os dados (${data.machines.length} máquinas, ${data.hashes.length} HASHs, funcionários, etc.) foram gravados no Supabase e os avisos foram eliminados.`);
+    } catch(err) {
+      setCloudSyncRes(`✗ Erro ao salvar: ${err.message}`);
+    }
+    setSyncingCloud(false);
+    setCloudSyncProg("");
   };
   // Corrige em massa máquinas SEM SN que tiveram o modelo corrompido (ex: o
   // bug antigo do comparador que trocou M30S por M21S em várias de uma vez).
@@ -11810,10 +11964,19 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
     {dataWarnings.length>0&&<Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
       <SL>🛡️ AVISOS DE INTEGRIDADE DE DADOS ({dataWarnings.length})</SL>
-      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Sempre que uma leitura do banco vier suspeitosamente menor que o normal, o app protege o que já está na tela e registra aqui em vez de apagar dados. Se você mesmo apagou dados de propósito (ex: limpou duplicatas), clica no botão abaixo pra avisar o app que o número novo (menor) está certo.</div>
-      <Btn v="y" onClick={recalcProtection} style={{width:"100%",marginBottom:10}}>🔄 Recalcular proteção (o número atual está certo)</Btn>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <Btn v="b" onClick={syncLocalToCloud} disabled={syncingCloud} style={{flex:1}}>{syncingCloud?(cloudSyncProg||"Salvando no Supabase..."):`☁️ Subir tudo pro Supabase (${data.machines.length} macs, ${data.hashes.length} hashes, ${data.employees.length} func)`}</Btn>
+        <Btn v="y" onClick={recalcProtection} disabled={syncingCloud} style={{flex:1}}>🔄 Recalcular proteção (o número atual está certo)</Btn>
+      </div>
+      {cloudSyncProg&&<div style={{color:C.blue,fontSize:11,marginBottom:6}}>⏳ {cloudSyncProg}</div>}
+      {cloudSyncRes&&<Alrt type={cloudSyncRes.startsWith("✓")?"ok":"err"}>{cloudSyncRes}</Alrt>}
       {dataWarnings.map((w,i)=><div key={i} style={{padding:"6px 0",borderBottom:`1px solid ${C.border}`,fontSize:12,color:"#ff9b9b"}}>{w.msg}<div style={{color:C.muted,fontSize:10}}>{fmtTS(w.at)}</div></div>)}
     </Card>}
+    <Card style={{marginBottom:14,border:`1px solid ${C.blue}`}}>
+      <SL>📋 LOG DE ENVIOS E CONFIRMAÇÕES DA PLANILHA (ADMIN)</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Histórico ao vivo das últimas alterações enviadas para a Planilha do Google, com a resposta de confirmação direta do Google.</div>
+      <SheetSyncLogBox limit={30}/>
+    </Card>
     <Card style={{marginBottom:14,border:`1px solid ${C.amber}`}}>
       <SL>🔧 CORRIGIR MODELO EM MASSA (só máquinas sem SN)</SL>
       <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Use isso quando várias máquinas SEM SN ficaram com o modelo errado (ex: o bug do comparador antigo). Só muda quem não tem SN preenchido — quem tem SN, resolve pela comparação normal.</div>
@@ -12287,9 +12450,10 @@ function SheetCompareReview({ctx,onClose}){
     {(pendingDiffsM.length>0||pendingDiffsH.length>0)&&<div style={{marginBottom:20}}>
       <div style={{color:C.amber,fontWeight:800,fontSize:13,marginBottom:8}}>⚠️ MESMO SN, DADOS DIFERENTES ({pendingDiffsM.length+pendingDiffsH.length})</div>
       <div style={{display:"flex",gap:8,marginBottom:10}}>
-        <Btn v="s" disabled={saving} onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores do APP em ${all.length} item(ns), sobrescrevendo a planilha.`))return;setSaving(true);try{for(const d of all)await resolveDiff(d,d.isMachine,false);alert(`✓ Sucesso! ${all.length} item(ns) enviados e atualizados na planilha.`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Enviando...":`Manter do App pra todos (${pendingDiffsM.length+pendingDiffsH.length})`}</Btn>
+        <Btn v="s" disabled={saving} onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores do APP em ${all.length} item(ns), sobrescrevendo a planilha.`))return;setSaving(true);try{for(const d of all)await resolveDiff(d,d.isMachine,false);await flushSheetQueue(webhookUrl);alert(`✓ Sucesso confirmado! ${all.length} item(ns) gravados na planilha do Google.`)}catch(err){alert(`❌ Erro ao enviar para a planilha: ${err.message}`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Gravando na planilha...":`Manter do App pra todos (${pendingDiffsM.length+pendingDiffsH.length})`}</Btn>
         <Btn v="g" disabled={saving} onClick={async()=>{const all=[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))];if(!confirm(`Confirma? Vai aplicar os valores da PLANILHA em ${all.length} item(ns), sobrescrevendo o app.`))return;setSaving(true);try{for(const d of all)await resolveDiff(d,d.isMachine,true);alert(`✓ Sucesso! ${all.length} item(ns) atualizados no app.`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Atualizando...":"Usar da Planilha pra todos"}</Btn>
       </div>
+      <div style={{marginBottom:14}}><SheetSyncLogBox limit={6}/></div>
       {[...pendingDiffsM.map(d=>({...d,isMachine:true})),...pendingDiffsH.map(d=>({...d,isMachine:false}))].map(d=>
         <div key={(d.isMachine?"m:":"h:")+d.sn} style={{background:"#2a1a0c",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:10}}>
           <div style={{fontWeight:800,fontSize:13,marginBottom:8}}>{d.isMachine?"🖥️":"⚡"} {d.sn}</div>
@@ -12298,7 +12462,7 @@ function SheetCompareReview({ctx,onClose}){
             <span><span style={{color:C.accent}}>App: {String(x.appVal||"—")}</span> · <span style={{color:C.blue}}>Planilha: {String(x.sheetVal||"—")}</span></span>
           </div>)}
           <div style={{display:"flex",gap:8,marginTop:10}}>
-            <Btn v="s" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,false)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Enviando...":"Manter do App (corrige planilha)"}</Btn>
+            <Btn v="s" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,false);await flushSheetQueue(webhookUrl)}catch(err){alert(`❌ Erro ao gravar: ${err.message}`)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Gravando...":"Manter do App (corrige planilha)"}</Btn>
             <Btn v="g" disabled={saving} onClick={async()=>{setSaving(true);try{await resolveDiff(d,d.isMachine,true)}finally{setSaving(false)}}} style={{flex:1}}>{saving?"Salvando...":"Usar da Planilha (corrige app)"}</Btn>
           </div>
         </div>
