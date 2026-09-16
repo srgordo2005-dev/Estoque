@@ -1831,8 +1831,15 @@ export default function App(){
         await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}]);
         localStorage.setItem("hs_employees",JSON.stringify([{...adm,_id:id}]));
       }else{
-        setCol("employees",emps);
-        localStorage.setItem("hs_employees",JSON.stringify(emps));
+        let mergedEmps = emps;
+        if(cachedEmps.length > emps.length){
+          const empMap = new Map();
+          cachedEmps.forEach(e => empMap.set(e._id || e.code, e));
+          emps.forEach(e => empMap.set(e._id || e.code, e));
+          mergedEmps = Array.from(empMap.values());
+        }
+        setCol("employees",mergedEmps);
+        localStorage.setItem("hs_employees",JSON.stringify(mergedEmps));
       }
       const{out,errs}=await fetchAllCollections();
       const cachedM=JSON.parse(localStorage.getItem("hs_machines")||"[]");
