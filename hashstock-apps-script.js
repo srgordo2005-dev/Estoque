@@ -515,7 +515,7 @@ function updateMachineRow(sheet, p) {
   else if (f === "fans") col = COL_MAC_FANS;
   
   if (col !== -1) {
-    let val = p.to ?? "";
+    let val = (p.to !== undefined && p.to !== null) ? p.to : "";
     if (col === COL_MAC_SITUACAO) {
       val = mapSituacaoToSheet(val);
     }
@@ -1014,10 +1014,10 @@ function exportScanResults(ss, payload) {
     var t = m.telemetry || {};
     var brand = t.brand || "";
     var mac = t.mac_address || m.sn || "";
-    var power = t.efficiency?.power_consumption_watts || 0;
-    var efficiency = t.efficiency?.joules_per_th || 0;
-    var bActive = t.hardware?.boards_active ?? 0;
-    var bTotal = t.hardware?.boards_total ?? 0;
+    var power = (t.efficiency && t.efficiency.power_consumption_watts) ? t.efficiency.power_consumption_watts : 0;
+    var efficiency = (t.efficiency && t.efficiency.joules_per_th) ? t.efficiency.joules_per_th : 0;
+    var bActive = (t.hardware && t.hardware.boards_active != null) ? t.hardware.boards_active : 0;
+    var bTotal = (t.hardware && t.hardware.boards_total != null) ? t.hardware.boards_total : 0;
     
     rows.push([
       dateStr,
