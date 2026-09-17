@@ -1860,7 +1860,7 @@ export default function App(){
     if(freshLen>=knownMax){localStorage.setItem(maxKey,String(freshLen));return{use:freshArr,warn:null}}
     // Fresh leitura veio menor que o máximo já visto
     if(knownMax>0&&freshLen<knownMax*0.9){
-      if((col==="hashes"||col==="repairs")&&freshLen>=200){
+      if((col==="hashes"&&freshLen>=150)||(col==="repairs"&&freshLen>=40)){
         localStorage.setItem(maxKey,String(freshLen));
         return{use:freshArr,warn:null};
       }
@@ -1881,6 +1881,18 @@ export default function App(){
 
   // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore/Supabase
   const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders",farmMachines:"farmMachines"};
+  
+  // Cache buster: força expiração automática de caches obsoletos de consertos e hashes
+  const HS_DATA_VERSION="v3_clean_repairs";
+  if(typeof window!=="undefined"&&localStorage.getItem("hs_data_version")!==HS_DATA_VERSION){
+    localStorage.removeItem("hs_hashes");
+    localStorage.removeItem("hs_repairs");
+    localStorage.removeItem("hs_lastFullFetch");
+    localStorage.setItem("hs_maxcount_hashes","274");
+    localStorage.setItem("hs_maxcount_repairs","90");
+    localStorage.setItem("hs_data_version",HS_DATA_VERSION);
+  }
+
   const fetchAllCollections=async(onlyKeys)=>{
     const allCols=["machines","hashes","repairs","tests","feedbacks","pendingApprovals","customModels","pallets","clients","shipments","loadPhotos","orders","farmMachines"];
     const cols=onlyKeys?onlyKeys.map(k=>META_TO_COL[k]).filter(Boolean):allCols;
