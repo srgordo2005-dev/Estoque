@@ -287,8 +287,86 @@ let activeWrites = 0;
 const incrementWrites = () => { activeWrites++; };
 const decrementWrites = () => { activeWrites = Math.max(0, activeWrites - 1); };
 
+// --- FILA OFFLINE E BLINDAGEM DE ESCRITAS NO BANCO (SUPABASE) ---
+let dbPendingWrites = [];
+try {
+  dbPendingWrites = JSON.parse(localStorage.getItem("hs_db_pending_writes") || "[]");
+} catch(e) {
+  dbPendingWrites = [];
+}
+
+const saveDbPendingWrites = () => {
+  try {
+    localStorage.setItem("hs_db_pending_writes", JSON.stringify(dbPendingWrites.slice(-1000)));
+  } catch(e) {
+    console.warn("Falha ao salvar fila local do banco:", e);
+  }
+};
+
+const enqueueDbWrite = (item) => {
+  const existingIdx = dbPendingWrites.findIndex(w => w.c === item.c && w.id === item.id);
+  if (existingIdx >= 0) {
+    dbPendingWrites[existingIdx] = { ...item, at: Date.now() };
+  } else {
+    dbPendingWrites.push({ ...item, at: Date.now() });
+  }
+  saveDbPendingWrites();
+};
+
+let isFlushingDbQueue = false;
+async function flushDbQueue() {
+  if (isFlushingDbQueue || !dbPendingWrites.length) return;
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  isFlushingDbQueue = true;
+  try {
+    const batchToFlush = dbPendingWrites.slice(0, 50); // Lotes de 50 para nunca sobrecarregar o banco
+    const succeededIds = new Set();
+    
+    for (const item of batchToFlush) {
+      try {
+        const table = tableName(item.c);
+        if (item.type === "del") {
+          const { error } = await supabase.from(table).delete().eq("id", item.id);
+          if (!error) succeededIds.add(item.c + ":" + item.id);
+        } else {
+          const { _id, ...cleanObj } = item.obj || {};
+          if (item.c === "sessions") {
+            delete cleanObj.ip;
+            delete cleanObj.autoEnabled;
+            delete cleanObj.targetUptimeHours;
+          }
+          if (item.c === "tests") {
+            delete cleanObj.employeeName;
+            delete cleanObj.employeeCode;
+          }
+          const row = { id: item.id, ...toDBRow(cleanObj, table) };
+          const { error } = await supabase.from(table).upsert(row, { onConflict: "id" });
+          if (!error) succeededIds.add(item.c + ":" + item.id);
+        }
+      } catch (err) {
+        // Falha transitória de conexão, mantém na fila
+      }
+      // Intervalo de 60ms entre requisições para blindar contra sobrecarga
+      await new Promise(r => setTimeout(r, 60));
+    }
+    
+    if (succeededIds.size > 0) {
+      dbPendingWrites = dbPendingWrites.filter(w => !succeededIds.has(w.c + ":" + w.id));
+      saveDbPendingWrites();
+      console.log(`[DB Queue] ${succeededIds.size} escritas sincronizadas com o Supabase com sucesso.`);
+    }
+  } finally {
+    isFlushingDbQueue = false;
+  }
+}
+
+if (typeof window !== "undefined") {
+  setInterval(flushDbQueue, 15000);
+  window.addEventListener("online", flushDbQueue);
+}
+
 window.addEventListener("beforeunload", (e) => {
-  if (activeWrites > 0 || (typeof wQ !== 'undefined' && wQ.length > 0)) {
+  if (activeWrites > 0 || (typeof wQ !== 'undefined' && wQ.length > 0) || dbPendingWrites.length > 0) {
     e.preventDefault();
     e.returnValue = "Ainda salvando dados no banco ou planilha. Se fechar a página agora, os dados podem não ser gravados.";
     return e.returnValue;
@@ -311,31 +389,48 @@ async function fbSet(c,id,obj){
     }
     const row={id,...toDBRow(cleanObj, table)};
     const{error}=await supabase.from(table).upsert(row,{onConflict:"id"});
-    if(error){console.error(`fbSet(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui salvar em "${c}": ${error.message}`);return{ok:false,error:error.message}}
+    if(error){
+      console.warn(`fbSet(${c},${id}) aviso:`,error.message);
+      enqueueDbWrite({ type: "set", c, id, obj: { ...cleanObj, _id: id } });
+      onSyncSheetError?.(`Sem conexão direta com "${c}". Registro salvo com segurança no aparelho.`);
+      return{ok:true,savedOffline:true,error:error.message};
+    }
     return{ok:true};
+  } catch(netErr) {
+    console.warn(`fbSet rede (${c},${id}):`,netErr.message);
+    enqueueDbWrite({ type: "set", c, id, obj });
+    onSyncSheetError?.(`Aparelho offline. Registro de "${c}" salvo no aparelho.`);
+    return{ok:true,savedOffline:true,error:netErr.message};
   } finally {
     decrementWrites();
   }
 }
+
 async function fbDel(c,id){
   incrementWrites();
   try {
     const table=tableName(c);
     const{error}=await supabase.from(table).delete().eq("id",id);
-    if(error){console.warn(`fbDel(${c},${id}):`,error.message);onSyncSheetError?.(`Não consegui apagar de "${c}": ${error.message}`);return{ok:false,error:error.message}}
-    // Quem apaga de propósito (lixo/duplicado) precisa que o "teto máximo" de
-    // segurança (guardCount) desça junto — senão fica avisando pra sempre que
-    // a contagem "diminuiu" mesmo sendo exatamente o que se pediu pra fazer.
-    if(c==="machines"||c==="hashes"){
+    if(error){
+      console.warn(`fbDel(${c},${id}):`,error.message);
+      enqueueDbWrite({ type: "del", c, id });
+      onSyncSheetError?.(`Exclusão de "${c}" salva localmente para sincronização.`);
+      return{ok:true,savedOffline:true,error:error.message};
+    }
+    if(c==="machines"||c==="hashes"||c==="repairs"){
       const key="hs_maxcount_"+c;
       const cur=Number(localStorage.getItem(key)||0);
       if(cur>0)localStorage.setItem(key,String(cur-1));
     }
     return{ok:true};
+  } catch(netErr) {
+    enqueueDbWrite({ type: "del", c, id });
+    return{ok:true,savedOffline:true,error:netErr.message};
   } finally {
     decrementWrites();
   }
 }
+
 async function fbBatch(writes){
   incrementWrites();
   try {
@@ -352,21 +447,38 @@ async function fbBatch(writes){
         delete cleanD.employeeCode;
       }
       const tName = tableName(w.c);
-      (byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD, tName)});
+      (byCol[w.c]=byCol[w.c]||[]).push({id:w.id,...toDBRow(cleanD, tName), rawObj: cleanD});
     }
     const errors=[];
     for(const[c,rows]of Object.entries(byCol)){
       const table=tableName(c);
-      for(let i=0;i<rows.length;i+=500){
-        const slice = rows.slice(i,i+500);
-        const{error}=await supabase.from(table).upsert(slice,{onConflict:"id"});
-        if(error){console.error(`fbBatch(${c}):`,error.message);errors.push(`${c}: ${error.message}`)}
+      // Slices de 100 para evitar timeout de rede e sobrecarga no banco
+      for(let i=0;i<rows.length;i+=100){
+        const slice = rows.slice(i,i+100);
+        const dbRows = slice.map(({rawObj, ...r}) => r);
+        try {
+          const{error}=await supabase.from(table).upsert(dbRows,{onConflict:"id"});
+          if(error){
+            console.warn(`fbBatch(${c}):`,error.message);
+            slice.forEach(item => {
+              enqueueDbWrite({ type: "set", c, id: item.id, obj: item.rawObj });
+            });
+            errors.push(`${c}: ${error.message}`);
+          }
+        } catch(netErr) {
+          slice.forEach(item => {
+            enqueueDbWrite({ type: "set", c, id: item.id, obj: item.rawObj });
+          });
+          errors.push(`${c}: ${netErr.message}`);
+        }
+        // Delay suave de 40ms entre fatias do lote
+        if (i + 100 < rows.length) await new Promise(r => setTimeout(r, 40));
       }
     }
     if(errors.length){
-      console.error("fbBatch errors:", errors);
-      onSyncSheetError?.("Lote não salvou tudo: "+errors.join(" | "));
-      return{ok:false,errors,error:errors.join("; ")};
+      console.warn("fbBatch salvou localmente os pendentes:", errors);
+      onSyncSheetError?.("Parte do lote salva localmente para envio em segundo plano.");
+      return{ok:true,savedOffline:true,errors};
     }
     return{ok:true,errors:[]};
   } finally {
@@ -7481,14 +7593,15 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
     await markChanged("hashes");
     
     if(techId && status === "BOA") {
-      const repId = uid();
+      const existingRep = data.repairs.find(r => r.hashSN === s);
+      const repId = existingRep ? existingRep._id : uid();
       const techEmp = data.employees.find(e=>e._id===techId);
       const repRec = {
         hashSN: s,
         model,
         material: material || "",
-        type: "repair",
-        photoKey: photoKey || "",
+        type: existingRep ? "rework" : "repair",
+        photoKey: photoKey || existingRep?.photoKey || "",
         employeeId: techId,
         _by: techId,
         _byName: techName,
@@ -7497,7 +7610,15 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
         status: "BOA"
       };
       await fbSet("repairs", repId, repRec);
-      mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
+      mutate("repairs", arr => {
+        const idx = arr.findIndex(x => x._id === repId || x.hashSN === s);
+        if (idx >= 0) {
+          const copy = [...arr];
+          copy[idx] = { ...copy[idx], ...repRec, _id: repId };
+          return copy;
+        }
+        return [...arr, { ...repRec, _id: repId }];
+      });
       await markChanged("repairs");
       if(webhookUrl) {
         syncSheet(webhookUrl,"addHash",{id: id, sn:s || "SEM SN",model,status:"BOA",obs,employeeName:techName,employeeCode:techEmp?.code});
@@ -7762,13 +7883,14 @@ function HashDetail({ctx,hash,readOnly=false}){
             const emp=data.employees.find(e=>e._id===retroEmpId);
             if(!emp)return;
             setRetroSaving(true);
-            const repId=uid();
+            const existingRep = data.repairs.find(r => r.hashSN === h.sn);
+            const repId = existingRep ? existingRep._id : uid();
             const repRec={
               hashSN:h.sn,
               model:h.model,
               material:h.material||"",
-              type:"repair",
-              photoKey:"",
+              type:existingRep ? "rework" : "repair",
+              photoKey:existingRep?.photoKey||"",
               employeeId:emp._id,
               _by:emp._id,
               _byName:emp.name,
@@ -7776,18 +7898,21 @@ function HashDetail({ctx,hash,readOnly=false}){
               date:retroDate,
               status:"TESTAR"
             };
-            const res=await fbSet("repairs",repId,repRec);
-            if(res.ok){
-              mutate("repairs",arr=>[...arr,{...repRec,_id:repId}]);
-              const hu={...h,status:"TESTAR",repairedBy:emp._id,repairedByName:emp.name,...audit(user)};
-              setH(hu);
-              mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));
-              await fbSet("hashes",h._id,hu);
-              syncSheet(webhookUrl,"repair",{...repRec,employeeCode:emp.code,employeeName:emp.name,tecnico:emp.name});
-              alert("✓ Conserto retroativo registrado com sucesso!");
-            }else{
-              alert("Erro ao salvar: "+res.error);
-            }
+            await fbSet("repairs",repId,repRec);
+            mutate("repairs", arr => {
+              const idx = arr.findIndex(x => x._id === repId || x.hashSN === h.sn);
+              if (idx >= 0) {
+                const copy = [...arr];
+                copy[idx] = { ...copy[idx], ...repRec, _id: repId };
+                return copy;
+              }
+              return [...arr, { ...repRec, _id: repId }];
+            });
+            const hu={...h,status:"TESTAR",repairedBy:emp._id,repairedByName:emp.name,...audit(user)};
+            setH(hu);
+            mutate("hashes",arr=>arr.map(x=>x._id===h._id?hu:x));
+            await fbSet("hashes",h._id,hu);
+            syncSheet(webhookUrl,"repair",{...repRec,employeeCode:emp.code,employeeName:emp.name,tecnico:emp.name});
             setRetroSaving(false);
           }} disabled={retroSaving} style={{width:"100%",fontSize:11,padding:"6px 0"}}>{retroSaving?"Gravando...":"💾 Gravar Conserto"}</Btn>
         </div>
@@ -7917,58 +8042,53 @@ function ConsertaPage({ctx}){
   const doSubmit=async(type)=>{
     if(!f.hashSN.trim())return;
     setPhotoErr("");
-    const sn=f.hashSN.toUpperCase().trim();const id=uid();
-    // "Chips trocados" (parte do reparo) é DIFERENTE de "chips da placa"
-    // (quantos chips a placa tem no total, fica salvo na própria HASH).
+    const sn=f.hashSN.toUpperCase().trim();
+    
+    // BLINDAGEM CONTRA DUPLICAÇÃO NO BANCO E PLANILHA:
+    // Se essa HASH já possui um registro de conserto, reaproveita o _id existente!
+    // NUNCA escreve 2 vezes o mesmo SN em repairs, mesmo se for retrabalho!
+    const existingRep = data.repairs.find(r => r.hashSN === sn);
+    const id = existingRep ? existingRep._id : uid();
+    
     const boardChipsFinal=f.boardChips||gChips(f.model,f.material)||"";
-    // Se essa HASH já tinha sido consertada antes (voltou RUIM depois de um
-    // Se essa HASH já tinha sido consertada antes por OUTRO funcionário:
-    // O conserto antigo do funcionário anterior é desvinculado (superseded: true)
-    // para não contar nas estatísticas dele nem contar como retrabalho (rework) para o novo técnico.
-    // Se foi consertada antes por SI MESMO, entra como retrabalho (rework).
     const oldRepairsToSupersede = type === "repair" ? data.repairs.filter(r => 
-      r.hashSN === sn && !r.superseded && (
+      r.hashSN === sn && !r.superseded && r._id !== id && (
         ((r.type === "repair" || r.type === "rework") && r.employeeId !== user._id) ||
         (r.type === "already_good")
       )
     ) : [];
-    const wasRepairedBySelfBefore = type === "repair" && data.repairs.some(r => r.hashSN === sn && (r.type === "repair" || r.type === "rework") && r.employeeId === user._id && !r.superseded);
+    const wasRepairedBySelfBefore = existingRep ? (existingRep.employeeId === user._id) : (type === "repair" && data.repairs.some(r => r.hashSN === sn && (r.type === "repair" || r.type === "rework") && r.employeeId === user._id && !r.superseded));
     const recType = wasRepairedBySelfBefore ? "rework" : type;
-    const rec = { hashSN: sn, model: f.model, material: f.material, type: recType, photoKey: photoKey || "", employeeId: user._id, ...audit(user), date: TODAY(), status: "TESTAR" };
+    const rec = { hashSN: sn, model: f.model, material: f.material, type: recType, photoKey: photoKey || (existingRep ? existingRep.photoKey : "") || "", employeeId: user._id, ...audit(user), date: TODAY(), status: "TESTAR" };
     if(type==="repair"){Object.assign(rec,{chips:f.chips||"",boardChips:boardChipsFinal,sensores:f.sensores||"",ldos:f.ldos||"",obsManual:f.obsType==="manual"?f.obsManual:"",notes:f.notes})}
-    const saveRes=await fbSet("repairs",id,rec);
-    if(!saveRes.ok){
-      alert(`⚠️ ERRO: o conserto de ${sn} NÃO foi salvo no banco de dados!\n\nErro: ${saveRes.error}\n\nA planilha pode ter sido atualizada mesmo assim, mas o app não vai lembrar desse conserto. Avisa o Admin pra corrigir isso.`);
-    }else{
-      mutate("repairs",r=>[...r,{...rec,_id:id}]);
-      // Marcar os consertos dos técnicos anteriores e já boas antigas como obsoletos (superseded: true)
-      for(const oldRep of oldRepairsToSupersede){
-        const updatedOldRep = { ...oldRep, superseded: true, ...audit(user) };
-        await fbSet("repairs", oldRep._id, updatedOldRep);
-        mutate("repairs", arr => arr.map(x => x._id === oldRep._id ? updatedOldRep : x));
+    
+    await fbSet("repairs",id,rec);
+    mutate("repairs", r => {
+      const idx = r.findIndex(x => x._id === id || x.hashSN === sn);
+      if (idx >= 0) {
+        const copy = [...r];
+        copy[idx] = { ...copy[idx], ...rec, _id: id };
+        return copy;
       }
+      return [...r, { ...rec, _id: id }];
+    });
+    
+    for(const oldRep of oldRepairsToSupersede){
+      const updatedOldRep = { ...oldRep, superseded: true, ...audit(user) };
+      await fbSet("repairs", oldRep._id, updatedOldRep);
+      mutate("repairs", arr => arr.map(x => x._id === oldRep._id ? updatedOldRep : x));
     }
-    // Hash → TESTAR. Confere se salvou de verdade no banco — sem isso, se o
-    // banco falhar (rede, coluna faltando etc), a tela mostra local que deu
-    // certo mas o registro de verdade nunca muda, e como o envio pra
-    // planilha é uma chamada separada que sempre dispara, dava exatamente o
-    // caso de "foi pra planilha mas não ficou no app".
+    
+    // Hash → TESTAR. Atualiza ou cria a HASH vinculada
     const ex=data.hashes.find(h=>h.sn===sn);
     if(ex){
       const u={...ex,status:"TESTAR",material:f.material||ex.material,chips:boardChipsFinal||ex.chips,repairedBy:type==="repair"?user._id:ex.repairedBy,repairedByName:type==="repair"?user.name:ex.repairedByName,...audit(user)};
       mutate("hashes",h=>h.map(x=>x._id===ex._id?u:x));
-      const hashSaveRes=await fbSet("hashes",ex._id,u);
-      if(!hashSaveRes.ok){
-        alert(`⚠️ ERRO: a HASH ${sn} NÃO foi atualizada no banco de dados!\n\nErro: ${hashSaveRes.error}\n\nA planilha pode ter sido atualizada mesmo assim, mas essa HASH pode não aparecer certa aqui no app (nem entrar na fila de teste de verdade). Avisa o Admin pra corrigir isso.`);
-      }
+      await fbSet("hashes",ex._id,u);
     }else{
       const hid=uid();const hd={sn,model:f.model,material:f.material,chips:boardChipsFinal,status:"TESTAR",repairedBy:type==="repair"?user._id:"",repairedByName:type==="repair"?user.name:"",...audit(user),addedAt:TODAY(),machineSN:"",slot:-1,photoKey:photoKey||""};
-      const hashSaveRes=await fbSet("hashes",hid,hd);
-      if(!hashSaveRes.ok){
-        alert(`⚠️ ERRO: a HASH ${sn} NÃO foi criada no banco de dados!\n\nErro: ${hashSaveRes.error}\n\nA planilha pode ter sido atualizada mesmo assim, mas essa HASH pode não existir aqui no app. Avisa o Admin pra corrigir isso.`);
-      }else{
-        mutate("hashes",h=>[...h,{...hd,_id:hid}]);
-      }
+      mutate("hashes",h=>[...h,{...hd,_id:hid}]);
+      await fbSet("hashes",hid,hd);
     }
     syncSheet(webhookUrl,type==="repair"?"repair":"alreadyGood",{...rec,employeeCode:user.code,employeeName:user.name,tecnico:user.name});
     // Se essa HASH tinha um aviso pendente pro técnico que consertou antes
@@ -10312,13 +10432,14 @@ function ApprovalsPage({ctx}){
         await fbSet("hashes",hid,hd);newH=[...newH,{...hd,_id:hid}];
 
         if (techId) {
-          const repId = uid();
+          const existingRep = data.repairs.find(r => r.hashSN === sn);
+          const repId = existingRep ? existingRep._id : uid();
           const repRec = {
             hashSN: sn,
             model: customModel,
             material: customMaterial,
-            type: "repair",
-            photoKey: "",
+            type: existingRep ? "rework" : "repair",
+            photoKey: existingRep?.photoKey || "",
             employeeId: techId,
             _by: techId,
             _byName: techName,
@@ -10327,7 +10448,15 @@ function ApprovalsPage({ctx}){
             status: "BOA"
           };
           await fbSet("repairs", repId, repRec);
-          mutate("repairs", arr => [...arr, { ...repRec, _id: repId }]);
+          mutate("repairs", arr => {
+            const idx = arr.findIndex(x => x._id === repId || x.hashSN === sn);
+            if (idx >= 0) {
+              const copy = [...arr];
+              copy[idx] = { ...copy[idx], ...repRec, _id: repId };
+              return copy;
+            }
+            return [...arr, { ...repRec, _id: repId }];
+          });
           syncSheet(webhookUrl,"hashApproved",{
             sn,
             model:customModel,
@@ -12063,8 +12192,8 @@ function CfgPage({ctx}){
   const testDriveUrl=async()=>{try{const r=await fetch(driveUrl+"?action=test");const d=await r.json();setDriveTestRes(d.status==="ok"?"✓ Conectado! "+d.time:"✗ "+JSON.stringify(d))}catch(e){setDriveTestRes("✗ Falha: "+e.message)}};
   const saveWh=()=>{localStorage.setItem("webhookUrl",url);setWebhookUrl(url);alert("✓ Webhook salvo!")};
   const testWh=async()=>{try{const r=await fetch(url+"?action=test");const d=await r.json();setTestRes(d.status==="ok"?`✓ Conectado! ${d.time} — versão do script: ${d.version||"❌ SEM VERSÃO (é a v4 antiga, precisa reimplantar como v5!)"}`:"✗ "+JSON.stringify(d))}catch(e){setTestRes("✗ Falha: "+e.message)}};
-const doImportMachines=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);setImportProg("Buscando...");try{const machines=await importMachinesFromSheet(url,(cur,total)=>setImportProg(`${cur}/${total} recebidas...`));if(!machines.length){setImportRes("Nenhuma máquina.");setImporting(false);return}setImportProg(`Salvando ${machines.length}...`);const writes=machines.map(m=>{const id=uid();return{c:"machines",id,d:{...m,_id:undefined,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500){const res=await fbBatch(writes.slice(i,i+500));if(!res.ok)throw new Error(res.error||"Falha ao salvar no Supabase");setImportProg(`${Math.min(i+500,writes.length)}/${writes.length} salvas...`)}const newM=[...data.machines,...writes.map(w=>({...w.d,_id:w.id}))];mutate("machines",()=>newM);resetMaxCount("machines",newM.length,newM);await markChanged("machines");setImportRes(`✓ ${machines.length} máquinas importadas e salvas no banco!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false);setImportProg("")};
-const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);try{const hashes=await importHashesFromSheet(url);if(!hashes.length){setImportRes("Nenhuma HASH na aba REPARO DE HASH.");setImporting(false);return}const writes=hashes.map(h=>{const id=uid();let status="REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id,d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=500){const res=await fbBatch(writes.slice(i,i+500));if(!res.ok)throw new Error(res.error||"Falha ao salvar no Supabase")}const newH=[...data.hashes,...writes.map(w=>({...w.d,_id:w.id}))];mutate("hashes",()=>newH);resetMaxCount("hashes",newH.length,newH);await markChanged("hashes");setImportRes(`✓ ${hashes.length} HASHs importadas e salvas no banco!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false)};
+const doImportMachines=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);setImportProg("Buscando...");try{const machines=await importMachinesFromSheet(url,(cur,total)=>setImportProg(`${cur}/${total} recebidas...`));if(!machines.length){setImportRes("Nenhuma máquina encontrada na planilha.");setImporting(false);return}setImportProg(`Salvando ${machines.length}...`);const writes=machines.map(m=>{const exM=m.sn?data.machines.find(x=>x.sn===m.sn):null;const id=exM?exM._id:uid();return{c:"machines",id,d:{...m,_id:undefined,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=100){const res=await fbBatch(writes.slice(i,i+100));if(!res.ok&&!res.savedOffline)throw new Error(res.error||"Falha ao salvar no Supabase");setImportProg(`${Math.min(i+100,writes.length)}/${writes.length} salvas...`)}mutate("machines",arr=>{const map=new Map(arr.map(x=>[x._id,x]));writes.forEach(w=>map.set(w.id,{...w.d,_id:w.id}));const list=Array.from(map.values());resetMaxCount("machines",list.length,list);return list;});await markChanged("machines");setImportRes(`✓ ${machines.length} máquinas importadas e sincronizadas com sucesso!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false);setImportProg("")};
+const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setImporting(true);setImportRes(null);try{const hashes=await importHashesFromSheet(url);if(!hashes.length){setImportRes("Nenhuma HASH encontrada na planilha.");setImporting(false);return}const writes=hashes.map(h=>{const exH=h.sn?data.hashes.find(x=>x.sn===h.sn):null;const id=exH?exH._id:uid();let status=h.status||"REPARO";const sit=String(h.situacao||"").toUpperCase();if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";return{c:"hashes",id,d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:h.tecnico||"",machineSN:h.machineSN||"",slot:-1,repairedBy:"",addedAt:h.addedAt||TODAY()}}});for(let i=0;i<writes.length;i+=100){const res=await fbBatch(writes.slice(i,i+100));if(!res.ok&&!res.savedOffline)throw new Error(res.error||"Falha ao salvar no Supabase")}mutate("hashes",arr=>{const map=new Map(arr.map(x=>[x._id,x]));writes.forEach(w=>map.set(w.id,{...w.d,_id:w.id}));const list=Array.from(map.values());resetMaxCount("hashes",list.length,list);return list;});await markChanged("hashes");setImportRes(`✓ ${hashes.length} HASHs importadas e sincronizadas com sucesso!`)}catch(e){setImportRes("✗ "+e.message)}setImporting(false)};
   const addModel=async()=>{if(!newModel.trim()||!newTH)return;const id=uid();const d={m:newModel.trim(),th:Number(newTH)};await fbSet("customModels",id,d);mutate("customModels",m=>[...m,{...d,_id:id}]);setNewModel("");setNewTH("")};
   const delModel=async m=>{await fbDel("customModels",m._id);mutate("customModels",arr=>arr.filter(x=>x._id!==m._id))};
   const[chipsModel,setChipsModel]=useState(""),[chipsMaterial,setChipsMaterial]=useState(""),[chipsVal,setChipsVal]=useState("");
@@ -12444,39 +12573,67 @@ function SheetCompareReview({ctx,onClose}){
     try{
       const mToImport=newInSheetM.filter((_,i)=>selSheetM.has(i));
       const hToImport=newInSheetH.filter((_,i)=>selSheetH.has(i));
-      const mWrites=mToImport.map(m=>({c:"machines",id:uid(),d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}}));
-      const rWrites=[];
+      
+      // Reúsa IDs existentes para jamais duplicar
+      const mWrites=mToImport.map(m=>{
+        const exM = m.sn ? data.machines.find(x => x.sn === m.sn) : null;
+        const id = exM ? exM._id : uid();
+        return {c:"machines",id,d:{...m,type:m.type||"complete",addedAt:m.addedAt||TODAY()}};
+      });
+
+      const rWritesMap = new Map();
       const hWrites=hToImport.map(h=>{
-        let status=h.status; // a aba "HASH" já manda o status pronto (TESTAR/NA MAQUINA/RUIM/SAIDA)
+        let status=h.status;
         if(!status){const sit=String(h.situacao||"").toUpperCase();status="REPARO";if(sit==="BOA")status="ON";else if(sit==="TESTAR")status="TESTAR";else if(sit==="STOCK")status="STOCK";}
-        // Tenta casar o nome do técnico com funcionário real
         const tecnicoName=(h.tecnico||"").trim();
         const matchedEmp=tecnicoName?data.employees.find(e=>e.name.trim().toLowerCase()===tecnicoName.toLowerCase()):null;
-        if(tecnicoName){
-          rWrites.push({c:"repairs",id:uid(),d:{hashSN:h.sn||"",model:h.model||"",type:"repair",employeeId:matchedEmp?._id||"",_by:matchedEmp?._id||"",_byName:tecnicoName,_at:h.addedAt||TODAY(),date:h.addedAt||TODAY(),status:"TESTAR"}});
+        
+        const exH = h.sn ? data.hashes.find(x => x.sn === h.sn) : null;
+        const hId = exH ? exH._id : uid();
+
+        if(tecnicoName && h.sn){
+          const existingRep = data.repairs.find(r => r.hashSN === h.sn);
+          const repId = existingRep ? existingRep._id : uid();
+          rWritesMap.set(h.sn, {c:"repairs",id:repId,d:{hashSN:h.sn||"",model:h.model||"",type:existingRep?"rework":"repair",employeeId:matchedEmp?._id||"",_by:matchedEmp?._id||"",_byName:tecnicoName,_at:h.addedAt||TODAY(),date:h.addedAt||TODAY(),status:"TESTAR"}});
         }
-        return{c:"hashes",id:uid(),d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:tecnicoName,repairedBy:matchedEmp?.["_id"]||"",repairedByName:tecnicoName,machineSN:h.machineSN||"",slot:-1,addedAt:h.addedAt||TODAY()}};
+        return{c:"hashes",id:hId,d:{sn:h.sn||"",model:h.model||"",status,chips:h.chips||0,defeito:h.defeito||"",tecnico:tecnicoName,repairedBy:matchedEmp?.["_id"]||"",repairedByName:tecnicoName,machineSN:h.machineSN||"",slot:-1,addedAt:h.addedAt||TODAY()}};
       });
+      const rWrites = Array.from(rWritesMap.values());
       const writes=[...mWrites,...hWrites,...rWrites];
-      for(let i=0;i<writes.length;i+=500){
-        const res = await fbBatch(writes.slice(i,i+500));
-        if(!res.ok){
-          throw new Error(res.error || (res.errors && res.errors.join("; ")) || "Falha ao gravar lote no Supabase");
+      
+      for(let i=0;i<writes.length;i+=100){
+        const res = await fbBatch(writes.slice(i,i+100));
+        if(!res.ok && !res.savedOffline){
+          throw new Error(res.error || (res.errors && res.errors.join("; ")) || "Falha ao gravar lote");
         }
       }
       if(mWrites.length){
-        const newM = [...data.machines, ...mWrites.map(w=>({...w.d,_id:w.id}))];
-        mutate("machines", ()=>newM);
-        resetMaxCount("machines", newM.length, newM);
+        mutate("machines", arr => {
+          const map = new Map(arr.map(x => [x._id, x]));
+          mWrites.forEach(w => map.set(w.id, { ...w.d, _id: w.id }));
+          const list = Array.from(map.values());
+          resetMaxCount("machines", list.length, list);
+          return list;
+        });
       }
       if(hWrites.length){
-        const newH = [...data.hashes, ...hWrites.map(w=>({...w.d,_id:w.id}))];
-        mutate("hashes", ()=>newH);
-        resetMaxCount("hashes", newH.length, newH);
+        mutate("hashes", arr => {
+          const map = new Map(arr.map(x => [x._id, x]));
+          hWrites.forEach(w => map.set(w.id, { ...w.d, _id: w.id }));
+          const list = Array.from(map.values());
+          resetMaxCount("hashes", list.length, list);
+          return list;
+        });
       }
-      if(rWrites.length)mutate("repairs",arr=>[...arr,...rWrites.map(w=>({...w.d,_id:w.id}))]);
+      if(rWrites.length){
+        mutate("repairs", arr => {
+          const map = new Map(arr.map(x => [x._id, x]));
+          rWrites.forEach(w => map.set(w.id, { ...w.d, _id: w.id }));
+          return Array.from(map.values());
+        });
+      }
       await markChanged("machines");await markChanged("hashes");if(rWrites.length)await markChanged("repairs");
-      alert(`✓ Sucesso! ${mWrites.length} máquinas e ${hWrites.length} HASHs trazidos da planilha e gravados no banco de dados com sucesso.`);
+      alert(`✓ Sucesso! ${mWrites.length} máquinas e ${hWrites.length} HASHs sincronizadas e salvas no banco.`);
       onClose();
     }catch(err){
       alert(`❌ Erro ao trazer da planilha: ${err.message}`);

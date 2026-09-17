@@ -44,6 +44,17 @@ const COL_HASH_MAQUINA = 5;    // E - Máquina SN (Coluna E)
 const COL_HASH_FOTO = 6;       // F - FotoLog (Coluna F)
 const COL_HASH_DEFEITO = 7;    // G - Obs (Coluna G)
 
+// --- CONFIGURAÇÃO DE COLUNAS DA ABA "REPARO DE HASH" (1-based) ---
+// Layout Real: A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL, F=SITUACAO, G=TECNICO, H=DEFEITO
+const COL_REP_DATE = 1;      // A - Data
+const COL_REP_MODEL = 2;     // B - MODELO
+const COL_REP_CHIPS = 3;     // C - CHIPS
+const COL_REP_SN = 4;        // D - SN / MAC
+const COL_REP_LOCAL = 5;     // E - LOCAL
+const COL_REP_SITUACAO = 6;  // F - SITUACAO (TESTAR, REPARAR, BOA)
+const COL_REP_TECNICO = 7;   // G - TECNICO
+const COL_REP_DEFEITO = 8;   // H - DEFEITO
+
 // --- LISTA DE TEXTOS DE SN INVÁLIDOS (Referências e Placeholders) ---
 const INVALID_SN_TEXTS = [
   "SEM SN","SEMSN","SEM S/N","S/N","SN","N/A","NA","-","--","NENHUM","VAZIO",
@@ -144,6 +155,11 @@ function getHashesSheet(ss) {
   return null;
 }
 
+// --- BUSCADOR INTELIGENTE DE ABA DE REPARO ---
+function getReparoSheet(ss) {
+  return getSheetByNameRobust(ss, "REPARO DE HASH") || getSheetByNameRobust(ss, "REPARO HASH") || ss.getSheetByName("REPARO DE HASH");
+}
+
 // --- DIRETIVAS DO DOPOST ---
 function doPost(e) {
   try {
@@ -223,12 +239,14 @@ function doGet(e) {
     if (action === "test") {
       const ssMac = getMachinesSheet(ss);
       const ssHash = getHashesSheet(ss);
+      const ssReparo = getReparoSheet(ss);
       return ContentService.createTextOutput(JSON.stringify({ 
         status: "ok", 
         time: new Date().toISOString(), 
-        version: "v15",
+        version: "v16",
         detectedMachinesSheet: ssMac ? ssMac.getName() : "Nenhuma",
         detectedHashesSheet: ssHash ? ssHash.getName() : "Nenhuma",
+        detectedRepairsSheet: ssReparo ? ssReparo.getName() : "Nenhuma",
         sheetsList: ss.getSheets().map(s => ({
           name: s.getName(),
           a1: String(s.getRange(1,1).getValue() || ""),
@@ -296,10 +314,52 @@ function doGet(e) {
     
     if (action === "getHashes") {
       const sheet = getHashesSheet(ss) || getSheetByNameRobust(ss, "HASH");
-      if (!sheet) return ContentService.createTextOutput(JSON.stringify({ hashes: [] })).setMimeType(ContentService.MimeType.JSON);
+      const sheetReparo = getReparoSheet(ss);
+      
+      // Carrega informações de conserto da aba REPARO DE HASH (chips, técnico, defeito)
+      const repMap = new Map();
+      if (sheetReparo) {
+        const repData = sheetReparo.getDataRange().getValues();
+        for (let r = 1; r < repData.length; r++) {
+          const rRow = repData[r];
+          let rSN = String(rRow[COL_REP_SN - 1] || "").trim().toUpperCase();
+          if (rSN && INVALID_SN_TEXTS.indexOf(rSN) === -1 && !/^\d{2}\/\d{2}\/\d{4}$/.test(rSN)) {
+            repMap.set(rSN, {
+              date: rRow[COL_REP_DATE - 1],
+              model: String(rRow[COL_REP_MODEL - 1] || ""),
+              chips: parseInt(rRow[COL_REP_CHIPS - 1], 10) || 0,
+              situacao: String(rRow[COL_REP_SITUACAO - 1] || "").trim(),
+              tecnico: String(rRow[COL_REP_TECNICO - 1] || "").trim(),
+              defeito: String(rRow[COL_REP_DEFEITO - 1] || "").trim(),
+              sheetRow: r + 1
+            });
+          }
+        }
+      }
+
+      if (!sheet) {
+        const fallbackHashes = [];
+        repMap.forEach((rep, sn) => {
+          let status = "REPARO";
+          if (rep.situacao === "BOA") status = "ON";
+          else if (rep.situacao === "TESTAR") status = "TESTAR";
+          else if (rep.situacao === "STOCK") status = "STOCK";
+          fallbackHashes.push({
+            sn: sn,
+            model: rep.model,
+            status: status,
+            chips: rep.chips,
+            tecnico: rep.tecnico,
+            machineSN: "",
+            defeito: rep.defeito
+          });
+        });
+        return ContentService.createTextOutput(JSON.stringify({ hashes: fallbackHashes })).setMimeType(ContentService.MimeType.JSON);
+      }
       
       const data = sheet.getDataRange().getValues();
       const hashes = [];
+      const seenSNs = new Set();
       
       for (let r = 1; r < data.length; r++) {
         const row = data[r];
@@ -313,18 +373,94 @@ function doGet(e) {
         }
         
         if (!sn) continue; // HASHboards sem SN real não são importadas para comparação
+        seenSNs.add(upperSN);
+        
+        const repInfo = repMap.get(upperSN);
+        const chipsVal = repInfo ? repInfo.chips : 0;
+        const tecVal = repInfo ? repInfo.tecnico : "";
+        const defVal = String(row[COL_HASH_DEFEITO - 1] || (repInfo ? repInfo.defeito : ""));
         
         hashes.push({
           sn: sn,
-          model: String(row[COL_HASH_MODEL - 1] || ""),
+          model: String(row[COL_HASH_MODEL - 1] || (repInfo ? repInfo.model : "")),
           status: String(row[COL_HASH_STATUS - 1] || ""),
-          chips: 0, // Sem coluna de Chips na aba HASH
-          tecnico: "", // Sem coluna de Técnico na aba HASH
+          chips: chipsVal,
+          tecnico: tecVal,
           machineSN: String(row[COL_HASH_MAQUINA - 1] || ""),
-          defeito: String(row[COL_HASH_DEFEITO - 1] || "")
+          defeito: defVal
         });
       }
+
+      // Adiciona placas da aba REPARO DE HASH que ainda não estavam na aba HASH
+      repMap.forEach((rep, sn) => {
+        if (!seenSNs.has(sn)) {
+          let status = "REPARO";
+          if (rep.situacao === "BOA") status = "ON";
+          else if (rep.situacao === "TESTAR") status = "TESTAR";
+          else if (rep.situacao === "STOCK") status = "STOCK";
+          hashes.push({
+            sn: sn,
+            model: rep.model,
+            status: status,
+            chips: rep.chips,
+            tecnico: rep.tecnico,
+            machineSN: "",
+            defeito: rep.defeito
+          });
+        }
+      });
+
       return ContentService.createTextOutput(JSON.stringify({ hashes: hashes }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "getRepairs") {
+      const sheet = getReparoSheet(ss);
+      if (!sheet) return ContentService.createTextOutput(JSON.stringify({ repairs: [] })).setMimeType(ContentService.MimeType.JSON);
+      
+      const data = sheet.getDataRange().getValues();
+      const repairsMap = new Map();
+      
+      for (let r = 1; r < data.length; r++) {
+        const row = data[r];
+        let sn = String(row[COL_REP_SN - 1] || "").trim();
+        if (!sn || row[COL_REP_SN - 1] instanceof Date) continue;
+        const upperSN = sn.toUpperCase();
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(sn) || /^\d{4}-\d{2}-\d{2}$/.test(sn) || INVALID_SN_TEXTS.indexOf(upperSN) !== -1) {
+          continue;
+        }
+        
+        let dateVal = row[COL_REP_DATE - 1];
+        let dateStr = "";
+        if (dateVal instanceof Date) {
+          dateStr = Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "yyyy-MM-dd");
+        } else if (dateVal) {
+          const parts = String(dateVal).split("/");
+          if (parts.length === 3) {
+            dateStr = `${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`;
+          } else {
+            dateStr = String(dateVal);
+          }
+        }
+        
+        const repItem = {
+          date: dateStr,
+          model: String(row[COL_REP_MODEL - 1] || ""),
+          chips: parseInt(row[COL_REP_CHIPS - 1], 10) || 0,
+          hashSN: upperSN,
+          location: String(row[COL_REP_LOCAL - 1] || ""),
+          status: String(row[COL_REP_SITUACAO - 1] || "TESTAR").trim().toUpperCase(),
+          tecnico: String(row[COL_REP_TECNICO - 1] || "").trim(),
+          obs: String(row[COL_REP_DEFEITO - 1] || "").trim(),
+          sheetRow: r + 1
+        };
+        
+        // Mantém a versão mais recente por SN para evitar duplicações
+        repairsMap.set(upperSN, repItem);
+      }
+      
+      const repairs = Array.from(repairsMap.values());
+      return ContentService.createTextOutput(JSON.stringify({ repairs: repairs }))
         .setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -546,6 +682,21 @@ function findRepairRow(sheet, sn, tecnico, dateStr) {
   return -1;
 }
 
+function findRepairRowBySN(sheet, sn) {
+  if (!sheet || !sn) return -1;
+  const data = sheet.getDataRange().getValues();
+  const normSN = normalizeString(sn);
+  if (!normSN) return -1;
+  // Search from bottom to top to find the most recent row
+  for (let r = data.length - 1; r >= 1; r--) {
+    const rowSN = normalizeString(data[r][COL_REP_SN - 1]);
+    if (rowSN === normSN) {
+      return r + 1; // 1-based row index
+    }
+  }
+  return -1;
+}
+
 function deleteRepairRow(sheet, p) {
   if (!sheet) return;
   const dateVal = p.date ? new Date(p.date + "T12:00:00") : null;
@@ -642,22 +793,33 @@ function hashApprovedRow(sheetMac, sheetHash, sheetReparo, p) {
     }
   }
   
-  // 3. Grava uma nova linha na aba "REPARO DE HASH" com SITUACAO = "BOA" (Imagem 2)
+  // 3. Grava ou atualiza a linha na aba "REPARO DE HASH" com SITUACAO = "BOA"
+  // BLINDAGEM: Se a placa já existir na aba REPARO DE HASH, atualiza a linha existente!
+  // NUNCA cria linha duplicada para a mesma placa, mesmo se for retrabalho!
   if (sheetReparo && p.sn && !p.skipRepair) {
     const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
-    
-    // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL (deixado vazio), F=SITUACAO (BOA), G=TECNICO, H=DEFEITO
-    const rowData = [
-      todayStr,                             // A - Data
-      modelVal,                             // B - MODELO
-      chipsVal,                             // C - CHIPS
-      p.sn.toUpperCase().trim(),            // D - SN / MAC
-      "",                                   // E - LOCAL (Deixado em branco)
-      "BOA",                                // F - SITUACAO (Fica "BOA" conforme pedido!)
-      tecVal,                               // G - TECNICO
-      ""                                    // H - DEFEITO
-    ];
-    sheetReparo.appendRow(rowData);
+    const upperSN = p.sn.toUpperCase().trim();
+    const existingRepRow = findRepairRowBySN(sheetReparo, upperSN);
+    if (existingRepRow !== -1) {
+      sheetReparo.getRange(existingRepRow, COL_REP_DATE).setValue(todayStr);
+      if (modelVal) sheetReparo.getRange(existingRepRow, COL_REP_MODEL).setValue(modelVal);
+      if (chipsVal > 0) sheetReparo.getRange(existingRepRow, COL_REP_CHIPS).setValue(chipsVal);
+      sheetReparo.getRange(existingRepRow, COL_REP_SITUACAO).setValue("BOA");
+      if (tecVal) sheetReparo.getRange(existingRepRow, COL_REP_TECNICO).setValue(tecVal);
+    } else {
+      // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL, F=SITUACAO, G=TECNICO, H=DEFEITO
+      const rowData = [
+        todayStr,
+        modelVal,
+        chipsVal,
+        upperSN,
+        "",
+        "BOA",
+        tecVal,
+        ""
+      ];
+      sheetReparo.appendRow(rowData);
+    }
   }
 }
 
@@ -674,31 +836,48 @@ function hashBadRow(sheet, p) {
 }
 
 function addRepairRow(sheet, sheetHash, p) {
-  if (!sheet) return;
+  if (!sheet || !p.hashSN) return;
   
   // Grava o conserto na aba "REPARO DE HASH" (Estrutura Real do Usuário - Imagem 2)
   const dateVal = p.date ? new Date(p.date + "T12:00:00") : new Date();
   const dateStr = Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "dd/MM/yyyy");
   
   const statusVal = p.status || (p.type === "rework" ? "REPARAR" : "TESTAR");
-  
   const chipsCount = parseInt(p.chips, 10) || 0;
-  // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL (deixado vazio conforme pedido!), F=SITUACAO, G=TECNICO, H=DEFEITO
-  const rowData = [
-    dateStr,                              // A - Data
-    p.model || "",                        // B - MODELO
-    chipsCount,                           // C - CHIPS
-    p.hashSN || "",                       // D - SN / MAC
-    "",                                   // E - LOCAL (Deixado em branco para você selecionar manualmente na planilha)
-    statusVal,                            // F - SITUACAO (TESTAR ou REPARAR)
-    p.tecnico || p.employeeName || "",    // G - TECNICO (Nome do técnico)
-    p.obsManual || p.notes || ""          // H - DEFEITO (Obs)
-  ];
-  sheet.appendRow(rowData);
+  const upperSN = p.hashSN.toUpperCase().trim();
+  const tecVal = p.tecnico || p.employeeName || "";
+  const defVal = p.obsManual || p.notes || "";
+  const modelVal = p.model || "";
+
+  // BLINDAGEM CONTRA DUPLICAÇÃO DE REPARO:
+  // Se essa placa já existe na aba REPARO DE HASH (mesmo que seja retrabalho),
+  // NUNCA escreve uma segunda linha! Apenas altera a situação, data, técnico, defeito e chips!
+  const existingRow = findRepairRowBySN(sheet, upperSN);
+  if (existingRow !== -1) {
+    sheet.getRange(existingRow, COL_REP_DATE).setValue(dateStr);
+    if (modelVal) sheet.getRange(existingRow, COL_REP_MODEL).setValue(modelVal);
+    if (chipsCount > 0) sheet.getRange(existingRow, COL_REP_CHIPS).setValue(chipsCount);
+    sheet.getRange(existingRow, COL_REP_SITUACAO).setValue(statusVal);
+    if (tecVal) sheet.getRange(existingRow, COL_REP_TECNICO).setValue(tecVal);
+    if (defVal) sheet.getRange(existingRow, COL_REP_DEFEITO).setValue(defVal);
+  } else {
+    // A=Data, B=MODELO, C=CHIPS, D=SN / MAC, E=LOCAL, F=SITUACAO, G=TECNICO, H=DEFEITO
+    const rowData = [
+      dateStr,
+      modelVal,
+      chipsCount,
+      upperSN,
+      "",
+      statusVal,
+      tecVal,
+      defVal
+    ];
+    sheet.appendRow(rowData);
+  }
   
   // Garante que o status da HASH na aba principal "HASH" vira "TESTAR" ou "REPARO"
-  if (sheetHash && p.hashSN) {
-    const hRow = findRowBySN(sheetHash, COL_HASH_SN, p.hashSN);
+  if (sheetHash && upperSN) {
+    const hRow = findRowBySN(sheetHash, COL_HASH_SN, upperSN);
     if (hRow !== -1) {
       sheetHash.getRange(hRow, COL_HASH_DATE).setValue(dateStr);
       sheetHash.getRange(hRow, COL_HASH_STATUS).setValue(statusVal);
@@ -706,22 +885,22 @@ function addRepairRow(sheet, sheetHash, p) {
       if (p.photoKey) {
         sheetHash.getRange(hRow, COL_HASH_FOTO).setValue(p.photoKey);
       }
-      if (p.obsManual || p.notes) {
-        sheetHash.getRange(hRow, COL_HASH_DEFEITO).setValue(p.obsManual || p.notes);
+      if (defVal) {
+        sheetHash.getRange(hRow, COL_HASH_DEFEITO).setValue(defVal);
       }
     } else {
       // HASH nova sendo cadastrada via conserto
       const rowDataHash = [];
       for (let i = 0; i < 10; i++) rowDataHash.push("");
       rowDataHash[COL_HASH_DATE - 1] = dateStr;
-      rowDataHash[COL_HASH_SN - 1] = p.hashSN.toUpperCase().trim();
-      rowDataHash[COL_HASH_MODEL - 1] = p.model || "";
+      rowDataHash[COL_HASH_SN - 1] = upperSN;
+      rowDataHash[COL_HASH_MODEL - 1] = modelVal;
       rowDataHash[COL_HASH_STATUS - 1] = statusVal;
       if (p.photoKey) {
         rowDataHash[COL_HASH_FOTO - 1] = p.photoKey;
       }
-      if (p.obsManual || p.notes) {
-        rowDataHash[COL_HASH_DEFEITO - 1] = p.obsManual || p.notes;
+      if (defVal) {
+        rowDataHash[COL_HASH_DEFEITO - 1] = defVal;
       }
       sheetHash.appendRow(rowDataHash);
     }
