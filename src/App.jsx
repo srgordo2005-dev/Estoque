@@ -1800,6 +1800,53 @@ export default function App(){
   },[data.customModels]);
   const[dataWarnings,setDataWarnings]=useState([]);
 
+  const dedupHashes=(arr)=>{
+    if(!Array.isArray(arr))return[];
+    const map=new Map();
+    for(const h of arr){
+      const sn=(h.sn||"").trim().toUpperCase();
+      if(!sn){map.set(h._id||h.id||Math.random(),h);continue;}
+      if(!map.has(sn)){
+        map.set(sn,h);
+      }else{
+        const existing=map.get(sn);
+        map.set(sn,{
+          ...existing,
+          ...h,
+          id:(existing._id&&!existing._id.startsWith('hash_'))?existing._id:(h._id||existing._id||h.id),
+          _id:(existing._id&&!existing._id.startsWith('hash_'))?existing._id:(h._id||existing._id||h.id),
+          repairedBy:existing.repairedBy||h.repairedBy||"",
+          repairedByName:existing.repairedByName||h.repairedByName||"",
+          tecnico:existing.tecnico||h.tecnico||"",
+          machineSN:existing.machineSN||h.machineSN||"",
+          slot:(existing.slot!==undefined&&existing.slot!==-1)?existing.slot:h.slot,
+          status:(existing.status&&existing.status!=="TESTAR")?existing.status:(h.status||existing.status)
+        });
+      }
+    }
+    return Array.from(map.values());
+  };
+
+  const dedupRepairs=(arr)=>{
+    if(!Array.isArray(arr))return[];
+    const map=new Map();
+    for(const r of arr){
+      const sn=(r.hashSN||r.hash_sn||"").trim().toUpperCase();
+      if(!sn){map.set(r._id||r.id||Math.random(),r);continue;}
+      if(!map.has(sn)){
+        map.set(sn,r);
+      }else{
+        const existing=map.get(sn);
+        const exDate=existing.date||existing._at||"";
+        const curDate=r.date||r._at||"";
+        if(curDate>=exDate){
+          map.set(sn,{...existing,...r});
+        }
+      }
+    }
+    return Array.from(map.values());
+  };
+
   // BLINDAGEM CONTRA PERDA DE DADOS:
   // Guarda o maior número de itens já visto por coleção. Se uma nova leitura
   // vier com MUITO menos itens que o máximo já confirmado (ex: 600 vs 1290),
@@ -1813,6 +1860,10 @@ export default function App(){
     if(freshLen>=knownMax){localStorage.setItem(maxKey,String(freshLen));return{use:freshArr,warn:null}}
     // Fresh leitura veio menor que o máximo já visto
     if(knownMax>0&&freshLen<knownMax*0.9){
+      if((col==="hashes"||col==="repairs")&&freshLen>=200){
+        localStorage.setItem(maxKey,String(freshLen));
+        return{use:freshArr,warn:null};
+      }
       const msg=`⚠️ Leitura de "${col}" retornou ${freshLen} itens, mas já vimos ${knownMax} antes. Mantendo os ${Math.max(prevArr.length,freshLen)} dados atuais na tela — nada foi apagado, só a exibição foi protegida.`;
       console.warn(msg);
       return{use:prevArr.length>=freshLen?prevArr:freshArr,warn:msg};
@@ -1874,8 +1925,8 @@ export default function App(){
       const next={
         ...prev,
         machines:merge("machines",out.machines),
-        hashes:merge("hashes",out.hashes),
-        repairs:out.repairs!==undefined?(out.repairs.length?out.repairs:prev.repairs):prev.repairs,
+        hashes:dedupHashes(merge("hashes",out.hashes)),
+        repairs:dedupRepairs(out.repairs!==undefined?(out.repairs.length?out.repairs:prev.repairs):prev.repairs),
         tests:out.tests!==undefined?(out.tests.length?out.tests:prev.tests):prev.tests,
         feedbacks:out.feedbacks!==undefined?(out.feedbacks.length?out.feedbacks:prev.feedbacks):prev.feedbacks,
         approvals:out.pendingApprovals!==undefined?(out.pendingApprovals.length?out.pendingApprovals:prev.approvals):prev.approvals,
@@ -1979,8 +2030,8 @@ export default function App(){
       setData(d=>({
         ...d,
         machines:gM.use.length?gM.use:cachedM,
-        hashes:gH.use.length?gH.use:cachedH,
-        repairs:out.repairs.length?out.repairs:cachedR,
+        hashes:dedupHashes(gH.use.length?gH.use:cachedH),
+        repairs:dedupRepairs(out.repairs.length?out.repairs:cachedR),
         tests:out.tests.length?out.tests:cachedT,
         feedbacks:out.feedbacks.length?out.feedbacks:cachedF,
         approvals:out.pendingApprovals.length?out.pendingApprovals:cachedA,
