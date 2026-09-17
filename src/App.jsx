@@ -3418,6 +3418,19 @@ function AdminSummary({ctx, data, setTab}){
         }
       });
     }
+    const slots = [m.hashSN0, m.hashSN1, m.hashSN2].filter(Boolean);
+    slots.forEach(sn => {
+      const reps = repairs.filter(r => r.hashSN === sn && r.type === "repair" && !r.superseded);
+      reps.forEach(r => {
+        const d = r._at ? new Date(r._at) : (r.date ? new Date(r.date + "T12:00:00") : null);
+        if (d && !isNaN(d.getTime())) dates.push(d);
+      });
+      const h = hashes.find(x => x.sn === sn);
+      if (h && (h.repairedBy || h.repairedByName) && (h.updatedAt || h._at || h.addedAt)) {
+        const d = new Date(h.updatedAt || h._at || h.addedAt);
+        if (!isNaN(d.getTime())) dates.push(d);
+      }
+    });
     const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
     machineHashes.forEach(h => {
       const reps = repairs.filter(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded);
@@ -3425,8 +3438,8 @@ function AdminSummary({ctx, data, setTab}){
         const d = r._at ? new Date(r._at) : (r.date ? new Date(r.date + "T12:00:00") : null);
         if (d && !isNaN(d.getTime())) dates.push(d);
       });
-      if (h.repairedBy && h.updatedAt) {
-        const d = new Date(h.updatedAt);
+      if (h.repairedBy && (h.updatedAt || h._at || h.addedAt)) {
+        const d = new Date(h.updatedAt || h._at || h.addedAt);
         if (!isNaN(d.getTime())) dates.push(d);
       }
     });
@@ -3441,9 +3454,14 @@ function AdminSummary({ctx, data, setTab}){
         ["BOA", "LIGADA"].includes(log.to) && 
         log.from && !["BOA", "LIGADA", ""].includes(log.from)
       );
+      const slots = [m.hashSN0, m.hashSN1, m.hashSN2].filter(Boolean);
+      const hasRepairedSlot = slots.some(sn => 
+        repairs.some(r => r.hashSN === sn && r.type === "repair" && !r.superseded) ||
+        hashes.some(h => h.sn === sn && (h.repairedBy || h.repairedByName))
+      );
       const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
-      const hasRepairedHash = machineHashes.some(h => h.repairedBy || repairs.some(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded));
-      return hasStatusChangeToGood || hasRepairedHash;
+      const hasRepairedHash = machineHashes.some(h => h.repairedBy || h.repairedByName || repairs.some(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded));
+      return hasStatusChangeToGood || hasRepairedSlot || hasRepairedHash;
     });
   };
 
@@ -10718,6 +10736,19 @@ function TeamAdvanced({ctx}) {
         }
       });
     }
+    const slots = [m.hashSN0, m.hashSN1, m.hashSN2].filter(Boolean);
+    slots.forEach(sn => {
+      const reps = repairs.filter(r => r.hashSN === sn && r.type === "repair" && !r.superseded);
+      reps.forEach(r => {
+        const d = r._at ? new Date(r._at) : (r.date ? new Date(r.date + "T12:00:00") : null);
+        if (d && !isNaN(d.getTime())) dates.push(d);
+      });
+      const h = hashes.find(x => x.sn === sn);
+      if (h && (h.repairedBy || h.repairedByName) && (h.updatedAt || h._at || h.addedAt)) {
+        const d = new Date(h.updatedAt || h._at || h.addedAt);
+        if (!isNaN(d.getTime())) dates.push(d);
+      }
+    });
     const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
     machineHashes.forEach(h => {
       const reps = repairs.filter(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded);
@@ -10725,8 +10756,8 @@ function TeamAdvanced({ctx}) {
         const d = r._at ? new Date(r._at) : (r.date ? new Date(r.date + "T12:00:00") : null);
         if (d && !isNaN(d.getTime())) dates.push(d);
       });
-      if (h.repairedBy && h.updatedAt) {
-        const d = new Date(h.updatedAt);
+      if (h.repairedBy && (h.updatedAt || h._at || h.addedAt)) {
+        const d = new Date(h.updatedAt || h._at || h.addedAt);
         if (!isNaN(d.getTime())) dates.push(d);
       }
     });
@@ -10741,9 +10772,14 @@ function TeamAdvanced({ctx}) {
         ["BOA", "LIGADA"].includes(log.to) && 
         log.from && !["BOA", "LIGADA", ""].includes(log.from)
       );
+      const slots = [m.hashSN0, m.hashSN1, m.hashSN2].filter(Boolean);
+      const hasRepairedSlot = slots.some(sn => 
+        repairs.some(r => r.hashSN === sn && r.type === "repair" && !r.superseded) ||
+        hashes.some(h => h.sn === sn && (h.repairedBy || h.repairedByName))
+      );
       const machineHashes = hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
-      const hasRepairedHash = machineHashes.some(h => h.repairedBy || repairs.some(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded));
-      return hasStatusChangeToGood || hasRepairedHash;
+      const hasRepairedHash = machineHashes.some(h => h.repairedBy || h.repairedByName || repairs.some(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded));
+      return hasStatusChangeToGood || hasRepairedSlot || hasRepairedHash;
     });
   };
 
@@ -10755,18 +10791,39 @@ function TeamAdvanced({ctx}) {
       if (sn) {
         const hashDoc = hashes.find(h => h.sn === sn);
         let techName = "";
-        if (hashDoc && hashDoc.repairedBy) {
-          const emp = employees.find(e => e._id === hashDoc.repairedBy);
-          techName = emp ? emp.name : hashDoc.repairedByName;
-        } else {
+        if (hashDoc && (hashDoc.repairedBy || hashDoc.repairedByName)) {
+          const emp = employees.find(e => e._id === hashDoc.repairedBy || e.id === hashDoc.repairedBy);
+          techName = emp ? emp.name : (hashDoc.repairedByName || "Técnico");
+        }
+        if (!techName) {
           const rep = repairs.find(r => r.hashSN === sn && r.type === "repair" && !r.superseded);
           if (rep) {
-            const emp = employees.find(e => e._id === rep.employeeId);
-            techName = emp ? emp.name : (rep.employeeName || "Técnico");
+            const emp = employees.find(e => e._id === rep.employeeId || e.id === rep.employeeId);
+            techName = emp ? emp.name : (rep.employeeName || rep._byName || "Técnico");
           }
         }
         if (techName) {
           slots.push({ slot: idx + 1, sn, techName });
+        }
+      }
+    });
+    // Adiciona placas vinculadas por machineSN que porventura não estejam nos slots
+    hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn).forEach(h => {
+      if (!slots.some(s => s.sn === h.sn)) {
+        let techName = "";
+        if (h.repairedBy || h.repairedByName) {
+          const emp = employees.find(e => e._id === h.repairedBy || e.id === h.repairedBy);
+          techName = emp ? emp.name : (h.repairedByName || "Técnico");
+        }
+        if (!techName) {
+          const rep = repairs.find(r => r.hashSN === h.sn && r.type === "repair" && !r.superseded);
+          if (rep) {
+            const emp = employees.find(e => e._id === rep.employeeId || e.id === rep.employeeId);
+            techName = emp ? emp.name : (rep.employeeName || rep._byName || "Técnico");
+          }
+        }
+        if (techName) {
+          slots.push({ slot: (h.slot != null && h.slot >= 0 ? h.slot + 1 : 1), sn: h.sn, techName });
         }
       }
     });
@@ -10778,10 +10835,8 @@ function TeamAdvanced({ctx}) {
     const snMatches = (m.sn || "").toLowerCase().includes(repairedSearch.toLowerCase()) || 
                       (m.model || "").toLowerCase().includes(repairedSearch.toLowerCase());
     
-    const machineHashes = data.hashes.filter(h => h.machineSN && m.sn && h.machineSN === m.sn);
-    const techIds = machineHashes.map(h => h.repairedBy).filter(Boolean);
-    const techNames = data.employees.filter(e => techIds.includes(e._id)).map(e => e.name.toLowerCase());
-    const techMatches = techNames.some(name => name.includes(repairedSearch.toLowerCase()));
+    const slotInfos = getRepairedSlotsInfo(m, data.hashes, data.employees, data.repairs);
+    const techMatches = slotInfos.some(s => (s.techName || "").toLowerCase().includes(repairedSearch.toLowerCase()));
     
     const matchesSearch = snMatches || techMatches;
 
@@ -10843,41 +10898,38 @@ function TeamAdvanced({ctx}) {
       </div>
 
       {empsToShow.map(emp => {
-        const employeeRepairs = data.repairs.filter(r => (r.employeeId === emp._id || r._by === emp._id) && r.type === "repair" && !r.superseded);
-        const repairedHashesInstalled = data.hashes.filter(h => h.repairedBy === emp._id && h.machineSN && h.status === "NA MAQUINA");
+        const employeeRepairs = data.repairs.filter(r => (r.employeeId === emp._id || r.employeeId === emp.id || r._by === emp._id || r._by === emp.id) && r.type === "repair" && !r.superseded);
         
+        // Mapeia máquinas que contêm placas consertadas por este técnico (seja nos slots hashSN0/1/2 ou vinculadas)
         const techMachinesMap = new Map();
-        data.hashes.forEach(h => {
-          if (!h.sn) return;
-          const isRepairedByEmp = h.repairedBy === emp._id || data.repairs.some(r => r.hashSN === h.sn && r.employeeId === emp._id && !r.superseded && r.type === "repair");
-          if (isRepairedByEmp && h.machineSN) {
-            const m = data.machines.find(mac => mac.sn === h.machineSN);
-            if (m) {
-              if (!techMachinesMap.has(m.sn)) {
-                techMachinesMap.set(m.sn, { machine: m, hashes: [] });
-              }
-              if (!techMachinesMap.get(m.sn).hashes.some(x => x.sn === h.sn)) {
-                techMachinesMap.get(m.sn).hashes.push(h);
-              }
-            }
+        data.machines.forEach(m => {
+          const slotInfos = getRepairedSlotsInfo(m, data.hashes, data.employees, data.repairs);
+          const empSlots = slotInfos.filter(s => {
+            const hashDoc = data.hashes.find(h => h.sn === s.sn);
+            const isEmpHash = hashDoc && (hashDoc.repairedBy === emp._id || hashDoc.repairedBy === emp.id);
+            const isEmpRep = data.repairs.some(r => r.hashSN === s.sn && (r.employeeId === emp._id || r.employeeId === emp.id || r._by === emp._id || r._by === emp.id) && !r.superseded && r.type === "repair");
+            return isEmpHash || isEmpRep;
+          });
+          if (empSlots.length > 0) {
+            techMachinesMap.set(m.sn, { machine: m, hashes: empSlots });
           }
         });
         const techMachinesList = Array.from(techMachinesMap.values());
 
-        const machinesWithRepairedHashes = {};
-        repairedHashesInstalled.forEach(h => {
-          if (!machinesWithRepairedHashes[h.machineSN]) {
-            machinesWithRepairedHashes[h.machineSN] = [];
-          }
-          machinesWithRepairedHashes[h.machineSN].push(h);
+        // Total de placas consertadas por ele que estão instaladas em máquinas
+        const repairedHashesInstalled = [];
+        techMachinesList.forEach(item => {
+          item.hashes.forEach(h => {
+            repairedHashesInstalled.push({ ...h, machineSN: item.machine.sn });
+          });
         });
 
         const cat1 = [], cat2 = [], cat3 = [];
-        Object.entries(machinesWithRepairedHashes).forEach(([sn, list]) => {
-          const count = list.length;
-          if (count === 1) cat1.push({ sn, list });
-          else if (count === 2) cat2.push({ sn, list });
-          else if (count >= 3) cat3.push({ sn, list });
+        techMachinesList.forEach(item => {
+          const count = item.hashes.length;
+          if (count === 1) cat1.push({ sn: item.machine.sn, list: item.hashes });
+          else if (count === 2) cat2.push({ sn: item.machine.sn, list: item.hashes });
+          else if (count >= 3) cat3.push({ sn: item.machine.sn, list: item.hashes });
         });
 
         const isExpanded = expandedEmp === emp._id;
