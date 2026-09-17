@@ -1883,13 +1883,13 @@ export default function App(){
   const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders",farmMachines:"farmMachines"};
   
   // Cache buster: força expiração automática de caches obsoletos de consertos e hashes
-  const HS_DATA_VERSION="v3_clean_repairs";
+  const HS_DATA_VERSION="v4_full_restore";
   if(typeof window!=="undefined"&&localStorage.getItem("hs_data_version")!==HS_DATA_VERSION){
     localStorage.removeItem("hs_hashes");
     localStorage.removeItem("hs_repairs");
     localStorage.removeItem("hs_lastFullFetch");
     localStorage.setItem("hs_maxcount_hashes","274");
-    localStorage.setItem("hs_maxcount_repairs","90");
+    localStorage.setItem("hs_maxcount_repairs","91");
     localStorage.setItem("hs_data_version",HS_DATA_VERSION);
   }
 
