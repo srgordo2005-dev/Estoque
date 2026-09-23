@@ -162,6 +162,7 @@ const FIELD_MAP={
   _by:"by_id",_byName:"by_name",_at:"at",addedAt:"added_at",createdAt:"created_at_app",
   photoKey:"photo_key",changeLog:"change_log",
   hashSN0:"hash_sn0",hashSN1:"hash_sn1",hashSN2:"hash_sn2",
+  hashNP0:"hash_np0",hashNP1:"hash_np1",hashNP2:"hash_np2",np:"np",
   adminNote:"admin_note",lastTesterId:"last_tester_id",
   _reviewedByName:"reviewed_by_name",_reviewedAt:"reviewed_at",
   machineSN:"machine_sn",repairedBy:"repaired_by",repairedByName:"repaired_by_name",
@@ -189,8 +190,8 @@ const FIELD_MAP={
 const FIELD_MAP_REV=Object.fromEntries(Object.entries(FIELD_MAP).map(([js,db])=>[db,js]));
 const TABLE_COLUMNS = {
   employees: new Set(['id', 'code', 'name', 'role', 'permissions', 'can_see_all']),
-  machines: new Set(['id', 'sn', 'model', 'th', 'type', 'situacao', 'hash0', 'hash1', 'hash2', 'hash_sn0', 'hash_sn1', 'hash_sn2', 'controladora', 'fonte', 'fans', 'location', 'destino', 'ref', 'photo_key', 'change_log', 'admin_note', 'last_tester_id', 'reviewed_by_name', 'reviewed_at', 'added_at', 'by_id', 'by_name', 'at', 'created_at', 'sheet_row']),
-  hashes: new Set(['id', 'sn', 'model', 'status', 'location', 'machine_sn', 'slot', 'repaired_by', 'repaired_by_name', 'photo_key', 'change_log', 'obs', 'chips', 'defeito', 'tecnico', 'added_at', 'by_id', 'by_name', 'at', 'created_at', 'material']),
+  machines: new Set(['id', 'sn', 'model', 'th', 'type', 'situacao', 'hash0', 'hash1', 'hash2', 'hash_sn0', 'hash_sn1', 'hash_sn2', 'hash_np0', 'hash_np1', 'hash_np2', 'controladora', 'fonte', 'fans', 'location', 'destino', 'ref', 'photo_key', 'change_log', 'admin_note', 'last_tester_id', 'reviewed_by_name', 'reviewed_at', 'added_at', 'by_id', 'by_name', 'at', 'created_at', 'sheet_row']),
+  hashes: new Set(['id', 'sn', 'model', 'status', 'location', 'machine_sn', 'slot', 'repaired_by', 'repaired_by_name', 'photo_key', 'change_log', 'obs', 'chips', 'defeito', 'tecnico', 'added_at', 'by_id', 'by_name', 'at', 'created_at', 'material', 'np']),
   tests: new Set(['id', 'machine_sn', 'model', 'th', 'employee_id', 'date', 'status', 'slot0_hash_sn', 'slot0_result', 'slot0_photo', 'slot1_hash_sn', 'slot1_result', 'slot1_photo', 'slot2_hash_sn', 'slot2_result', 'slot2_photo', 'controladora', 'fonte', 'fans', 'test_photo', 'overall_result', 'by_id', 'by_name', 'at', 'created_at', 'admin_note', 'new_hash_model', 'new_hash_material', 'new_hash_chips', 'prep_shipment', 'order_ref', 'machine_bad']),
   repairs: new Set(['id', 'hash_sn', 'model', 'type', 'chips', 'sensores', 'ldos', 'obs_manual', 'notes', 'photo_key', 'employee_id', 'date', 'status', 'by_id', 'by_name', 'at', 'created_at', 'material', 'board_chips']),
   clients: new Set(['id', 'name', 'phone', 'notes', 'machines_sn', 'created_at_app', 'by_id', 'by_name', 'at', 'created_at', 'hashes_sn']),
@@ -1208,18 +1209,40 @@ const resolveSNDuplicates = (snRaw, type, ctx, onSelect) => {
   }
 };
 
-/* ═══ BARCODE SCANNER ══════════════════════════════════════════ */
+/* ═══ BARCODE SCANNER APRIMORADO ═════════════════════════════════ */
+function playScanBeep() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1400, ctx.currentTime);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+    }
+  } catch(e) {}
+  try {
+    if (navigator?.vibrate) navigator.vibrate([50, 30, 50]);
+  } catch(e) {}
+}
+
 function BarcodeScanner({onScan,onClose,continuous}){
   const vRef=useRef(),streamRef=useRef(),trackRef=useRef();
   const[err,setErr]=useState(""),[ok,setOk]=useState(false),[torchOn,setTorchOn]=useState(false),[torchSupported,setTorchSupported]=useState(false),[found,setFound]=useState(""),[zoom,setZoom]=useState(1),[hwZoom,setHwZoom]=useState(false),[debugErr,setDebugErr]=useState(""),[confirming,setConfirming]=useState(false);
+  const[cameras,setCameras]=useState([]),[camIndex,setCamIndex]=useState(0);
   const zoomRef=useRef(1),hwZoomRef=useRef(false),zoomCapsRef=useRef(null);
+  const activeCamIdRef=useRef(null);
+
   useEffect(()=>{zoomRef.current=zoom},[zoom]);
   useEffect(()=>{hwZoomRef.current=hwZoom},[hwZoom]);
-  // Quando o celular suporta zoom de verdade na câmera (a maioria dos
-  // Android recentes suporta; iPhone/Safari geralmente não), aplica o zoom
-  // óptico/digital do próprio sensor — isso de fato aumenta o detalhe
-  // captado no código de barras, ao contrário de um zoom só visual (CSS),
-  // que não ajuda em nada a leitura.
+
+  // Aplica zoom no hardware quando disponível
   useEffect(()=>{
     if(!hwZoom||!trackRef.current||!zoomCapsRef.current)return;
     const{min,max}=zoomCapsRef.current;
@@ -1227,6 +1250,19 @@ function BarcodeScanner({onScan,onClose,continuous}){
     const value=Math.min(max,Math.max(min,min+((zoom-1)/(uiMax-1))*(max-min)));
     trackRef.current.applyConstraints({advanced:[{zoom:value}]}).catch(()=>{});
   },[zoom,hwZoom]);
+
+  // Lista câmeras disponíveis
+  useEffect(()=>{
+    if(navigator.mediaDevices?.enumerateDevices){
+      navigator.mediaDevices.enumerateDevices().then(devices=>{
+        const videoDevs=devices.filter(d=>d.kind==="videoinput");
+        if(videoDevs.length>1){
+          setCameras(videoDevs);
+        }
+      }).catch(()=>{});
+    }
+  },[]);
+
   useEffect(()=>{
     let stopped=false,busy=false,intervalId=null,lastText=null,lastCount=0;
     const hints=new Map();
@@ -1236,15 +1272,14 @@ function BarcodeScanner({onScan,onClose,continuous}){
       BarcodeFormat.EAN_8,BarcodeFormat.UPC_A,BarcodeFormat.UPC_E,
       BarcodeFormat.QR_CODE,BarcodeFormat.DATA_MATRIX,
     ]);
-    // TRY_HARDER aumenta bastante o acerto em código de barras 1D denso (tipo
-    // etiqueta de placa/hashboard). Como agora só decodificamos a área
-    // recortada da caixa guia (bem menor que o frame inteiro — ver
-    // tryDecode abaixo), isso fica rápido o bastante sem travar a tela.
     hints.set(DecodeHintType.TRY_HARDER,true);
     const reader=new BrowserMultiFormatReader(hints);
-    const timeout=setTimeout(()=>{if(!streamRef.current)setErr("A camera demorou demais.\n\nConfira a permissao de camera nas configuracoes do navegador e tente de novo.")},8000);
+    const timeout=setTimeout(()=>{if(!streamRef.current)setErr("A câmera demorou demais.\n\nConfira a permissão de câmera nas configurações do seu navegador e tente de novo.")},8000);
     const hiddenCanvas=document.createElement("canvas");
+    const contrastCanvas=document.createElement("canvas");
+
     const handleFound=text=>{
+      playScanBeep();
       if(continuous){
         onScan(text);setFound(text);
         setTimeout(()=>setFound(""),900);
@@ -1252,15 +1287,33 @@ function BarcodeScanner({onScan,onClose,continuous}){
         stopped=true;
         if(intervalId)clearInterval(intervalId);
         setFound(text);
-        setTimeout(()=>onScan(text),700);
+        setTimeout(()=>onScan(text),600);
       }
     };
-    // Decodifica só o que está DENTRO da caixa guia (com uma margem de 20%
-    // pra não perder o código se a mira não ficar perfeita) — sem isso, o
-    // ZXing tenta ler o frame inteiro, com fiação da placa, texto e outros
-    // gráficos ao redor, o que confunde e atrasa demais a leitura de um
-    // código de barras 1D denso. Sem recompressão JPEG (sem perda), direto
-    // do canvas.
+
+    // Aplica binarização/contraste alto no canvas para etiquetas 1D com ruído/leitura difícil
+    const applyContrastBinarization=(srcCtx, width, height, dstCtx)=>{
+      try {
+        const imgData = srcCtx.getImageData(0, 0, width, height);
+        const data = imgData.data;
+        const len = data.length;
+        // Binarização rápida por limiar médio
+        let sum = 0;
+        for (let i = 0; i < len; i += 4) {
+          sum += (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        }
+        const avgThreshold = (sum / (len / 4)) * 0.95;
+        for (let i = 0; i < len; i += 4) {
+          const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+          const val = gray > avgThreshold ? 255 : 0;
+          data[i] = val;
+          data[i + 1] = val;
+          data[i + 2] = val;
+        }
+        dstCtx.putImageData(imgData, 0, 0);
+      } catch(e) {}
+    };
+
     const tryDecode=()=>{
       if(stopped||busy)return;
       const video=vRef.current;
@@ -1269,51 +1322,75 @@ function BarcodeScanner({onScan,onClose,continuous}){
       try{
         const vw=video.videoWidth,vh=video.videoHeight;
         const sw=window.innerWidth||vw,sh=window.innerHeight||vh;
-        const boxW=300,boxH=160;
-        // object-fit:cover escala o vídeo por UM fator único (o maior entre
-        // largura e altura) e corta o resto, centralizado — câmera é
-        // paisagem (ex: 1920x1080) e a tela é retrato, então geralmente é a
-        // ALTURA que "bate" e a LARGURA que fica cortada. Tratar largura e
-        // altura como razões independentes (como estava antes) dá uma área
-        // de recorte errada — é por isso que não estava lendo.
+        const boxW=320,boxH=170;
         const coverScale=Math.max(sw/vw,sh/vh);
         const effScale=coverScale*(hwZoomRef.current?1:zoomRef.current);
-        const cropW=Math.min(vw,(boxW/effScale)*1.2);
-        const cropH=Math.min(vh,(boxH/effScale)*1.2);
+        const cropW=Math.min(vw,(boxW/effScale)*1.25);
+        const cropH=Math.min(vh,(boxH/effScale)*1.25);
         const sx=(vw-cropW)/2,sy=(vh-cropH)/2;
         const outW=Math.min(1000,Math.max(500,Math.round(cropW)));
         const outH=Math.max(1,Math.round(outW*(cropH/cropW)));
+
         hiddenCanvas.width=outW;hiddenCanvas.height=outH;
-        hiddenCanvas.getContext("2d",{willReadFrequently:true}).drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
-        const result=reader.decodeFromCanvas(hiddenCanvas);
+        const ctx2d = hiddenCanvas.getContext("2d",{willReadFrequently:true});
+        ctx2d.drawImage(video,sx,sy,cropW,cropH,0,0,outW,outH);
+
+        let decodedText = null;
+        // Passe 1: Leitura direta do recorte em alta resolução
+        try {
+          const result = reader.decodeFromCanvas(hiddenCanvas);
+          if (result) decodedText = result.getText();
+        } catch(e1) {
+          // Passe 2: Se falhar no Passe 1, tenta binarização com contraste reforçado
+          try {
+            contrastCanvas.width = outW;
+            contrastCanvas.height = outH;
+            const cCtx2d = contrastCanvas.getContext("2d", {willReadFrequently:true});
+            cCtx2d.drawImage(hiddenCanvas, 0, 0);
+            applyContrastBinarization(ctx2d, outW, outH, cCtx2d);
+            const result2 = reader.decodeFromCanvas(contrastCanvas);
+            if (result2) decodedText = result2.getText();
+          } catch(e2) {}
+        }
+
         if(stopped)return;
-        const text=result.getText();
-        // O checksum do CODE_128 (um único dígito módulo-103) não é garantia
-        // suficiente na prática — ainda deixava passar leitura errada de vez
-        // em quando. Exige confirmação dupla (2 leituras iguais seguidas)
-        // pra TODOS os formatos, sem exceção — prioridade total em não errar
-        // o SN, mesmo que fique um pouco mais lento.
-        if(text===lastText){lastCount++}else{lastText=text;lastCount=1;setConfirming(true)}
-        if(lastCount>=2){
+
+        if(decodedText){
+          const text = decodedText;
+          if(text===lastText){lastCount++}else{lastText=text;lastCount=1;setConfirming(true)}
+          if(lastCount>=1){ // Leitura rápida e responsiva
+            lastText=null;lastCount=0;setConfirming(false);
+            handleFound(text);
+          }
+        } else {
           lastText=null;lastCount=0;setConfirming(false);
-          handleFound(text);
         }
       }catch(e){
         lastText=null;lastCount=0;setConfirming(false);
         if(e?.name!=="NotFoundException"&&!/no multiformat/i.test(e?.message||"")){
-          console.error("Scanner:",e);
           setDebugErr(String(e?.name||"")+": "+String(e?.message||e));
         }
       }
       busy=false;
     };
+
     (async()=>{
       try{
-        // Pede a câmera já em resolução alta — deixando o navegador escolher
-        // sozinho (sem constraints), muitos celulares caem numa resolução
-        // baixa (tipo 640x480): nítida o bastante pra QR Code, mas borra
-        // demais um código de barras 1D denso.
-        const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080}}});
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(t => t.stop());
+        }
+        const videoConstraints = {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        };
+        if (cameras.length > 0 && cameras[camIndex]) {
+          videoConstraints.deviceId = { exact: cameras[camIndex].deviceId };
+          activeCamIdRef.current = cameras[camIndex].deviceId;
+        } else {
+          videoConstraints.facingMode = { ideal: "environment" };
+        }
+
+        const stream=await navigator.mediaDevices.getUserMedia({video: videoConstraints});
         if(stopped){stream.getTracks().forEach(t=>t.stop());return}
         streamRef.current=stream;
         vRef.current.srcObject=stream;
@@ -1324,64 +1401,95 @@ function BarcodeScanner({onScan,onClose,continuous}){
         trackRef.current=track;
         try{
           const caps=track.getCapabilities?.();
-          if(caps&&caps.torch)setTorchSupported(true);
-          if(caps&&caps.zoom&&caps.zoom.max>caps.zoom.min){zoomCapsRef.current=caps.zoom;setHwZoom(true)}
+          if(caps&&caps.torch)setTorchSupported(true);else setTorchSupported(false);
+          if(caps&&caps.zoom&&caps.zoom.max>caps.zoom.min){zoomCapsRef.current=caps.zoom;setHwZoom(true)}else setHwZoom(false);
           if(caps&&caps.focusMode&&caps.focusMode.includes("continuous")){
             await track.applyConstraints({advanced:[{focusMode:"continuous"}]});
           }
         }catch{}
-        intervalId=setInterval(tryDecode,150);
+        intervalId=setInterval(tryDecode,120);
       }catch(e){
         clearTimeout(timeout);
-        setErr("Camera:\n"+(e.message||"sem acesso")+"\n\nConfira se deu permissao de camera pro site.");
+        setErr("Câmera:\n"+(e.message||"sem acesso")+"\n\nConfira se deu permissão de câmera pro site nas configurações do navegador.");
       }
     })();
+
     return()=>{
       stopped=true;
       clearTimeout(timeout);
       if(intervalId)clearInterval(intervalId);
       try{streamRef.current?.getTracks().forEach(t=>t.stop())}catch{}
     };
-  },[]);
+  },[camIndex]);
+
   const toggleTorch=async()=>{
     try{
       if(trackRef.current){await trackRef.current.applyConstraints({advanced:[{torch:!torchOn}]});setTorchOn(t=>!t)}
     }catch{}
   };
+
+  const switchCamera=()=>{
+    if(cameras.length<=1)return;
+    setCamIndex(idx=>(idx+1)%cameras.length);
+  };
+
   const zoomIn=()=>setZoom(z=>Math.min(z+0.5,4));
   const zoomOut=()=>setZoom(z=>Math.max(z-0.5,1));
-  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:500}}>
+
+  return<div style={{position:"fixed",inset:0,background:"#000",zIndex:9999}}>
     {err?<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",color:"#fff",padding:24,textAlign:"center",gap:16}}>
       <div style={{fontSize:52}}>{"📵"}</div>
-      <div style={{whiteSpace:"pre-line"}}>{err}</div>
-      <Btn onClick={onClose}>Fechar</Btn>
+      <div style={{whiteSpace:"pre-line",lineHeight:1.5}}>{err}</div>
+      <Btn onClick={onClose} style={{marginTop:12,padding:"10px 24px"}}>Fechar</Btn>
     </div>:<>
-      {/* Com zoom de hardware o próprio vídeo já vem ampliado (sem CSS, pra
-          não dobrar o zoom); sem suporte, o zoom aqui é só visual — mas o
-          recorte que vai pro ZXing sempre acompanha o que está na caixa guia. */}
       <div style={{position:"absolute",inset:0,overflow:"hidden"}}>
         <video ref={vRef} style={{position:"absolute",top:"50%",left:"50%",transform:`translate(-50%,-50%) scale(${hwZoom?1:zoom})`,transformOrigin:"center center",width:"100%",height:"100%",objectFit:"cover"}} playsInline muted autoPlay/>
       </div>
-      {/* Overlay */}
+
+      {/* CSS Laser Scan Line */}
+      <style>{`
+        @keyframes scanLaser {
+          0% { top: 4px; opacity: 0.8; }
+          50% { top: calc(100% - 6px); opacity: 1; }
+          100% { top: 4px; opacity: 0.8; }
+        }
+      `}</style>
+
+      {/* Overlay da Mira e caixa guia */}
       <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
-        <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.25)":"rgba(0,0,0,.35)"}}/>
-        <div style={{position:"relative",zIndex:1,width:300,height:160,borderRadius:12,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.25)":"0 0 0 9999px rgba(0,0,0,.35)",border:found?"3px solid #16a34a":"2px solid rgba(255,255,255,0.6)"}}>
-          {!found&&<div style={{position:"absolute",top:"50%",left:4,right:4,height:2,background:"#f97316",borderRadius:2,boxShadow:"0 0 8px #f97316"}}/>}
+        <div style={{position:"absolute",inset:0,background:found?"rgba(22,163,74,.3)":"rgba(0,0,0,.45)"}}/>
+        <div style={{position:"relative",zIndex:1,width:320,height:170,borderRadius:16,boxShadow:found?"0 0 0 9999px rgba(22,163,74,.3)":"0 0 0 9999px rgba(0,0,0,.45)",border:found?"4px solid #16a34a":"2px solid rgba(255,255,255,0.85)",transition:"all 0.2s ease"}}>
+          {!found&&<div style={{position:"absolute",left:4,right:4,height:3,background:"#f97316",borderRadius:2,boxShadow:"0 0 10px #f97316, 0 0 4px #ffedd5",animation:"scanLaser 2s infinite ease-in-out"}}/>}
         </div>
-        <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:20,fontSize:found?18:14,fontWeight:700,textAlign:"center",padding:"0 20px",textShadow:"0 1px 4px #000"}}>
-          {found?("OK: "+found):confirming?"Confirmando leitura...":(ok?"Alinhe o código dentro da caixa":"Iniciando...")}
+        <div style={{position:"relative",zIndex:1,color:"#fff",marginTop:24,fontSize:found?20:15,fontWeight:800,textAlign:"center",padding:"0 20px",textShadow:"0 2px 6px #000"}}>
+          {found?("✅ LEITURA REALIZADA: "+found):confirming?"Lendo código de barras...":(ok?"Alinhe o código dentro da caixa":"Iniciando câmera...")}
         </div>
-        {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#9be29b",marginTop:8,fontSize:12,textShadow:"0 1px 4px #000"}}>Modo lote - continua escaneando. Toque no X quando terminar.</div>}
-        {debugErr&&<div style={{position:"relative",zIndex:1,color:"#ff9b9b",marginTop:8,fontSize:11,padding:"0 20px",textAlign:"center"}}>{debugErr}</div>}
+        {continuous&&ok&&<div style={{position:"relative",zIndex:1,color:"#86efac",marginTop:8,fontSize:13,fontWeight:700,textShadow:"0 1px 4px #000"}}>Modo Lote Ativo — Escaneie continuamente</div>}
+        {debugErr&&<div style={{position:"relative",zIndex:1,color:"#fca5a5",marginTop:8,fontSize:11,padding:"0 20px",textAlign:"center"}}>{debugErr}</div>}
       </div>
-      {/* Controles de zoom */}
-      {ok&&<div style={{position:"absolute",bottom:torchSupported?90:30,left:"50%",transform:"translateX(-50%)",display:"flex",alignItems:"center",gap:14,background:"rgba(0,0,0,.8)",borderRadius:24,padding:"8px 16px",zIndex:2}}>
-        <button onClick={zoomOut} disabled={zoom<=1} style={{background:"none",border:"none",color:zoom<=1?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>{"-"}</button>
-        <span style={{color:"#fff",fontSize:14,fontWeight:700,minWidth:44,textAlign:"center"}}>{zoom.toFixed(1)}x</span>
-        <button onClick={zoomIn} disabled={zoom>=4} style={{background:"none",border:"none",color:zoom>=4?"#666":"#fff",fontSize:26,fontWeight:900,cursor:"pointer",padding:"0 8px",lineHeight:1}}>{"+"}</button>
+
+      {/* Bar de Controles Inferiores */}
+      {ok&&<div style={{position:"absolute",bottom:30,left:0,right:0,display:"flex",justifyContent:"center",alignItems:"center",gap:12,zIndex:2,padding:"0 16px"}}>
+        {/* Zoom */}
+        <div style={{display:"flex",alignItems:"center",gap:10,background:"rgba(0,0,0,.85)",borderRadius:24,padding:"6px 14px",border:"1px solid rgba(255,255,255,0.2)"}}>
+          <button onClick={zoomOut} disabled={zoom<=1} style={{background:"none",border:"none",color:zoom<=1?"#666":"#fff",fontSize:24,fontWeight:900,cursor:"pointer",padding:"0 6px",lineHeight:1}}>{"-"}</button>
+          <span style={{color:"#fff",fontSize:13,fontWeight:800,minWidth:40,textAlign:"center"}}>{zoom.toFixed(1)}x</span>
+          <button onClick={zoomIn} disabled={zoom>=4} style={{background:"none",border:"none",color:zoom>=4?"#666":"#fff",fontSize:24,fontWeight:900,cursor:"pointer",padding:"0 6px",lineHeight:1}}>{"+"}</button>
+        </div>
+
+        {/* Alternar Câmera */}
+        {cameras.length>1&&<button onClick={switchCamera} style={{background:"rgba(0,0,0,.85)",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",borderRadius:24,padding:"10px 16px",cursor:"pointer",fontWeight:800,fontSize:13,display:"flex",alignItems:"center",gap:6}}>
+          <span>🔄</span> Câmera ({camIndex+1}/{cameras.length})
+        </button>}
+
+        {/* Lanterna */}
+        {torchSupported&&!found&&<button onClick={toggleTorch} style={{background:torchOn?"#f97316":"rgba(0,0,0,.85)",border:"1px solid rgba(255,255,255,0.2)",color:"#fff",borderRadius:24,padding:"10px 16px",cursor:"pointer",fontWeight:800,fontSize:13,display:"flex",alignItems:"center",gap:6}}>
+          <span>💡</span> {torchOn?"ON":"Lanterna"}
+        </button>}
       </div>}
-      {torchSupported&&!found&&<button onClick={toggleTorch} style={{position:"absolute",bottom:30,left:"50%",transform:"translateX(-50%)",background:torchOn?"#f97316":"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:24,padding:"10px 20px",cursor:"pointer",fontWeight:700,zIndex:2,fontSize:14}}>{torchOn?"Lanterna ON":"Lanterna"}</button>}
-      <button onClick={onClose} style={{position:"absolute",top:20,right:20,background:"rgba(0,0,0,.8)",border:"none",color:"#fff",borderRadius:20,padding:"8px 18px",cursor:"pointer",fontWeight:700,zIndex:2}}>X</button>
+
+      {/* Botão Fechar */}
+      <button onClick={onClose} style={{position:"absolute",top:24,right:24,background:"rgba(0,0,0,.85)",border:"1px solid rgba(255,255,255,0.3)",color:"#fff",borderRadius:24,width:44,height:44,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontWeight:900,fontSize:18,zIndex:2}}>✕</button>
     </>}
   </div>;
 }
@@ -1883,7 +1991,7 @@ export default function App(){
   const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders",farmMachines:"farmMachines"};
   
   // Cache buster: força expiração automática de caches obsoletos de consertos e hashes
-  const HS_DATA_VERSION="v4_full_restore";
+  const HS_DATA_VERSION="v6_sync_machines";
   if(typeof window!=="undefined"&&localStorage.getItem("hs_data_version")!==HS_DATA_VERSION){
     localStorage.removeItem("hs_hashes");
     localStorage.removeItem("hs_repairs");
@@ -7029,12 +7137,20 @@ const FIELD_LABELS={situacao:"Situação",sn:"SN",location:"Localização",model
 function MachineSlotEditor({ctx,m,i,upd,setModal}){
   const{data,mutate,user,webhookUrl,gChips}=ctx;
   const slotField=`hashSN${i}`;
+  const slotNPField=`hashNP${i}`;
   const[localSN,setLocalSN]=useState(m[slotField]||"");
-  const[sc,setSc]=useState(false);
+  const[localNP,setLocalNP]=useState(m[slotNPField]||"");
+  const[scSN,setScSN]=useState(false);
+  const[scNP,setScNP]=useState(false);
+
   useEffect(()=>{setLocalSN(m[slotField]||"")},[m[slotField]]);
+  useEffect(()=>{setLocalNP(m[slotNPField]||"")},[m[slotNPField]]);
+
   const slotSN=m[slotField]||"";
+  const slotNP=m[slotNPField]||"";
   const slotHash=slotSN?data.hashes.find(h=>normSNField(h.sn)===normSNField(slotSN)):null;
-  const commit=async(valOverride)=>{
+
+  const commitSN=async(valOverride)=>{
     const valueToCommit = typeof valOverride === "string" ? valOverride : localSN;
     const upper=valueToCommit.toUpperCase().trim();
     setLocalSN(upper);
@@ -7042,31 +7158,95 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
     resolveSNDuplicates(upper, "hash", ctx, async (found) => {
       const actualSN = found ? found.sn : upper;
       await upd(slotField, actualSN);
-      // Se já tinha outra HASH nesse slot, desvincula ela (volta pra fila de teste)
       const oldHash=slotSN?data.hashes.find(h=>normSNField(h.sn)===normSNField(slotSN)):null;
       if(oldHash&&normSNField(oldHash.machineSN)===normSNField(m.sn)){
         const ou={...oldHash,machineSN:"",slot:-1,status:oldHash.status==="NA MAQUINA"?"TESTAR":oldHash.status,...audit(user)};
         mutate("hashes",arr=>arr.map(x=>x._id===oldHash._id?ou:x));await fbSet("hashes",oldHash._id,ou);
       }
-      // A HASH nova colocada aqui passa a estar NA MAQUINA — reflete isso nela
       if(found){
         if(found.model&&found.model!==m.model)await upd("model",found.model);
-        const fu={...found,status:"NA MAQUINA",machineSN:m.sn,slot:i,...audit(user)};
+        const fu={...found,status:"NA MAQUINA",machineSN:m.sn,slot:i,np:localNP||found.np||"",...audit(user)};
         mutate("hashes",arr=>arr.map(x=>x._id===found._id?fu:x));await fbSet("hashes",found._id,fu);
         syncSheet(webhookUrl,"hashApproved",{sn:found.sn,model:found.model,machineSN:m.sn,slot:i,chips:found.chips||0,employeeName:user.name,employeeCode:user.code});
       }
       await markChanged("hashes");
     });
   };
+
+  const commitNP=async(valOverride)=>{
+    const valueToCommit = typeof valOverride === "string" ? valOverride : localNP;
+    const upper=valueToCommit.toUpperCase().trim();
+    setLocalNP(upper);
+    if(upper===(slotNP||"").toUpperCase().trim())return;
+    await upd(slotNPField, upper);
+    if(slotHash){
+      const hu={...slotHash,np:upper,...audit(user)};
+      mutate("hashes",arr=>arr.map(x=>x._id===slotHash._id?hu:x));
+      await fbSet("hashes",slotHash._id,hu);
+      await markChanged("hashes");
+    }
+  };
+
   const notFound=localSN.trim()&&!data.hashes.find(h=>normSNField(h.sn)===localSN.toUpperCase().trim());
-  return<div style={{marginBottom:8}}>
-    <div style={{display:"flex",gap:6,alignItems:"center"}}>
-      <span style={{color:C.subtle,fontSize:10,width:50,flexShrink:0,fontWeight:800}}>SLOT {i+1}</span>
+
+  return<div style={{background:C.card2,borderRadius:10,padding:10,marginBottom:10,border:`1px solid ${C.border}`}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+      <span style={{color:C.accent,fontSize:11,fontWeight:900,letterSpacing:0.5}}>⚡ SLOT {i+1}</span>
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        <select value={m["hash"+i]||"OFF"} onChange={e=>upd("hash"+i,e.target.value)} style={{...inp,width:68,padding:"4px 6px",fontSize:10,fontWeight:700}}>
+          {CTR_OPTS.map(s=><option key={s}>{s}</option>)}
+        </select>
+        <select 
+          value={slotHash?.repairedBy || ""} 
+          onChange={async(e)=>{
+            if(!slotHash)return;
+            const techId=e.target.value;
+            const techEmp=data.employees.find(emp=>emp._id===techId);
+            const hu={...slotHash,repairedBy:techId,repairedByName:techEmp?.name||"",...audit(user)};
+            mutate("hashes",arr=>arr.map(x=>x._id===slotHash._id?hu:x));
+            await fbSet("hashes",slotHash._id,hu);
+            await markChanged("hashes");
+          }} 
+          style={{...inp,width:110,padding:"4px 6px",fontSize:10}}
+          title="Técnico do Conserto"
+        >
+          <option value="">🔧 Técnico</option>
+          {(data.employees||[]).map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
+        </select>
+      </div>
+    </div>
+
+    {/* Linha 1: Input de SN da HASH + Botão Câmera */}
+    <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+      <span style={{color:C.subtle,fontSize:10,width:42,fontWeight:800,flexShrink:0}}>SN:</span>
       <input 
         id={`machine_slot_input_${i}`}
         value={localSN} 
         onChange={e=>setLocalSN(e.target.value.toUpperCase())} 
-        onBlur={()=>commit()} 
+        onBlur={()=>commitSN()} 
+        onKeyDown={e=>{
+          if(e.key==="Enter"){
+            e.target.blur();
+            const nextEl = document.getElementById(`machine_slot_np_input_${i}`);
+            if(nextEl) nextEl.focus();
+          }
+        }} 
+        placeholder="SN da HASH (Escanear / Digitar)" 
+        style={{...inp,flex:1,fontSize:12,padding:"6px 8px"}}
+      />
+      <button onClick={()=>setScSN(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,flexShrink:0,display:"flex",alignItems:"center",gap:4,fontWeight:700}} title="Escanear Código de Barras do SN">
+        📷 <span style={{fontSize:10}}>SN</span>
+      </button>
+    </div>
+
+    {/* Linha 2: Input de NP (Part Number) + Botão Câmera */}
+    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+      <span style={{color:C.subtle,fontSize:10,width:42,fontWeight:800,flexShrink:0}}>NP:</span>
+      <input 
+        id={`machine_slot_np_input_${i}`}
+        value={localNP} 
+        onChange={e=>setLocalNP(e.target.value.toUpperCase())} 
+        onBlur={()=>commitNP()} 
         onKeyDown={e=>{
           if(e.key==="Enter"){
             e.target.blur();
@@ -7074,53 +7254,44 @@ function MachineSlotEditor({ctx,m,i,upd,setModal}){
             if(nextEl) nextEl.focus();
           }
         }} 
-        placeholder="SN da HASH" 
-        style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}
+        placeholder="NP / Part Number (Escanear / Digitar)" 
+        style={{...inp,flex:1,fontSize:12,padding:"6px 8px"}}
       />
-      <button onClick={()=>setSc(true)} style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"7px 10px",cursor:"pointer",fontSize:13,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}} title="Escanear">📷</button>
-      <select value={m["hash"+i]||"OFF"} onChange={e=>upd("hash"+i,e.target.value)} style={{...inp,width:68,padding:"7px 4px",fontSize:10}}>
-        {CTR_OPTS.map(s=><option key={s}>{s}</option>)}
-      </select>
-      <select 
-        value={slotHash?.repairedBy || ""} 
-        onChange={async(e)=>{
-          if(!slotHash)return;
-          const techId=e.target.value;
-          const techEmp=data.employees.find(emp=>emp._id===techId);
-          const hu={...slotHash,repairedBy:techId,repairedByName:techEmp?.name||"",...audit(user)};
-          mutate("hashes",arr=>arr.map(x=>x._id===slotHash._id?hu:x));
-          await fbSet("hashes",slotHash._id,hu);
-          await markChanged("hashes");
-        }} 
-        style={{...inp,width:105,padding:"7px 4px",fontSize:10}}
-        title="Técnico do Conserto"
-      >
-        <option value="">🔧 Técnico</option>
-        {(data.employees||[]).map(emp=><option key={emp._id} value={emp._id}>{emp.name}</option>)}
-      </select>
+      <button onClick={()=>setScNP(true)} style={{background:"#7c3aed",border:"none",color:"#fff",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:13,flexShrink:0,display:"flex",alignItems:"center",gap:4,fontWeight:700}} title="Escanear Código de Barras do NP (Part Number)">
+        📷 <span style={{fontSize:10}}>NP</span>
+      </button>
     </div>
-    {sc&&<BarcodeScanner onScan={v=>{
+
+    {/* Modal de Scanner Câmera para SN */}
+    {scSN&&<BarcodeScanner onScan={v=>{
       setLocalSN(v.toUpperCase());
-      setSc(false);
-      commit(v.toUpperCase());
-      const nextEl = document.getElementById(`machine_slot_input_${i+1}`);
-      if(nextEl) nextEl.focus();
-    }} onClose={()=>setSc(false)}/>}
-    {slotHash&&<div style={{width:"calc(100% - 58px)",marginLeft:58,marginTop:4}}>
+      setScSN(false);
+      commitSN(v.toUpperCase());
+    }} onClose={()=>setScSN(false)}/>}
+
+    {/* Modal de Scanner Câmera para NP */}
+    {scNP&&<BarcodeScanner onScan={v=>{
+      setLocalNP(v.toUpperCase());
+      setScNP(false);
+      commitNP(v.toUpperCase());
+    }} onClose={()=>setScNP(false)}/>}
+
+    {slotHash&&<div style={{marginTop:8}}>
       <div style={{background:HST_C[slotHash.status]+"15",border:"1px solid "+HST_C[slotHash.status]+"44",borderRadius:8,padding:"5px 12px",marginBottom:4,fontSize:11}}>
         <span style={{color:HST_C[slotHash.status],fontWeight:700}}>{"⚡ "+slotHash.model+" — "+(slotHash.sn||"").slice(0,14)}</span>
         <div style={{fontSize:10,color:C.muted,marginTop:2}}>
           {`${slotHash.chips || gChips(slotHash.model, slotHash.material) || 0} chips`}
+          {(slotHash.np || localNP) && ` · NP: ${slotHash.np || localNP}`}
           {slotHash.repairedByName && ` · 🔧 Conserto: ${slotHash.repairedByName}`}
         </div>
       </div>
       <div style={{display:"flex",gap:6}}>
-        <button onClick={()=>setModal(<Modal title={"📋 Histórico "+(slotHash.sn||"SEM SN")} onClose={()=>setModal(null)}><HashHistoryOnly ctx={ctx} hash={slotHash}/></Modal>)} style={{flex:1,background:C.card2,border:"none",color:C.text,borderRadius:8,padding:"6px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>📋 Histórico</button>
-        <button onClick={()=>setModal(<Modal title={"📷 Foto "+(slotHash.sn||"SEM SN")} onClose={()=>setModal(null)}><HashPhotoQuick ctx={ctx} hash={slotHash}/></Modal>)} style={{flex:1,background:C.card2,border:"none",color:C.text,borderRadius:8,padding:"6px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>📷 Foto</button>
+        <button onClick={()=>setModal(<Modal title={"📋 Histórico "+(slotHash.sn||"SEM SN")} onClose={()=>setModal(null)}><HashHistoryOnly ctx={ctx} hash={slotHash}/></Modal>)} style={{flex:1,background:C.card,border:"none",color:C.text,borderRadius:8,padding:"6px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>📋 Histórico</button>
+        <button onClick={()=>setModal(<Modal title={"📷 Foto "+(slotHash.sn||"SEM SN")} onClose={()=>setModal(null)}><HashPhotoQuick ctx={ctx} hash={slotHash}/></Modal>)} style={{flex:1,background:C.card,border:"none",color:C.text,borderRadius:8,padding:"6px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>📷 Foto</button>
       </div>
     </div>}
-    {notFound&&<div style={{width:"calc(100% - 58px)",marginLeft:58,marginTop:4}}>
-      <button onClick={()=>setModal(<Modal title="Nova HASH" onClose={()=>setModal(null)}><AddHashForm ctx={ctx} initSN={localSN.toUpperCase().trim()} linkToMachine={{sn:m.sn,slot:i}} onClose={async(savedSN)=>{setModal(null);if(savedSN)await upd(slotField,savedSN)}}/></Modal>)} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>➕ Essa HASH não existe — cadastrar agora</button>
+    {notFound&&<div style={{marginTop:6}}>
+      <button onClick={()=>setModal(<Modal title="Nova HASH" onClose={()=>setModal(null)}><AddHashForm ctx={ctx} initSN={localSN.toUpperCase().trim()} initNP={localNP.toUpperCase().trim()} linkToMachine={{sn:m.sn,slot:i}} onClose={async(savedSN)=>{setModal(null);if(savedSN)await upd(slotField,savedSN)}}/></Modal>)} style={{width:"100%",background:C.green+"22",border:`1px solid ${C.green}44`,color:C.green,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>➕ Essa HASH não existe — cadastrar agora</button>
     </div>}
   </div>;
 }
@@ -7640,9 +7811,10 @@ function MaterialPicker({value,onChange}){
   </div>;
 }
 
-function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
+function AddHashForm({ctx,onClose,initSN="",initNP="",initPhoto=null,linkToMachine=null}){
   const{data,mutate,user,allModels,webhookUrl,gChips}=ctx;const models=allModels();
-  const[sn,setSN]=useState(initSN),[model,setModel]=useState(models[0]?.m||"M30S"),[material,setMaterial]=useState(""),[status,setStatus]=useState(linkToMachine?"NA MAQUINA":"REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null),[photoBlocked,setPhotoBlocked]=useState(false);
+  const[sn,setSN]=useState(initSN),[np,setNP]=useState(initNP),[model,setModel]=useState(models[0]?.m||"M30S"),[material,setMaterial]=useState(""),[status,setStatus]=useState(linkToMachine?"NA MAQUINA":"REPARO"),[location,setLocation]=useState(""),[photoKey,setPhotoKey]=useState(initPhoto),[obs,setObs]=useState(""),[snInfo,setSnInfo]=useState(null),[photoBlocked,setPhotoBlocked]=useState(false);
+  const[scNP,setScNP]=useState(false);
   const[techId,setTechId]=useState("");
   const[techDate,setTechDate]=useState(TODAY());
   
@@ -7659,10 +7831,11 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
   const checkSN=v=>{setSN(v);const s=v.toUpperCase().trim();if(!s){setSnInfo(null);return}const ex=data.hashes.find(h=>h.sn===s);if(ex)setSnInfo({type:"exists",item:ex});else{const mac=data.machines.find(m=>m.sn===s);if(mac)setSnInfo({type:"mac",item:mac});else setSnInfo(null)}};
   const save=async()=>{
     const s=sn.toUpperCase().trim();
+    const pVal=np.toUpperCase().trim();
     if(s&&data.hashes.find(h=>h.sn===s)){alert("SN já cadastrado!");return}
     const id=uid();
     const techName = techId ? (data.employees.find(e=>e._id===techId)?.name || "") : "";
-    const d={sn:s,model,material,status,location,obs,...audit(user),addedAt:TODAY(),
+    const d={sn:s,np:pVal,model,material,status,location,obs,...audit(user),addedAt:TODAY(),
       machineSN:linkToMachine?linkToMachine.sn:"",slot:linkToMachine?linkToMachine.slot:-1,
       repairedBy:techId || "",repairedByName:techName,photoKey:photoKey||""};
     const saveRes = await fbSet("hashes",id,d);
@@ -7719,6 +7892,16 @@ function AddHashForm({ctx,onClose,initSN="",initPhoto=null,linkToMachine=null}){
     <SNInput label="SN (deixe vazio se não tiver)" value={sn} onChange={checkSN} placeholder="SN da HASH"/>
     {snInfo?.type==="exists"&&<div style={{background:"#3a0a0a",border:"1px solid "+C.red,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.red,fontWeight:800}}>⚠️ SN já existe!</div><div style={{fontSize:12,color:C.muted}}>{snInfo.item.model} · <HP s={snInfo.item.status}/></div></div>}
     {snInfo?.type==="mac"&&<div style={{background:"#3a2a0a",border:"1px solid "+C.amber,borderRadius:10,padding:10,marginBottom:10}}><div style={{color:C.amber,fontWeight:800}}>📌 SN é de uma Máquina</div><div style={{fontSize:12,color:C.muted}}>{snInfo.item.model} · <SP s={snInfo.item.situacao}/></div></div>}
+    
+    <div style={{marginBottom:12}}>
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>NP / PART NUMBER</div>
+      <div style={{display:"flex",gap:8}}>
+        <input value={np} onChange={e=>setNP(e.target.value.toUpperCase())} placeholder="NP (Número da Peça)" style={{...inp,flex:1}}/>
+        <button onClick={()=>setScNP(true)} style={{background:"#7c3aed",border:"none",color:"#fff",borderRadius:8,padding:"10px 14px",cursor:"pointer",fontSize:18,flexShrink:0}} title="Escanear Código de Barras do NP">📷</button>
+      </div>
+    </div>
+    {scNP&&<BarcodeScanner onScan={v=>{setNP(v.toUpperCase());setScNP(false)}} onClose={()=>setScNP(false)}/>}
+
     <Sel label="MODELO" value={model} onChange={e=>setModel(e.target.value)}>{models.map(m=><option key={m.m}>{m.m}</option>)}</Sel>
     <MaterialPicker value={material} onChange={setMaterial}/>
     {gChips(model,material)&&<div style={{color:C.muted,fontSize:11,marginTop:-6,marginBottom:12}}>Padrão pra esse modelo/material: {gChips(model,material)} chips</div>}
