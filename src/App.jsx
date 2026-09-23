@@ -6986,7 +6986,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
       location: ""
     };
   });
-  const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false),[confirmOverwrite,setConfirmOverwrite]=useState(false),[photoBlocked,setPhotoBlocked]=useState(false);
+  const[photoKey,setPhotoKey]=useState(initPhoto),[saving,setSaving]=useState(false),[confirmOverwrite,setConfirmOverwrite]=useState(false),[photoBlocked,setPhotoBlocked]=useState(false),[scanningSlot,setScanningSlot]=useState(null);
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const dupMachine=f.sn.trim()?data.machines.find(m=>m.sn===f.sn.toUpperCase().trim()):null;
   const doSave=async(asNewSN)=>{
@@ -7101,6 +7101,12 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
             placeholder="SN da HASH" 
             style={{...inp,flex:1,fontSize:12,padding:"7px 8px"}}
           />
+          <button 
+            type="button" 
+            onClick={()=>setScanningSlot(i)} 
+            style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"7px 10px",cursor:"pointer",fontSize:14,flexShrink:0}} 
+            title="Escanear Código de Barras da HASH"
+          >📷</button>
           <select value={f[`hash${i}`]} onChange={e=>set(`hash${i}`,e.target.value)} style={{...inp,width:72,padding:"7px 6px",fontSize:11}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</select>
           <select value={f[`hashTech${i}`]||""} onChange={e=>set(`hashTech${i}`,e.target.value)} style={{...inp,width:115,padding:"7px 6px",fontSize:10}} title="Técnico responsável pelo conserto">
             <option value="">🔧 Técnico</option>
@@ -7126,6 +7132,21 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
       <Btn v="b" onClick={()=>doSave(nextFreeSN())} disabled={saving} style={{width:"100%"}}>➕ Cadastrar como NOVA máquina ({nextFreeSN()})</Btn>
     </div>}
     <div style={{display:"flex",gap:8,marginTop:8}}><Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={saving||confirmOverwrite||photoBlocked} style={{flex:1}}>{saving?"...":dupMachine?"⚠️ Já existe — clique pra ver opções":"💾 Salvar"}</Btn></div>
+    {scanningSlot !== null && (
+      <BarcodeScanner 
+        onScan={v => {
+          const val = v.toUpperCase();
+          set(`hashSN${scanningSlot}`, val);
+          const next = scanningSlot;
+          setScanningSlot(null);
+          setTimeout(() => {
+            const nextEl = document.getElementById(next < 2 ? `add_mac_hash_sn_${next+1}` : "add_mac_ctr_sel");
+            if(nextEl) nextEl.focus();
+          }, 100);
+        }} 
+        onClose={() => setScanningSlot(null)} 
+      />
+    )}
   </div>;
 }
 
