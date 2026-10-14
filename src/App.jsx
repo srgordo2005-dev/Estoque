@@ -2164,6 +2164,34 @@ export default function App(){
           out[c] = JSON.parse(localStorage.getItem(cacheKey) || "[]");
        }
     });
+
+    // CONTINGÊNCIA AUTOMÁTICA FIREBASE SE SUPABASE BLOQUEAR OU CAIR:
+    // Se machines veio vazio do Supabase e o cache local está vazio ou menor que 10,
+    // puxa automaticamente do Firebase Firestore (onde as 1.295 máquinas estão salvas intactas)
+    if ((!out.machines || out.machines.length === 0) && (!localStorage.getItem("hs_machines") || JSON.parse(localStorage.getItem("hs_machines")||"[]").length < 10)) {
+      try {
+        console.log("[Contingência] Puxando máquinas do Firebase Firestore...");
+        const legacyM = await legacyFbList("machines");
+        if (legacyM && legacyM.length > 0) {
+          out.machines = legacyM;
+          localStorage.setItem("hs_machines", JSON.stringify(legacyM));
+          console.log(`[Contingência] ${legacyM.length} máquinas restauradas com sucesso do Firebase!`);
+        }
+      } catch(e) {
+        console.warn("Falha ao puxar máquinas de contingência do Firebase:", e);
+      }
+    }
+
+    if ((!out.hashes || out.hashes.length === 0) && (!localStorage.getItem("hs_hashes") || JSON.parse(localStorage.getItem("hs_hashes")||"[]").length < 5)) {
+      try {
+        const legacyH = await legacyFbList("hashes");
+        if (legacyH && legacyH.length > 0) {
+          out.hashes = legacyH;
+          localStorage.setItem("hs_hashes", JSON.stringify(legacyH));
+        }
+      } catch(e) {}
+    }
+
     if (colsToFetch.length > 0 && !onlyKeys) localStorage.setItem("hs_lastFullFetch", String(Date.now()));
     return{out,errs};
   };
