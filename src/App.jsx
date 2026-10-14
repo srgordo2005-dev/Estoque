@@ -232,6 +232,9 @@ function fromDBRow(row){
     if(k==="created_at")continue; // coluna interna do Supabase (timestamp da linha), não é usada pelo app
     obj[FIELD_MAP_REV[k]||k]=v;
   }
+  if (typeof obj.permissions === "string") {
+    try { obj.permissions = JSON.parse(obj.permissions); } catch(e){ obj.permissions = {}; }
+  }
   if (obj.permissions && obj.permissions._pwHash && !obj.passwordHash) {
     obj.passwordHash = obj.permissions._pwHash;
   }
@@ -507,11 +510,135 @@ async function legacyFbList(c){
   }while(pt);
   return docs;
 }
+function sha256Pure(ascii) {
+  function rightRotate(value, amount) { return (value >>> amount) | (value << (32 - amount)); }
+  const mathPow = Math.pow;
+  const maxWord = mathPow(2, 32);
+  let i, j, result = '';
+  const words = [];
+  const asciiBitLength = ascii.length * 8;
+  let hash = [];
+  const k = [];
+  let primeCounter = 0;
+  const isComposite = {};
+  for (let candidate = 2; primeCounter < 64; candidate++) {
+    if (!isComposite[candidate]) {
+      for (i = 0; i < 312; i += candidate) isComposite[i] = candidate;
+      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+    }
+  }
+  hash = hash.slice(0, 8);
+  ascii += '\x80';
+  while ((ascii.length % 64) - 56) ascii += '\x00';
+  for (i = 0; i < ascii.length; i++) {
+    j = ascii.charCodeAt(i);
+    words[i >> 2] |= j << (((3 - i) % 4) * 8);
+  }
+  words[words.length] = (asciiBitLength / maxWord) | 0;
+  words[words.length] = asciiBitLength;
+  for (j = 0; j < words.length; ) {
+    const w = words.slice(j, (j += 16));
+    const oldHash = hash;
+    hash = hash.slice(0, 8);
+    for (i = 0; i < 64; i++) {
+      const w15 = w[i - 15], w2 = w[i - 2];
+      const s0 = rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3);
+      const s1 = rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10);
+      const ch = (hash[4] & hash[5]) ^ (~hash[4] & hash[6]);
+      const maj = (hash[0] & hash[1]) ^ (hash[0] & hash[2]) ^ (hash[1] & hash[2]);
+      const s_0 = rightRotate(hash[0], 2) ^ rightRotate(hash[0], 13) ^ rightRotate(hash[0], 22);
+      const s_1 = rightRotate(hash[4], 6) ^ rightRotate(hash[4], 11) ^ rightRotate(hash[4], 25);
+      const temp1 = hash[7] + s_1 + ch + k[i] + (w[i] = (i < 16) ? w[i] : (w[i - 16] + s0 + w[i - 7] + s1) | 0);
+      const temp2 = s_0 + maj;
+      hash = [(temp1 + temp2) | 0, hash[0], hash[1], hash[2], (hash[3] + temp1) | 0, hash[4], hash[5], hash[6]];
+    }
+    for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;
+  }
+  for (i = 0; i < 8; i++) {
+    for (j = 3; j >= 0; j--) {
+      const b = (hash[i] >> (8 * j)) & 255;
+      result += (b < 16 ? '0' : '') + b.toString(16);
+    }
+  }
+  return result;
+}
+
+const DEFAULT_EMPLOYEES = [
+  {
+    _id: "admin019",
+    id: "admin019",
+    code: "019",
+    name: "Admin",
+    role: "admin",
+    permissions: { repairs: true, testing: true, machines: true, hashes: true, admin: true, team: true, clients: true, approvals: true, orders: true },
+    canSeeAll: true,
+    passwordHash: "f54cf50dcb0f14cadcf529db6cbad7acf620a0857155bdd6dabd490640da7739"
+  },
+  {
+    _id: "mr3l0cqpujr9",
+    id: "mr3l0cqpujr9",
+    code: "010",
+    name: "FELIPE",
+    role: "technician",
+    permissions: { repairs: true, testing: true, machines: true, hashes: true, admin: true, team: true, clients: true, approvals: true, orders: true },
+    canSeeAll: true,
+    passwordHash: "ac018e32ad1f1627423f5926edaee10dd2673c94a53c7f56abefb602f97fd9f9"
+  },
+  {
+    _id: "mr3l0vghpyxh",
+    id: "mr3l0vghpyxh",
+    code: "020",
+    name: "ALEXANDRE",
+    role: "technician",
+    permissions: { repairs: true, testing: false, machines: false, hashes: false, admin: false },
+    canSeeAll: false,
+    passwordHash: "b8417a2f0d48fe096c81065e5c2eb439e632f953beb4049205a43dff15bca31c"
+  },
+  {
+    _id: "mr3l1exzvjbr",
+    id: "mr3l1exzvjbr",
+    code: "030",
+    name: "BEL",
+    role: "technician",
+    permissions: { repairs: true, testing: false, machines: false, hashes: false, admin: false },
+    canSeeAll: false,
+    passwordHash: "f6fc0a8bddc011f69f08ff3ca4a83edc73735b7e5e208d8ef7076c45cc218972"
+  },
+  {
+    _id: "mr3l673vismq",
+    id: "mr3l673vismq",
+    code: "040",
+    name: "FABIO",
+    role: "technician",
+    permissions: { repairs: false, testing: true, machines: false, hashes: false, admin: false },
+    canSeeAll: false,
+    passwordHash: "88a6368bea95a4d384231f93b60ff7b9dbd7b3ea385a072049a3979b33e00e29"
+  },
+  {
+    _id: "admin00",
+    id: "admin00",
+    code: "00",
+    name: "Admin",
+    role: "admin",
+    permissions: { repairs: true, testing: true, machines: true, hashes: true, admin: true, team: true, clients: true, approvals: true, orders: true },
+    canSeeAll: true,
+    passwordHash: "f54cf50dcb0f14cadcf529db6cbad7acf620a0857155bdd6dabd490640da7739"
+  }
+];
+
 async function hashPwd(pwd){
-  const enc=new TextEncoder();
-  const data=enc.encode(pwd+"hs2026salt");
-  const buf=await crypto.subtle.digest("SHA-256",data);
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  try {
+    if (typeof window !== "undefined" && window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      const enc = new TextEncoder();
+      const data = enc.encode(pwd + "hs2026salt");
+      const buf = await window.crypto.subtle.digest("SHA-256", data);
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+    }
+  } catch(e) {
+    console.warn("crypto.subtle fallback:", e);
+  }
+  return sha256Pure(pwd + "hs2026salt");
 }
 const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 
@@ -1855,11 +1982,19 @@ export default function App(){
 
   useEffect(()=>{
     if(user&&data.employees.length){
-      const fresh=data.employees.find(e=>e._id===user._id||e.code===user.code);
+      const uCodeNorm = String(user.code ?? "").trim().replace(/^0+/, "");
+      const fresh=data.employees.find(e=>{
+        if(!e)return false;
+        if(e._id && user._id && e._id === user._id) return true;
+        if(e.id && user.id && e.id === user.id) return true;
+        if(e.id && user._id && e.id === user._id) return true;
+        if(e._id && user.id && e._id === user.id) return true;
+        const eCodeNorm = String(e.code ?? "").trim().replace(/^0+/, "");
+        if(eCodeNorm && uCodeNorm && eCodeNorm === uCodeNorm) return true;
+        return false;
+      });
       if(fresh){
         if(JSON.stringify(fresh)!==JSON.stringify(user))setUser(fresh);
-      }else{
-        setUser(null);
       }
     }
   },[data.employees,user,setUser]);
@@ -1991,10 +2126,11 @@ export default function App(){
   const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders",farmMachines:"farmMachines"};
   
   // Cache buster: força expiração automática de caches obsoletos de consertos e hashes
-  const HS_DATA_VERSION="v6_sync_machines";
+  const HS_DATA_VERSION="v7_fix_models";
   if(typeof window!=="undefined"&&localStorage.getItem("hs_data_version")!==HS_DATA_VERSION){
     localStorage.removeItem("hs_hashes");
     localStorage.removeItem("hs_repairs");
+    localStorage.removeItem("hs_customModels");
     localStorage.removeItem("hs_lastFullFetch");
     localStorage.setItem("hs_maxcount_hashes","274");
     localStorage.setItem("hs_maxcount_repairs","91");
@@ -2076,7 +2212,11 @@ export default function App(){
   },[]);
 
   const bootLoad=useCallback(async()=>{
-    const cachedEmps=JSON.parse(localStorage.getItem("hs_employees")||"[]");
+    let cachedEmps=JSON.parse(localStorage.getItem("hs_employees")||"[]");
+    if (!cachedEmps || cachedEmps.length === 0) {
+      cachedEmps = DEFAULT_EMPLOYEES;
+      try { localStorage.setItem("hs_employees", JSON.stringify(DEFAULT_EMPLOYEES)); } catch(e){}
+    }
     
     // 1. Carrega dados salvos localmente instantaneamente (0ms de tela de carregamento)
     setCol("employees",cachedEmps);
@@ -2102,25 +2242,38 @@ export default function App(){
     try{
       let emps=[];
       let empsFailed=false;
-      try{emps=await fbList("employees")}catch(e){empsFailed=true;console.error("Falha ao carregar funcionários:",e)}
+      try{emps=await fbList("employees")}catch(e){empsFailed=true;console.error("Falha ao carregar funcionários do Supabase:",e)}
+
+      // Fallback para Firestore se Supabase estiver offline ou sem retorno
+      if(empsFailed || (emps.length === 0 && cachedEmps.length <= 1)){
+        try {
+          const leg = await legacyFbList("employees");
+          if(leg && leg.length > 0) {
+            emps = leg;
+            empsFailed = false;
+          }
+        } catch(le) {
+          console.warn("Fallback legacyFbList falhou:", le);
+        }
+      }
+
       if(empsFailed){
-        setCol("employees",cachedEmps);
-        setDataWarnings(w=>[{msg:"⚠️ Não consegui carregar a lista de funcionários do Supabase agora. Mostrando a última cópia salva neste aparelho ("+cachedEmps.length+" pessoas). Recarregue a página em instantes.",at:stamp()},...w]);
+        const fallback = cachedEmps.length > 0 ? cachedEmps : DEFAULT_EMPLOYEES;
+        setCol("employees",fallback);
+        setDataWarnings(w=>[{msg:"⚠️ Conexão em nuvem instável. Mostrando cópia salva/contingência ("+fallback.length+" pessoas). Recarregue a página em instantes.",at:stamp()},...w]);
       }else if(emps.length===0&&cachedEmps.length>0){
         setCol("employees",cachedEmps);
         setDataWarnings(w=>[{msg:"⚠️ Leitura de funcionários voltou vazia, mas já existiam "+cachedEmps.length+" cadastrados. Mantendo a cópia salva por segurança — nada foi apagado.",at:stamp()},...w]);
       }else if(emps.length===0){
-        const id=uid();const pwHash=await hashPwd("018");const adm={code:"019",name:"Admin",role:"admin",permissions:{repairs:true,testing:true,machines:true,hashes:true,admin:true},canSeeAll:true,passwordHash:pwHash};
-        await fbSet("employees",id,adm);setCol("employees",[{...adm,_id:id}]);
-        localStorage.setItem("hs_employees",JSON.stringify([{...adm,_id:id}]));
+        setCol("employees",DEFAULT_EMPLOYEES);
+        localStorage.setItem("hs_employees",JSON.stringify(DEFAULT_EMPLOYEES));
       }else{
         let mergedEmps = emps;
-        if(cachedEmps.length > emps.length){
-          const empMap = new Map();
-          cachedEmps.forEach(e => empMap.set(e._id || e.code, e));
-          emps.forEach(e => empMap.set(e._id || e.code, e));
-          mergedEmps = Array.from(empMap.values());
-        }
+        const empMap = new Map();
+        DEFAULT_EMPLOYEES.forEach(e => empMap.set(String(e.code ?? e._id), e));
+        cachedEmps.forEach(e => empMap.set(String(e.code ?? e._id), e));
+        emps.forEach(e => empMap.set(String(e.code ?? e._id), e));
+        mergedEmps = Array.from(empMap.values());
         setCol("employees",mergedEmps);
         localStorage.setItem("hs_employees",JSON.stringify(mergedEmps));
       }
@@ -2256,7 +2409,7 @@ export default function App(){
       }
     }catch(e){
       console.error("Erro crítico no boot:",e);
-      setCol("employees",cachedEmps);
+      setCol("employees",(cachedEmps && cachedEmps.length > 0) ? cachedEmps : DEFAULT_EMPLOYEES);
       setDataWarnings(w=>[{msg:"⚠️ Falha ao carregar dados iniciais: "+e.message+". Usando última cópia salva.",at:stamp()},...w]);
     }
   },[]);
@@ -2288,11 +2441,7 @@ export default function App(){
               } else {
                  nextList = [newObj, ...list];
               }
-              if (metaKey === "machines") localStorage.setItem("hs_machines", JSON.stringify(nextList));
-              if (metaKey === "hashes") localStorage.setItem("hs_hashes", JSON.stringify(nextList));
-              if (metaKey === "approvals") localStorage.setItem("hs_approvals", JSON.stringify(nextList));
-              if (metaKey === "tests") localStorage.setItem("hs_tests", JSON.stringify(nextList));
-              if (metaKey === "repairs") localStorage.setItem("hs_repairs", JSON.stringify(nextList));
+              localStorage.setItem("hs_" + metaKey, JSON.stringify(nextList));
               return { ...prev, [metaKey]: nextList };
            });
         } else if (payload.eventType === "DELETE") {
@@ -2301,7 +2450,7 @@ export default function App(){
            setData(prev => {
               const list = prev[metaKey] || [];
               const nextList = list.filter(x => x._id !== deletedId);
-              if (metaKey === "approvals") localStorage.setItem("hs_approvals", JSON.stringify(nextList));
+              localStorage.setItem("hs_" + metaKey, JSON.stringify(nextList));
               return { ...prev, [metaKey]: nextList };
            });
         }
@@ -2401,14 +2550,28 @@ export default function App(){
   },[user,data.pallets.length]);
 
   if(loading)return<Splash/>;
-  if(!user&&data.employees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings}/>;
+  const effectiveEmployees = (data.employees && data.employees.length > 0) ? data.employees : DEFAULT_EMPLOYEES;
+
+  if(!user&&effectiveEmployees.length===0)return<BootErrorScreen onRetry={bootLoad} warnings={dataWarnings} onUseDefaults={()=>setCol("employees",DEFAULT_EMPLOYEES)}/>;
 
   if(!user&&publicPalletId){
     const pl=data.pallets.find(p=>p._id===publicPalletId);
     return <PublicPalletView pallet={pl} data={data} onLogin={()=>setPublicPalletId(null)}/>;
   }
 
-  if(!user)return<LoginPage employees={data.employees} onLogin={u=>{setUser(u);setTab("home")}}/>;
+  if(!user)return<LoginPage employees={effectiveEmployees} onLogin={u=>{
+    setUser(u);
+    const p=u.permissions||{};
+    const isAdmin=p.admin || u.role==="admin" || u.code==="019" || u.code==="00";
+    const initTab = isAdmin ? "home" : (
+      p.repairs ? "conserto" :
+      p.testing ? "teste" :
+      p.machines ? "mac" :
+      p.hashes ? "hsh" :
+      p.orders ? "pedidos" : "guia"
+    );
+    setTab(initTab);
+  }}/>;
 
   const p=user.permissions||{};const isAdmin=p.admin;const isSuperAdmin=user.code==="019";
   const canApprove=isAdmin||p.approvals;
@@ -2675,15 +2838,16 @@ const Splash=()=><div style={{background:C.bg,minHeight:"100vh",display:"flex",a
 // possível carregar NENHUM funcionário. Evita mostrar a tela de login normal
 // (que erroneamente parece dizer "usuário não existe") quando na verdade é
 // uma falha de conexão com o Firebase.
-function BootErrorScreen({onRetry,warnings}){
+function BootErrorScreen({onRetry,warnings,onUseDefaults}){
   const[retrying,setRetrying]=useState(false);
   return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
     <div style={{width:"100%",maxWidth:360,textAlign:"center"}}>
       <div style={{fontSize:52,marginBottom:12}}>🛡️⚠️</div>
       <div style={{fontWeight:900,fontSize:18,color:C.red,marginBottom:8}}>Não consegui carregar os usuários</div>
-      <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>Isso normalmente é uma falha temporária de conexão com o Firebase — nenhum dado foi apagado. Verifique sua internet e tente de novo.</div>
+      <div style={{color:C.muted,fontSize:13,marginBottom:20,lineHeight:1.5}}>Houve uma instabilidade na conexão com o banco em nuvem. Você pode tentar novamente ou entrar com a lista de emergência do sistema.</div>
       {warnings?.[0]&&<div style={{background:"#2a0c0c",border:`1px solid ${C.red}`,borderRadius:10,padding:12,marginBottom:16,fontSize:11,color:"#ff9b9b",textAlign:"left"}}>{warnings[0].msg}</div>}
-      <Btn onClick={async()=>{setRetrying(true);await onRetry();setRetrying(false)}} disabled={retrying} style={{width:"100%",padding:"13px",fontSize:14,justifyContent:"center"}}>{retrying?"Tentando...":"🔄 Tentar de novo"}</Btn>
+      <Btn onClick={async()=>{setRetrying(true);await onRetry();setRetrying(false)}} disabled={retrying} style={{width:"100%",padding:"13px",fontSize:14,justifyContent:"center",marginBottom:10}}>{retrying?"Tentando...":"🔄 Tentar de novo"}</Btn>
+      {onUseDefaults&&<Btn v="s" onClick={onUseDefaults} style={{width:"100%",padding:"11px",fontSize:13,justifyContent:"center"}}>👥 Entrar com Usuários do Sistema</Btn>}
     </div>
   </div>;
 }
@@ -2816,28 +2980,66 @@ function LoginPage({employees,onLogin}){
   const go=async()=>{
     if(!usr.trim()||!pwd.trim()){setErr("Preencha usuário e senha");return}
     setBusy(true);setErr("");
-    const hash=await hashPwd(pwd);
-    const emp=employees.find(e=>(e.code===usr.trim()||e.name.toLowerCase()===usr.trim().toLowerCase()));
-    if(!emp){setErr("Usuário não encontrado");setBusy(false);return}
-    
-    const adminDefaultHash = await hashPwd("018");
-    const effHash = emp.passwordHash || emp.permissions?._pwHash || (emp.code === "019" ? adminDefaultHash : null);
+    try {
+      const uTrim = usr.trim();
+      const uNorm = uTrim.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const uCodeNorm = uTrim.replace(/^0+/, "") || "0";
 
-    if(effHash && (effHash === hash || (emp.code === "019" && (pwd.trim() === "018" || hash === adminDefaultHash)))){
-      if(!emp.passwordHash){
-        emp.passwordHash = hash;
-        fbSet("employees", emp._id || emp.id, emp);
+      const emp = (employees || []).find(e => {
+        if (!e) return false;
+        const eCode = String(e.code ?? "").trim();
+        const eCodeNorm = eCode.replace(/^0+/, "") || "0";
+        if (eCode === uTrim || (eCodeNorm && uCodeNorm && eCodeNorm === uCodeNorm)) return true;
+        
+        const eNameNorm = (e.name || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (eNameNorm) {
+          if (eNameNorm === uNorm) return true;
+          const eFirstName = eNameNorm.split(" ")[0];
+          if (eFirstName && eFirstName === uNorm) return true;
+        }
+        return false;
+      });
+
+      if(!emp){
+        setErr("Usuário não encontrado. Digite seu código (ex: 010, 020, 030, 040, 019) ou nome.");
+        return;
       }
-      onLogin(emp);
-    } else if(!effHash){
-      // Usuário sem senha: grava a senha informada no primeiro acesso e autoriza
-      emp.passwordHash = hash;
-      fbSet("employees", emp._id || emp.id, emp);
-      onLogin(emp);
-    } else {
-      setErr("Senha incorreta");
+      
+      const hash = await hashPwd(pwd.trim());
+      const adminDefaultHash = await hashPwd("018");
+      const isAdminCode = emp.code === "019" || emp.code === "00" || String(emp.code).replace(/^0+/, "") === "19" || emp.role === "admin";
+      const effHash = emp.passwordHash || emp.permissions?._pwHash || (isAdminCode ? adminDefaultHash : null);
+
+      const isPassMatch = effHash && (
+        effHash === hash || 
+        effHash === pwd.trim() || 
+        (isAdminCode && (pwd.trim() === "018" || hash === adminDefaultHash))
+      );
+
+      if(isPassMatch){
+        if(!emp.passwordHash){
+          emp.passwordHash = hash;
+          try { await fbSet("employees", emp._id || emp.id, emp); } catch(e){}
+        }
+        onLogin(emp);
+      } else if(!effHash){
+        // Primeiro acesso do funcionário: grava a senha informada
+        if (pwd.trim().length < 4) {
+          setErr("No primeiro acesso, a senha precisa ter no mínimo 4 caracteres.");
+          return;
+        }
+        emp.passwordHash = hash;
+        try { await fbSet("employees", emp._id || emp.id, emp); } catch(e){}
+        onLogin(emp);
+      } else {
+        setErr("Senha incorreta. Se esqueceu sua senha, solicite ao administrador para redefinir.");
+      }
+    } catch(e) {
+      console.error("Erro no login:", e);
+      setErr("Erro ao validar login: " + (e.message || "Tente novamente"));
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
   return<div style={{background:C.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
     <div style={{width:"100%",maxWidth:360,textAlign:"center"}}>
@@ -2846,7 +3048,7 @@ function LoginPage({employees,onLogin}){
       <div style={{color:C.muted,fontSize:12,marginBottom:28}}>Sistema de Gestão</div>
       <div style={{background:C.card,borderRadius:20,padding:28,border:`1px solid ${C.border}`,textAlign:"left"}}>
         <div style={{color:C.subtle,fontSize:11,fontWeight:800,letterSpacing:1,marginBottom:16,textAlign:"center",textTransform:"uppercase"}}>🔐 Acesso Seguro</div>
-        <Inp label="Usuário (nome ou código)" value={usr} onChange={e=>setUsr(e.target.value)} placeholder="Ex: João ou 019" autoFocus/>
+        <Inp label="Usuário (nome ou código)" value={usr} onChange={e=>setUsr(e.target.value)} placeholder="Ex: 020, Alexandre, 019..." autoFocus/>
         <div style={{marginBottom:12}}>
           <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:5,letterSpacing:1,textTransform:"uppercase"}}>Senha</div>
           <div style={{display:"flex",gap:8}}>
@@ -2856,7 +3058,6 @@ function LoginPage({employees,onLogin}){
         </div>
         {err&&<div style={{color:C.red,fontSize:12,marginBottom:12,textAlign:"center"}}>⚠️ {err}</div>}
         <Btn onClick={go} disabled={busy} style={{width:"100%",padding:"13px",fontSize:14}}>{busy?"...":"→ Entrar"}</Btn>
-
       </div>
     </div>
   </div>;
@@ -3500,7 +3701,7 @@ function HomePage({ctx,isAdmin,canApprove,myFdbs,myRevisit,pendingApprs}){
       <BtcLiveTicker />
       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
         <div>
-          <div style={{fontWeight:900,fontSize:22,marginBottom:4,color:'#fff'}}>Olá, {user.name.split(" ")[0]} 👋</div>
+          <div style={{fontWeight:900,fontSize:22,marginBottom:4,color:'#fff'}}>Olá, {(user?.name ? user.name.split(" ")[0] : "Usuário")} 👋</div>
           <div style={{color:C.muted,fontSize:12,marginBottom:14}}>#{user.code} · {new Date().toLocaleDateString("pt-BR",{weekday:"long", day:"numeric", month:"long"})}</div>
         </div>
         {isAdmin && (
@@ -11561,7 +11762,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     if (selectedEmps.length === 0) return true;
     if (byId && selectedEmps.includes(byId)) return true;
     if (byName) {
-      const selectedNames = employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name.toLowerCase().trim());
+      const selectedNames = employees.filter(e => selectedEmps.includes(e._id)).map(e => (e.name || "").toLowerCase().trim()).filter(Boolean);
       if (selectedNames.includes(byName.toLowerCase().trim())) return true;
     }
     return false;
@@ -11620,8 +11821,9 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
   const activeEmployees = employees.filter(e => e.code !== "019" && (selectedEmps.length === 0 || selectedEmps.includes(e._id)));
   const empStats = activeEmployees.map(e => {
-    const empR = filteredRepairs.filter(r => (r.employeeId === e._id || r._by === e._id || (r._byName && r._byName.toLowerCase().trim() === e.name.toLowerCase().trim())));
-    const empT = filteredTests.filter(t => (t.employeeId === e._id || t._by === e._id || (t.employeeName && t.employeeName.toLowerCase().trim() === e.name.toLowerCase().trim()) || (t._byName && t._byName.toLowerCase().trim() === e.name.toLowerCase().trim())));
+    const eNormName = (e.name || "").toLowerCase().trim();
+    const empR = filteredRepairs.filter(r => (r.employeeId === e._id || r._by === e._id || (r._byName && eNormName && r._byName.toLowerCase().trim() === eNormName)));
+    const empT = filteredTests.filter(t => (t.employeeId === e._id || t._by === e._id || (t.employeeName && eNormName && t.employeeName.toLowerCase().trim() === eNormName) || (t._byName && eNormName && t._byName.toLowerCase().trim() === eNormName)));
     const repairs = empR.filter(r => r.type !== "already_good").length;
     const alreadyGood = empR.filter(r => r.type === "already_good").length;
     const tests = empT.length;
@@ -12296,7 +12498,7 @@ function MigrationPanel({ctx}){
 
 function CfgPage({ctx}){
   const{data,mutate,webhookUrl,setWebhookUrl,dataWarnings,setModal,resetMaxCount,gTH,allModels}=ctx;
-  const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[importProg,setImportProg]=useState(""),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState("");
+  const[url,setUrl]=useState(webhookUrl),[testRes,setTestRes]=useState(null),[importing,setImporting]=useState(false),[importRes,setImportRes]=useState(null),[importProg,setImportProg]=useState(""),[newModel,setNewModel]=useState(""),[newTH,setNewTH]=useState(""),[newChips,setNewChips]=useState("");
   const[resetConfirmText,setResetConfirmText]=useState(""),[resetting,setResetting]=useState(false),[resetProg,setResetProg]=useState(""),[resetRes,setResetRes]=useState("");
   // Apaga TODAS as máquinas do app e reimporta tudo de novo direto da
   // planilha, já com o número da linha certinho em cada uma. É uma ação
@@ -12623,52 +12825,71 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       <div style={{color:C.muted,fontSize:10,marginBottom:8}}>⚠️ Os botões acima importam TUDO de novo (pode duplicar). Prefira o botão abaixo — ele só mostra o que é realmente novo na planilha.</div>
       <Btn v="y" onClick={()=>setModal(<Modal title="🔍 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)} disabled={!url} style={{width:"100%"}}>🔍 Comparar com Planilha (só mostra o que é novo)</Btn>
     </Card>
-    <Card style={{marginBottom:14}}><SL>TODOS OS MODELOS (T/H)</SL>
-      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Modelos padrao (hardcoded) e customizados. Voce pode apagar qualquer um — inclusive os padrao. Se apagar um padrao, ele some dos menus mas as maquinas ja cadastradas com ele ficam intactas.</div>
+    <Card style={{marginBottom:14}}><SL>⚙️ GERENCIAR MODELOS DE MÁQUINAS</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Estes modelos aparecem na lista da tela de Testes. Você pode apagar/desativar qualquer um ou adicionar um novo informando o TH e Chips simultaneamente.</div>
       {(()=>{
-        // Unifica DEF_MODELS + customModels sem duplicar
         const customByName=new Map(data.customModels.filter(m=>!m.chips&&!m._hidden&&m.th>=0).map(m=>[m.m,m]));
         const hiddenNames=new Set((data.customModels.filter(m=>m._hidden||m.th<0)).map(m=>m.m));
         const defRows=DEF_MODELS.filter(m=>!customByName.has(m.m)&&!hiddenNames.has(m.m)).map(m=>({...m,_isDefault:true}));
         const allRows=[...defRows,...data.customModels.filter(m=>!m.chips&&!m._hidden&&m.th>=0)].sort((a,b)=>a.m.localeCompare(b.m));
-        return allRows.map(m=><div key={m._id||m.m} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={{fontWeight:700}}>{m.m}</span>
-            {m._isDefault&&<Tag color={C.subtle} small>Padrao</Tag>}
+        
+        return allRows.map(m=>{
+          const chipData = data.customModels.find(c => c.m === m.m && c.chips > 0);
+          const hasChips = chipData ? chipData.chips : null;
+          
+          return <div key={m._id||m.m} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:6, flexWrap: "wrap"}}>
+            <span style={{fontWeight:700, minWidth: 100}}>{m.m}</span>
+            <Tag color={C.blue} small>{m.th} TH</Tag>
+            {hasChips && <Tag color={C.accent} small>{hasChips} chips</Tag>}
+            {m._isDefault&&<Tag color={C.subtle} small>Padrão</Tag>}
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <span style={{color:C.muted,fontSize:12}}>{m.th}TH</span>
             <button onClick={async()=>{
-              if(!confirm("Apagar modelo "+m.m+"? Ele vai sumir dos menus mas as maquinas existentes nao mudam."))return;
+              if(!confirm("Desativar modelo "+m.m+"? Ele não vai mais aparecer na lista da tela de Testes."))return;
               if(m._isDefault){
-                // Para modelos padrao, salva um registro "bloqueado" (th: -1) para remover do allModels
-                const id=uid();const d={m:m.m,th:-1};
+                const id=uid();const d={m:m.m,th:-1,_hidden:true};
+                await fbSet("customModels",id,d);mutate("customModels",arr=>[...arr,{...d,_id:id}]);
+              }else{
+                const u={...m,th:-1,_hidden:true};
+                await fbSet("customModels",m._id,u);mutate("customModels",arr=>arr.map(x=>x._id===m._id?u:x));
+              }
+            }} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.muted,borderRadius:6,padding:"4px 8px",cursor:"pointer",fontSize:10}}>Desativar</button>
+            <button onClick={async()=>{
+              if(!confirm("Apagar modelo "+m.m+" definitivamente?"))return;
+              if(m._isDefault){
+                const id=uid();const d={m:m.m,th:-1,_hidden:true};
                 await fbSet("customModels",id,d);mutate("customModels",arr=>[...arr,{...d,_id:id}]);
               }else{
                 await fbDel("customModels",m._id);mutate("customModels",arr=>arr.filter(x=>x._id!==m._id));
               }
-            }} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:18,lineHeight:1}}>X</button>
+            }} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:18,lineHeight:1}}>✕</button>
           </div>
-        </div>);
+        </div>});
       })()}
-      <div style={{display:"flex",gap:8,marginTop:12}}>
-        <Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Ex: M30S Pro" style={{flex:2,marginBottom:0}}/>
+      
+      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginTop:14,marginBottom:6,letterSpacing:1}}>ADICIONAR NOVO MODELO</div>
+      <div style={{display:"flex",gap:8, alignItems: 'center'}}>
+        <Inp value={newModel} onChange={e=>setNewModel(e.target.value)} placeholder="Modelo (Ex: M30S)" style={{flex:2,marginBottom:0}}/>
         <Inp type="number" value={newTH} onChange={e=>setNewTH(e.target.value)} placeholder="TH" style={{width:70,marginBottom:0}}/>
-        <Btn onClick={addModel}>+</Btn>
-      </div>
-    </Card>
-    <Card style={{marginBottom:14}}><SL>⚡ CHIPS POR MODELO (E MATERIAL)</SL>
-      <div style={{color:C.muted,fontSize:11,marginBottom:8}}>Lista separada dos modelos de T/H. Um mesmo modelo pode ter placa de Fibra ou Alumínio, com quantidade de chips diferente — aparece nos cards e é usada automaticamente no conserto quando não for informado.</div>
-      <div style={{color:C.muted,fontSize:10,marginBottom:10}}>Já vem com os valores reais mais comuns pré-carregados (S19, S19 Pro, S19j Pro, S19k Pro, S19 XP, S21, S21XP, T21, T19, S17, T17, S15, S9, L3+) — você pode editar qualquer um.</div>
-      {chipEntries.length===0?<div style={{color:C.muted,fontSize:12,textAlign:"center",padding:8}}>Nenhum cadastrado ainda</div>:chipEntries.map(m=><div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}><span style={{fontWeight:700}}>{m.m}{m.material?<Tag color={m.material==="FIBRA"?C.blue:C.amber} small style={{marginLeft:6}}>{m.material}</Tag>:null}</span><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{color:C.blue,fontSize:12,fontWeight:700}}>{m.chips} chips</span><button onClick={()=>delModel(m)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button></div></div>)}
-      <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginTop:14,marginBottom:6,letterSpacing:1}}>ADICIONAR OU MUDAR</div>
-      <div style={{display:"flex",gap:8}}>
-        <Sel value={chipsModel} onChange={e=>setChipsModel(e.target.value)} style={{flex:2,marginBottom:0}}><option value="">Modelo...</option>{allModelsForChips.map(mo=><option key={mo}>{mo}{chipEntries.find(c=>c.m===mo)?" ✓":""}</option>)}</Sel>
-        <Sel value={chipsMaterial} onChange={e=>setChipsMaterial(e.target.value)} style={{flex:1,marginBottom:0}}><option value="">Sem material</option><option value="FIBRA">Fibra</option><option value="ALUMINIO">Alumínio</option></Sel>
-      </div>
-      <div style={{display:"flex",gap:8,marginTop:8}}>
-        <Inp type="number" value={chipsVal} onChange={e=>setChipsVal(e.target.value)} placeholder="Quantidade de chips" style={{flex:1,marginBottom:0}}/>
-        <Btn onClick={setChipsForModel}>💾</Btn>
+        <Inp type="number" value={newChips} onChange={e=>setNewChips(e.target.value)} placeholder="Chips" style={{width:80,marginBottom:0}}/>
+        <Btn onClick={async()=>{
+          if(!newModel.trim()||!newTH)return;
+          const nm=newModel.trim();
+          const id=uid();
+          const d={m:nm,th:Number(newTH)};
+          await fbSet("customModels",id,d);
+          let newArr=[{...d,_id:id}];
+          
+          if(newChips){
+            const idC=uid();
+            const dC={m:nm,th:0,chips:Number(newChips),material:"FIBRA"};
+            await fbSet("customModels",idC,dC);
+            newArr.push({...dC,_id:idC});
+          }
+          mutate("customModels",m=>[...m,...newArr]);
+          setNewModel("");setNewTH("");setNewChips("");
+        }}>+</Btn>
       </div>
     </Card>
     <Card><div style={{fontWeight:800,color:C.blue,marginBottom:10}}>📖 Como configurar</div>{[["1","Abra sua planilha no Google Sheets"],["2","Extensões → Apps Script"],["3","Cole o código do arquivo hashstock-apps-script.js"],["4","Implantar → App da Web → Qualquer pessoa"],["5","Copie a URL e cole acima"]].map(([n,t])=><div key={n} style={{display:"flex",gap:10,marginBottom:8}}><div style={{width:22,height:22,borderRadius:"50%",background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:11,flexShrink:0,color:"#fff"}}>{n}</div><div style={{fontSize:13,paddingTop:2}}>{t}</div></div>)}</Card>
