@@ -915,6 +915,14 @@ const TODAY=()=>{
   const d=new Date();
   return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 };
+const YESTERDAY=()=>{
+  const d=new Date();d.setDate(d.getDate()-1);
+  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
+const DAYS_AGO=(n)=>{
+  const d=new Date();d.setDate(d.getDate()-n);
+  return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
 // Mesma lógica local-time do TODAY() (nunca toISOString/UTC), só que pro dia seguinte.
 const TOMORROW=()=>{
   const d=new Date();d.setDate(d.getDate()+1);
@@ -4181,14 +4189,16 @@ const getItemModifiedDate = (item) => {
 const fmtLargeDate = (dStr) => {
   if (!dStr) return { date: "Sem Data", time: "" };
   try {
-    const d = new Date(dStr);
-    if (isNaN(d.getTime())) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
-        const [y, m, day] = dStr.split("-");
-        return { date: `${day}/${m}/${y}`, time: "" };
-      }
-      return { date: String(dStr), time: "" };
+    const s = String(dStr).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [y, m, day] = s.split("-");
+      return { date: `${day}/${m}/${y}`, time: "" };
     }
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      return { date: s, time: "" };
+    }
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return { date: s, time: "" };
     const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
     const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     return { date, time };
@@ -4200,14 +4210,14 @@ const fmtLargeDate = (dStr) => {
 const fmtDateDisplay = (dStr) => {
   if (!dStr) return "—";
   try {
-    const d = new Date(dStr);
-    if (isNaN(d.getTime())) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
-        const [y, m, day] = dStr.split("-");
-        return `${day}/${m}/${y}`;
-      }
-      return String(dStr);
+    const s = String(dStr).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [y, m, day] = s.split("-");
+      return `${day}/${m}/${y}`;
     }
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return s;
     return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch {
     return String(dStr);
@@ -4218,14 +4228,19 @@ const isInDateRange = (dStr, start, end) => {
   if (!dStr) return false;
   let ymd = "";
   try {
-    const d = new Date(dStr);
-    if (!isNaN(d.getTime())) {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      ymd = `${year}-${month}-${day}`;
-    } else if (typeof dStr === "string" && dStr.length >= 10) {
-      ymd = dStr.slice(0, 10);
+    const s = String(dStr).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      ymd = s;
+    } else {
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        ymd = `${year}-${month}-${day}`;
+      } else if (s.length >= 10) {
+        ymd = s.slice(0, 10);
+      }
     }
   } catch {
     ymd = String(dStr).slice(0, 10);
@@ -4407,7 +4422,7 @@ function MacPage({ctx}){
 
               <div style={{display:"flex",gap:4,background:C.card2,padding:3,borderRadius:8,border:`1px solid ${C.border}`}}>
                 <button type="button" onClick={()=>setDateType("any")} style={{background:dateType==="any"?C.accent:"none",border:"none",color:dateType==="any"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>Qualquer Data</button>
-                <button type="button" onClick={()=>setDateType("created")} style={{background:dateType==="created"?C.accent:"none",border:"none",color:dateType==="created"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>✨ Criação</button>
+                <button type="button" onClick={()=>setDateType("created")} style={{background:dateType==="created"?C.accent:"none",border:"none",color:dateType==="created"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>✨ Adição</button>
                 <button type="button" onClick={()=>setDateType("modified")} style={{background:dateType==="modified"?C.accent:"none",border:"none",color:dateType==="modified"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>🔄 Modificação</button>
               </div>
 
@@ -4426,8 +4441,8 @@ function MacPage({ctx}){
               </div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                 <button type="button" onClick={()=>{const t=TODAY();setDateStart(t);setDateEnd(t)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Hoje</button>
-                <button type="button" onClick={()=>{const d=new Date();d.setDate(d.getDate()-1);const y=d.toISOString().slice(0,10);setDateStart(y);setDateEnd(y)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Ontem</button>
-                <button type="button" onClick={()=>{const d=new Date();d.setDate(d.getDate()-7);setDateStart(d.toISOString().slice(0,10));setDateEnd(TODAY())}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>7 Dias</button>
+                <button type="button" onClick={()=>{const y=YESTERDAY();setDateStart(y);setDateEnd(y)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Ontem</button>
+                <button type="button" onClick={()=>{setDateStart(DAYS_AGO(7));setDateEnd(TODAY())}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>7 Dias</button>
               </div>
             </div>
 
@@ -4438,7 +4453,7 @@ function MacPage({ctx}){
               </div>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
                 <span style={{fontSize:13}}>✨</span>
-                <span style={{fontSize:12,color:C.muted}}>Criadas:</span>
+                <span style={{fontSize:12,color:C.muted}}>Adicionadas:</span>
                 <span style={{fontSize:13,fontWeight:900,color:C.green}}>{macCountCreated}</span>
               </div>
               <div style={{width:1,height:14,background:C.border}}/>
@@ -4493,7 +4508,7 @@ function MacPage({ctx}){
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:8,background:"rgba(0,0,0,0.35)",border:`1px solid rgba(255,255,255,0.08)`,borderRadius:10,padding:"8px 12px",margin:"8px 0 10px"}}>
           <div>
             <div style={{fontSize:10,fontWeight:800,color:C.subtle,display:"flex",alignItems:"center",gap:4,letterSpacing:0.5,textTransform:"uppercase"}}>
-              <span>✨</span> CRIADA EM:
+              <span>✨</span> ADICIONADA EM:
             </div>
             <div style={{fontSize:13,fontWeight:900,color:"#e2e8f0",marginTop:2}}>
               {fmtDateDisplay(getItemCreatedDate(m))}
@@ -8118,7 +8133,8 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
     setSaving(true);const isUpdate=!!dupMachine&&!asNewSN;const id=isUpdate?dupMachine._id:uid();
     const forceOn=f.situacao==="BOA";
     const finalSN=asNewSN?asNewSN:f.sn.toUpperCase().trim();
-    const d={...f,th:Number(f.th),sn:finalSN,...(forceOn?{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"}:{}),...audit(user),addedAt:TODAY(),photoKey:photoKey||""};
+    const existingAddedAt = isUpdate ? (dupMachine.addedAt || dupMachine.added_at || dupMachine.createdAt || dupMachine.created_at) : null;
+    const d={...f,th:Number(f.th),sn:finalSN,...(forceOn?{hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"}:{}),...audit(user),addedAt:existingAddedAt||stamp(),photoKey:photoKey||""};
     delete d.hashTech0; delete d.hashTech1; delete d.hashTech2;
     const saveRes = await fbSet("machines",id,d);
     if (!saveRes.ok) {
@@ -8162,7 +8178,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
         const resH = await fbSet("hashes",existingHash._id,hu);
         if (!resH.ok) alert("⚠️ Não consegui atualizar a HASH " + slotSN + " no banco: " + resH.error);
       }else{
-        const hid=uid();const hd={sn:slotSN,model:d.model,status:slotOn?"NA MAQUINA":"STOCK",machineSN:d.sn,slot:i,...techPatch,...audit(user),addedAt:TODAY()};
+        const hid=uid();const hd={sn:slotSN,model:d.model,status:slotOn?"NA MAQUINA":"STOCK",machineSN:d.sn,slot:i,...techPatch,...audit(user),addedAt:stamp()};
         const resH = await fbSet("hashes",hid,hd);
         if (resH.ok) mutate("hashes",arr=>[...arr,{...hd,_id:hid}]);
         else alert("⚠️ Não consegui criar a HASH " + slotSN + " no banco: " + resH.error);
@@ -8240,7 +8256,7 @@ function AddMachineForm({ctx,onClose,initSN="",initPhoto=null}){
         </div>
         {slotSN&&(existingHash?
           <div style={{fontSize:11,color:C.blue,marginLeft:51,marginTop:2}}>⚡ Já existe: {existingHash.model} · <HP s={existingHash.status}/> {existingHash.repairedByName && ` · 🔧 Conserto: ${existingHash.repairedByName}`}</div>
-          :<div style={{fontSize:11,color:C.green,marginLeft:51,marginTop:2}}>✓ Nova — vai ser criada como {f.model} ao salvar {f[`hashTech${i}`] && `(Técnico: ${data.employees.find(e=>e._id===f[`hashTech${i}`])?.name})`}</div>
+          :<div style={{fontSize:11,color:C.green,marginLeft:51,marginTop:2}}>✓ Nova — vai ser adicionada como {f.model} ao salvar {f[`hashTech${i}`] && `(Técnico: ${data.employees.find(e=>e._id===f[`hashTech${i}`])?.name})`}</div>
         )}
       </div>;
     })}<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>{[["controladora","CTR","add_mac_ctr_sel"],["fonte","FONTE","add_mac_fonte_sel"],["fans","FANS","add_mac_fans_sel"]].map(([k,l,elemId])=><Sel id={elemId} key={k} label={l} value={f[k]} onChange={e=>set(k,e.target.value)} style={{marginBottom:0}}>{CTR_OPTS.map(s=><option key={s}>{s}</option>)}</Sel>)}</div></>
@@ -8877,7 +8893,7 @@ function HashPage({ctx}){
 
               <div style={{display:"flex",gap:4,background:C.card2,padding:3,borderRadius:8,border:`1px solid ${C.border}`}}>
                 <button type="button" onClick={()=>setDateType("any")} style={{background:dateType==="any"?C.accent:"none",border:"none",color:dateType==="any"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>Qualquer Data</button>
-                <button type="button" onClick={()=>setDateType("created")} style={{background:dateType==="created"?C.accent:"none",border:"none",color:dateType==="created"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>✨ Criação</button>
+                <button type="button" onClick={()=>setDateType("created")} style={{background:dateType==="created"?C.accent:"none",border:"none",color:dateType==="created"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>✨ Adição</button>
                 <button type="button" onClick={()=>setDateType("modified")} style={{background:dateType==="modified"?C.accent:"none",border:"none",color:dateType==="modified"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>🔄 Modificação</button>
               </div>
 
@@ -8896,8 +8912,8 @@ function HashPage({ctx}){
               </div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                 <button type="button" onClick={()=>{const t=TODAY();setDateStart(t);setDateEnd(t)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Hoje</button>
-                <button type="button" onClick={()=>{const d=new Date();d.setDate(d.getDate()-1);const y=d.toISOString().slice(0,10);setDateStart(y);setDateEnd(y)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Ontem</button>
-                <button type="button" onClick={()=>{const d=new Date();d.setDate(d.getDate()-7);setDateStart(d.toISOString().slice(0,10));setDateEnd(TODAY())}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>7 Dias</button>
+                <button type="button" onClick={()=>{const y=YESTERDAY();setDateStart(y);setDateEnd(y)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Ontem</button>
+                <button type="button" onClick={()=>{setDateStart(DAYS_AGO(7));setDateEnd(TODAY())}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>7 Dias</button>
               </div>
             </div>
 
@@ -8907,7 +8923,7 @@ function HashPage({ctx}){
               </div>
               <div style={{display:"flex",alignItems:"center",gap:6}}>
                 <span style={{fontSize:13}}>✨</span>
-                <span style={{fontSize:12,color:C.muted}}>Criadas:</span>
+                <span style={{fontSize:12,color:C.muted}}>Adicionadas:</span>
                 <span style={{fontSize:13,fontWeight:900,color:C.green}}>{hashCountCreated}</span>
               </div>
               <div style={{width:1,height:14,background:C.border}}/>
@@ -8961,7 +8977,7 @@ function HashPage({ctx}){
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:8,background:"rgba(0,0,0,0.35)",border:`1px solid rgba(255,255,255,0.08)`,borderRadius:10,padding:"8px 12px",margin:"8px 0 10px"}}>
           <div>
             <div style={{fontSize:10,fontWeight:800,color:C.subtle,display:"flex",alignItems:"center",gap:4,letterSpacing:0.5,textTransform:"uppercase"}}>
-              <span>✨</span> CRIADA EM:
+              <span>✨</span> ADICIONADA EM:
             </div>
             <div style={{fontSize:13,fontWeight:900,color:"#e2e8f0",marginTop:2}}>
               {fmtDateDisplay(getItemCreatedDate(h))}
@@ -11763,7 +11779,7 @@ function EditPendingTestForm({ctx,appr,test,onSaved}){
       ✅ Esse SN já pertence a uma máquina no estoque ({exMac.model} · {exMac.situacao}). O teste será vinculado e atualizará essa máquina.
     </div>}
     {!exMac&&machineSN.trim()&&<div style={{background:C.amber+"15",border:`1px solid ${C.amber}44`,borderRadius:10,padding:12,marginBottom:12,fontSize:12,color:C.amber}}>
-      ⚠️ Essa máquina ainda não existe no estoque — ela será criada quando você aprovar o teste.
+      ⚠️ Essa máquina ainda não existe no estoque — ela será adicionada quando você aprovar o teste.
     </div>}
     <div style={{color:C.muted,fontSize:12,marginBottom:12}}>👷 {appr.employeeName} · {fmtDate(appr.date)}</div>
     {appr.adminNote&&<Alrt type="err">{appr.adminNote}</Alrt>}
@@ -15845,12 +15861,12 @@ function MachineHistoryFullView({ ctx, sn, onBack }) {
         id: "created",
         type: "creation",
         date: addDate,
-        title: "Cadastro da Máquina no Estoque",
+        title: "Adição da Máquina no Estoque",
         by: machine.by_name || machine.by || machine._byName || "Sistema",
-        tag: "CADASTRO",
+        tag: "ADICIONADA",
         tagColor: C.green,
         icon: "🖥️➕",
-        detail: `Máquina cadastrada no estoque com situação "${machine.situacao || "—"}"`,
+        detail: `Máquina adicionada no estoque com situação "${machine.situacao || "—"}"`,
         from: null,
         to: machine.situacao || "—"
       });
@@ -15978,7 +15994,7 @@ function MachineHistoryFullView({ ctx, sn, onBack }) {
         {/* Resumo de Datas e Componentes */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:12,marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
           <div>
-            <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",fontWeight:800}}>📅 Data de Cadastro</div>
+            <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",fontWeight:800}}>📅 Data de Adição</div>
             <div style={{fontSize:13,fontWeight:700,color:C.text,marginTop:2}}>
               {fmtDateDisplay(createdDate)}
             </div>
@@ -16106,12 +16122,12 @@ function HashHistoryFullView({ ctx, sn, onBack }) {
         id: "created",
         type: "creation",
         date: addDate,
-        title: "Cadastro da HASHboard",
+        title: "Adição da HASHboard",
         by: hash.by_name || hash.by || hash._byName || hash.tecnico || "Sistema",
-        tag: "CADASTRO",
+        tag: "ADICIONADA",
         tagColor: C.green,
         icon: "⚡➕",
-        detail: `Placa cadastrada com status "${hash.status || "—"}"`,
+        detail: `Placa adicionada com status "${hash.status || "—"}"`,
         from: null,
         to: hash.status || "—"
       });
