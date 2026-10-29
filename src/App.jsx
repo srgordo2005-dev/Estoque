@@ -4116,8 +4116,25 @@ function AdminSummary({ctx, data, setTab}){
 /* ═══ MACHINES ══════════════════════════════════════════════════ */
 function FilterBar({filters,active,onToggle,counts,label}){
   const[open,setOpen]=useState(false);
+  const ref=useRef(null);
+
+  useEffect(()=>{
+    if(!open)return;
+    const handleClickOutside=(e)=>{
+      if(ref.current && !ref.current.contains(e.target)){
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    return()=>{
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  },[open]);
+
   const activeList=Object.entries(active).filter(([,v])=>v).map(([k])=>k);
-  return<div style={{position:"relative",marginBottom:10}}>
+  return<div ref={ref} style={{position:"relative",marginBottom:10}}>
     <button onClick={()=>setOpen(o=>!o)} style={{background:C.card,border:`1px solid ${open?C.accent:C.border}`,borderRadius:10,padding:"8px 14px",color:C.text,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:700,width:"100%",justifyContent:"space-between"}}>
       <span>🔍 {label||"Filtros"} {activeList.length>0&&<Tag color={C.accent} small>{activeList.length} ativo</Tag>}</span>
       <span style={{color:C.muted}}>{open?"▲":"▼"}</span>
@@ -4160,6 +4177,8 @@ function MacPage({ctx}){
   });
 
   const [search, setSearch] = useState("");
+  const [dateStart, setDateStart] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
   const [selected, setSelected] = useState(new Set());
   const [selMode, setSelMode] = useState(false);
   const [bulkAction, setBulkAction] = useState(null);
@@ -4182,7 +4201,20 @@ function MacPage({ctx}){
     const sitOk=sitF.length===0||sitF.some(([k])=>m.situacao===k);
     const typOk=typF.length===0||typF.some(([k])=>(k==="complete"&&m.type==="complete")||(k==="shell"&&m.type==="shell")||(k==="nosn"&&!m.sn)||(k==="withHash"&&(m.hash0==="ON"||m.hash1==="ON"||m.hash2==="ON"))||(k==="noHash"&&m.hash0!=="ON"&&m.hash1!=="ON"&&m.hash2!=="ON"));
     const modelOk=modelFilters.size===0||modelFilters.has(m.model);
-    return ms&&sitOk&&typOk&&modelOk;
+    const dateOk=(!dateStart && !dateEnd) || (() => {
+      const primary = m._at || m.at || m.created_at || m.added_at || m.reviewed_at;
+      const match = d => {
+        if (!d) return false;
+        const ymd = String(d).slice(0, 10);
+        if (dateStart && ymd < dateStart) return false;
+        if (dateEnd && ymd > dateEnd) return false;
+        return true;
+      };
+      if (match(primary)) return true;
+      if (Array.isArray(m.changeLog) && m.changeLog.some(l => match(l.at))) return true;
+      return false;
+    })();
+    return ms&&sitOk&&typOk&&modelOk&&dateOk;
   });
   const sorted = [...filtered].sort((a,b)=>(b._at||b.createdAt||"").localeCompare(a._at||a.createdAt||""));
   const macFilters=[
@@ -4211,6 +4243,27 @@ function MacPage({ctx}){
       <div style={{background:C.card,borderRadius:14,padding:"14px 18px",display:"flex",gap:12, alignItems:"center", border: `1px solid rgba(255,215,0,0.3)`, boxShadow: 'inset 0 0 10px rgba(255,215,0,0.05)'}}>
         <span style={{fontSize: 22}}>🔍</span>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por SN, modelo, local, destino..." style={{background:"none",border:"none",color:C.text,fontSize:16,flex:1,outline:"none", fontWeight:600}}/>
+      </div>
+
+      {/* Filtro por Data (De tal até tal) */}
+      <div style={{background:C.card,borderRadius:12,padding:"10px 14px",border:`1px solid ${(dateStart||dateEnd)?C.accent:C.border}`,display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:11,fontWeight:800,color:(dateStart||dateEnd)?C.accent:C.subtle,letterSpacing:1,textTransform:"uppercase",display:"flex",alignItems:"center",gap:6}}>
+            📅 Filtrar por Data {(dateStart||dateEnd)&&<Tag color={C.accent} small>Ativo</Tag>}
+          </span>
+          {(dateStart||dateEnd)&&<button onClick={()=>{setDateStart("");setDateEnd("")}} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:11,fontWeight:700}}>✕ Limpar data</button>}
+        </div>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:130,display:"flex",alignItems:"center",gap:6,background:C.card2,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+            <span style={{fontSize:11,color:C.muted,fontWeight:700}}>De:</span>
+            <input type="date" value={dateStart} onChange={e=>setDateStart(e.target.value)} style={{background:"none",border:"none",color:C.text,fontSize:12,outline:"none",width:"100%",cursor:"pointer",fontWeight:600}}/>
+          </div>
+          <span style={{fontSize:12,color:C.muted,fontWeight:700}}>até</span>
+          <div style={{flex:1,minWidth:130,display:"flex",alignItems:"center",gap:6,background:C.card2,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+            <span style={{fontSize:11,color:C.muted,fontWeight:700}}>Até:</span>
+            <input type="date" value={dateEnd} onChange={e=>setDateEnd(e.target.value)} style={{background:"none",border:"none",color:C.text,fontSize:12,outline:"none",width:"100%",cursor:"pointer",fontWeight:600}}/>
+          </div>
+        </div>
       </div>
 
       <FilterBar filters={macFilters} active={activeFilters} onToggle={toggleFilter} counts={macCounts} label={"Situação/Tipo ("+filtered.length+"/"+data.machines.length+")"}/>
