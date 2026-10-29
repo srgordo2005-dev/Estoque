@@ -12964,7 +12964,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           const who = creatorName || employees.find(e => e._id === creatorId)?.name || "Sistema";
           list.push({
             id: "m_add_" + m._id,
-            category: "machines",
+            category: "machines_add",
             actionType: "Adicionou Máquina",
             categoryLabel: "ADICIONOU MÁQUINA",
             categoryColor: C.green,
@@ -12999,7 +12999,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
           list.push({
             id: `m_mod_${m._id}_${lIdx}`,
-            category: "machines",
+            category: "machines_mod",
             actionType: "Modificou Máquina",
             categoryLabel: `MODIFICOU MÁQUINA (${fieldLabel.toUpperCase()})`,
             categoryColor: color,
@@ -13029,7 +13029,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           const who = creatorName || employees.find(e => e._id === creatorId)?.name || "Sistema";
           list.push({
             id: "h_add_" + h._id,
-            category: "hashes",
+            category: "hashes_add",
             actionType: "Adicionou HASH",
             categoryLabel: "ADICIONOU HASH",
             categoryColor: "#a78bfa",
@@ -13058,7 +13058,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
           list.push({
             id: `h_mod_${h._id}_${lIdx}`,
-            category: "hashes",
+            category: "hashes_mod",
             actionType: "Modificou HASH",
             categoryLabel: `MODIFICOU HASH (${fieldLabel.toUpperCase()})`,
             categoryColor: "#a78bfa",
@@ -13087,12 +13087,22 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   // Contagens por categoria
   const countRepairs = allEvents.filter(x => x.category === "repairs").length;
   const countTests = allEvents.filter(x => x.category === "tests").length;
-  const countMachines = allEvents.filter(x => x.category === "machines").length;
-  const countHashes = allEvents.filter(x => x.category === "hashes").length;
+  const countMacAdd = allEvents.filter(x => x.category === "machines_add").length;
+  const countMacMod = allEvents.filter(x => x.category === "machines_mod").length;
+  const countHashAdd = allEvents.filter(x => x.category === "hashes_add").length;
+  const countHashMod = allEvents.filter(x => x.category === "hashes_mod").length;
 
   // Itens filtrados para exibição
   const displayedItems = allEvents.filter(it => {
-    if (activeCategory !== "all" && it.category !== activeCategory) return false;
+    if (activeCategory !== "all") {
+      if (activeCategory === "machines") {
+        if (it.category !== "machines_add" && it.category !== "machines_mod" && it.category !== "machines") return false;
+      } else if (activeCategory === "hashes") {
+        if (it.category !== "hashes_add" && it.category !== "hashes_mod" && it.category !== "hashes") return false;
+      } else if (it.category !== activeCategory) {
+        return false;
+      }
+    }
     if (searchQ) {
       const q = searchQ.toUpperCase();
       return (it.sn && it.sn.toUpperCase().includes(q)) || 
@@ -13114,10 +13124,12 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     });
     const rep = myEvents.filter(x => x.category === "repairs").length;
     const tst = myEvents.filter(x => x.category === "tests").length;
-    const mac = myEvents.filter(x => x.category === "machines").length;
-    const hsh = myEvents.filter(x => x.category === "hashes").length;
+    const macAdd = myEvents.filter(x => x.category === "machines_add").length;
+    const macMod = myEvents.filter(x => x.category === "machines_mod").length;
+    const hshAdd = myEvents.filter(x => x.category === "hashes_add").length;
+    const hshMod = myEvents.filter(x => x.category === "hashes_mod").length;
     const grandTotal = myEvents.length;
-    return { emp: e, rep, tst, mac, hsh, grandTotal, events: myEvents };
+    return { emp: e, rep, tst, macAdd, macMod, hshAdd, hshMod, grandTotal, events: myEvents };
   }).sort((a, b) => b.grandTotal - a.grandTotal);
 
   // Copiar relatório formatado para WhatsApp
@@ -13131,13 +13143,15 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       `📈 *TOTAIS GERAIS DO PERÍODO:*`,
       `• 🔧 Consertos de HASH: ${countRepairs}`,
       `• 🧪 Testes de Máquina: ${countTests}`,
-      `• 🖥️ Máquinas (Cadastros & Modificações): ${countMachines}`,
-      `• ⚡ HASHboards (Cadastros & Modificações): ${countHashes}`,
+      `• 🖥️➕ Máquinas Adicionadas: ${countMacAdd}`,
+      `• 🖥️✏️ Máquinas Modificadas: ${countMacMod}`,
+      `• ⚡➕ HASHboards Adicionadas: ${countHashAdd}`,
+      `• ⚡✏️ HASHboards Modificadas: ${countHashMod}`,
       `• 📋 *TOTAL DE AÇÕES REALIZADAS:* ${allEvents.length}`,
       ``,
       `🏆 *RESUMO POR FUNCIONÁRIO:*`,
       ...empStats.filter(st=>st.grandTotal>0).map(st => 
-        `• *${st.emp.name} (#${st.emp.code})*: ${st.grandTotal} ações (${st.rep} consertos, ${st.tst} testes, ${st.mac} macs, ${st.hsh} hashes)`
+        `• *${st.emp.name} (#${st.emp.code})*: ${st.grandTotal} ações (${st.rep} consertos, ${st.tst} testes, +${st.macAdd}/~${st.macMod} macs, +${st.hshAdd}/~${st.hshMod} hashes)`
       ),
       ``,
       `📝 *ÚLTIMAS MOVIMENTAÇÕES (TOP 30):*`,
@@ -13397,8 +13411,10 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           { id: "all", label: "📋 Todos", count: allEvents.length },
           { id: "repairs", label: "🔧 Consertou HASH", count: countRepairs, color: C.accent },
           { id: "tests", label: "🧪 Testou Máquina", count: countTests, color: C.blue },
-          { id: "machines", label: "🖥️ Adicionou / Modificou Máquina", count: countMachines, color: C.green },
-          { id: "hashes", label: "⚡ Adicionou / Modificou HASH", count: countHashes, color: "#a78bfa" }
+          { id: "machines_add", label: "🖥️➕ Adicionou Máquinas", count: countMacAdd, color: C.green },
+          { id: "machines_mod", label: "🖥️✏️ Modificou Máquinas", count: countMacMod, color: C.amber },
+          { id: "hashes_add", label: "⚡➕ Adicionou HASHs", count: countHashAdd, color: "#a78bfa" },
+          { id: "hashes_mod", label: "⚡✏️ Modificou HASHs", count: countHashMod, color: "#c084fc" }
         ].map(cat => (
           <button
             key={cat.id}
@@ -13467,12 +13483,20 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>🧪 Testes</div>
       </div>
       <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: `1px solid ${C.green}44` }}>
-        <div style={{ fontSize: 26, fontWeight: 900, color: C.green }}>{countMachines}</div>
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>🖥️ Máquinas</div>
+        <div style={{ fontSize: 26, fontWeight: 900, color: C.green }}>{countMacAdd}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>🖥️➕ Adicionou Máq.</div>
+      </div>
+      <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: `1px solid ${C.amber}44` }}>
+        <div style={{ fontSize: 26, fontWeight: 900, color: C.amber }}>{countMacMod}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>🖥️✏️ Modificou Máq.</div>
       </div>
       <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: "1px solid #a78bfa44" }}>
-        <div style={{ fontSize: 26, fontWeight: 900, color: "#a78bfa" }}>{countHashes}</div>
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>⚡ HASHboards</div>
+        <div style={{ fontSize: 26, fontWeight: 900, color: "#a78bfa" }}>{countHashAdd}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>⚡➕ Adicionou HASH</div>
+      </div>
+      <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: "1px solid #c084fc44" }}>
+        <div style={{ fontSize: 26, fontWeight: 900, color: "#c084fc" }}>{countHashMod}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>⚡✏️ Modificou HASH</div>
       </div>
       <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: `1px solid ${C.border}` }}>
         <div style={{ fontSize: 26, fontWeight: 900, color: "#fff" }}>{allEvents.length}</div>
@@ -16412,6 +16436,16 @@ function EmpHistory({ctx,emp}){
     return matchesDate && matchesSN;
   });
 
+  const allMAdd = allM.filter(m => m.type === "machine_add");
+  const allMMod = allM.filter(m => m.type === "machine_mod");
+  const allHAdd = allH.filter(h => h.type === "hash_add");
+  const allHMod = allH.filter(h => h.type === "hash_mod");
+
+  const dayMAdd = dayM.filter(m => m.type === "machine_add");
+  const dayMMod = dayM.filter(m => m.type === "machine_mod");
+  const dayHAdd = dayH.filter(h => h.type === "hash_add");
+  const dayHMod = dayH.filter(h => h.type === "hash_mod");
+
   const byDate = {};
   [
     ...allR.map(r => r.date),
@@ -16458,16 +16492,23 @@ function EmpHistory({ctx,emp}){
   const totalFiltered = (activeTab === "all" ? (dayR.length + dayT.length + dayM.length + dayH.length) :
     activeTab === "repairs" ? dayR.length :
     activeTab === "tests" ? dayT.length :
-    activeTab === "machines" ? dayM.length : dayH.length);
+    activeTab === "machines_add" ? dayMAdd.length :
+    activeTab === "machines_mod" ? dayMMod.length :
+    activeTab === "machines" ? dayM.length :
+    activeTab === "hashes_add" ? dayHAdd.length :
+    activeTab === "hashes_mod" ? dayHMod.length :
+    activeTab === "hashes" ? dayH.length : 0);
 
   return <div>
     {/* Grid de Totais por Categoria */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:8,marginBottom:14}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(105px, 1fr))",gap:8,marginBottom:14}}>
       {[
         [allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent,"repairs"],
         [allT.length,"Testes",C.blue,"tests"],
-        [allM.length,"Máquinas",C.green,"machines"],
-        [allH.length,"HASHboards","#a78bfa","hashes"],
+        [allMAdd.length,"Adicionou Máq.",C.green,"machines_add"],
+        [allMMod.length,"Modificou Máq.",C.amber,"machines_mod"],
+        [allHAdd.length,"Adicionou HASH","#a78bfa","hashes_add"],
+        [allHMod.length,"Modificou HASH","#c084fc","hashes_mod"],
         [data.feedbacks?.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length||0,"Pendências",C.red,"feedbacks"]
       ].map(([v,l,c,key]) => (
         <div 
@@ -16493,10 +16534,12 @@ function EmpHistory({ctx,emp}){
     <div style={{display:"flex",gap:8,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
       {[
         { id: "all", label: "📋 Todos", count: dayR.length + dayT.length + dayM.length + dayH.length },
-        { id: "repairs", label: "🔧 Consertou HASH", count: dayR.length, color: C.accent },
-        { id: "tests", label: "🧪 Testou Máquina", count: dayT.length, color: C.blue },
-        { id: "machines", label: "🖥️ Adicionou / Modificou Máquina", count: dayM.length, color: C.green },
-        { id: "hashes", label: "⚡ Adicionou / Modificou HASH", count: dayH.length, color: "#a78bfa" }
+        { id: "repairs", label: "🔧 Consertos", count: dayR.length, color: C.accent },
+        { id: "tests", label: "🧪 Testes", count: dayT.length, color: C.blue },
+        { id: "machines_add", label: "🖥️➕ Adicionou Máquinas", count: dayMAdd.length, color: C.green },
+        { id: "machines_mod", label: "🖥️✏️ Modificou Máquinas", count: dayMMod.length, color: C.amber },
+        { id: "hashes_add", label: "⚡➕ Adicionou HASHs", count: dayHAdd.length, color: "#a78bfa" },
+        { id: "hashes_mod", label: "⚡✏️ Modificou HASHs", count: dayHMod.length, color: "#c084fc" }
       ].map(tab => (
         <button
           key={tab.id}
@@ -16599,68 +16642,84 @@ function EmpHistory({ctx,emp}){
         ))}
 
         {/* Máquinas (Cadastros & Alterações) */}
-        {(activeTab === "all" || activeTab === "machines") && dayM.map(m => {
-          const isAdd = m.type === "machine_add";
-          const accent = isAdd ? C.green : C.amber;
-          const icon = isAdd ? "🖥️➕" : "🖥️✏️";
-          return (
-            <Card 
-              key={m._id} 
-              accent={accent}
-              style={{margin:0,cursor:"pointer",transition:"all 0.15s ease"}}
-              onClick={() => setSelectedMachineSN(m.sn)}
-            >
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div>
-                  <div style={{fontWeight:700,fontSize:14,color:C.text}}>
-                    {icon} <span style={{color:accent}}>{m.actionLabel}</span> — {m.sn} ({m.model})
+        {(activeTab === "all" || activeTab === "machines" || activeTab === "machines_add" || activeTab === "machines_mod") && 
+          dayM
+            .filter(m => {
+              if (activeTab === "machines_add") return m.type === "machine_add";
+              if (activeTab === "machines_mod") return m.type === "machine_mod";
+              return true;
+            })
+            .map(m => {
+              const isAdd = m.type === "machine_add";
+              const accent = isAdd ? C.green : C.amber;
+              const icon = isAdd ? "🖥️➕" : "🖥️✏️";
+              return (
+                <Card 
+                  key={m._id} 
+                  accent={accent}
+                  style={{margin:0,cursor:"pointer",transition:"all 0.15s ease"}}
+                  onClick={() => setSelectedMachineSN(m.sn)}
+                >
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14,color:C.text}}>
+                        {icon} <span style={{color:accent}}>{m.actionLabel}</span> — {m.sn} ({m.model})
+                      </div>
+                      <div style={{fontSize:12,color:"#fff",marginTop:4,background:C.card2,display:"inline-block",padding:"3px 8px",borderRadius:6}}>
+                        {m.detail}
+                      </div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:6}}>
+                        📅 {fmtTS(m.at)}
+                      </div>
+                      <div style={{fontSize:11,color:C.accent,marginTop:6,display:"flex",alignItems:"center",gap:4,fontWeight:700}}>
+                        🔍 Toque para ver histórico completo desta máquina ➔
+                      </div>
+                    </div>
                   </div>
-                  <div style={{fontSize:12,color:"#fff",marginTop:4,background:C.card2,display:"inline-block",padding:"3px 8px",borderRadius:6}}>
-                    {m.detail}
-                  </div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:6}}>
-                    📅 {fmtTS(m.at)}
-                  </div>
-                  <div style={{fontSize:11,color:C.accent,marginTop:6,display:"flex",alignItems:"center",gap:4,fontWeight:700}}>
-                    🔍 Toque para ver histórico completo desta máquina ➔
-                  </div>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+                </Card>
+              );
+            })
+        }
 
         {/* HASHboards (Cadastros & Alterações) */}
-        {(activeTab === "all" || activeTab === "hashes") && dayH.map(h => {
-          const isAdd = h.type === "hash_add";
-          const accent = isAdd ? "#a78bfa" : C.blue;
-          const icon = isAdd ? "⚡➕" : "⚡✏️";
-          return (
-            <Card 
-              key={h._id} 
-              accent={accent}
-              style={{margin:0,cursor:"pointer",transition:"all 0.15s ease"}}
-              onClick={() => setSelectedHashSN(h.sn)}
-            >
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div>
-                  <div style={{fontWeight:700,fontSize:14,color:C.text}}>
-                    {icon} <span style={{color:accent}}>{h.actionLabel}</span> — {h.sn} ({h.model})
+        {(activeTab === "all" || activeTab === "hashes" || activeTab === "hashes_add" || activeTab === "hashes_mod") && 
+          dayH
+            .filter(h => {
+              if (activeTab === "hashes_add") return h.type === "hash_add";
+              if (activeTab === "hashes_mod") return h.type === "hash_mod";
+              return true;
+            })
+            .map(h => {
+              const isAdd = h.type === "hash_add";
+              const accent = isAdd ? "#a78bfa" : C.blue;
+              const icon = isAdd ? "⚡➕" : "⚡✏️";
+              return (
+                <Card 
+                  key={h._id} 
+                  accent={accent}
+                  style={{margin:0,cursor:"pointer",transition:"all 0.15s ease"}}
+                  onClick={() => setSelectedHashSN(h.sn)}
+                >
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14,color:C.text}}>
+                        {icon} <span style={{color:accent}}>{h.actionLabel}</span> — {h.sn} ({h.model})
+                      </div>
+                      <div style={{fontSize:12,color:"#fff",marginTop:4,background:C.card2,display:"inline-block",padding:"3px 8px",borderRadius:6}}>
+                        {h.detail}
+                      </div>
+                      <div style={{fontSize:11,color:C.muted,marginTop:6}}>
+                        📅 {fmtTS(h.at)}
+                      </div>
+                      <div style={{fontSize:11,color:"#a78bfa",marginTop:6,display:"flex",alignItems:"center",gap:4,fontWeight:700}}>
+                        🔍 Toque para ver histórico completo desta HASHboard ➔
+                      </div>
+                    </div>
                   </div>
-                  <div style={{fontSize:12,color:"#fff",marginTop:4,background:C.card2,display:"inline-block",padding:"3px 8px",borderRadius:6}}>
-                    {h.detail}
-                  </div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:6}}>
-                    📅 {fmtTS(h.at)}
-                  </div>
-                  <div style={{fontSize:11,color:"#a78bfa",marginTop:6,display:"flex",alignItems:"center",gap:4,fontWeight:700}}>
-                    🔍 Toque para ver histórico completo desta HASHboard ➔
-                  </div>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+                </Card>
+              );
+            })
+        }
       </div>
     )}
 
