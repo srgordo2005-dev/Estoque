@@ -12891,7 +12891,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       list.push({
         id: "rep_" + r._id,
         category: "repairs",
-        categoryLabel: "CONSERTO",
+        actionType: isGood ? "Já Estava Boa" : "Consertou HASH",
+        categoryLabel: isGood ? "JÁ ESTAVA BOA" : "CONSERTOU HASH",
         categoryColor: isGood ? C.green : C.accent,
         icon: isGood ? "✅" : "🔧",
         sn: r.hashSN || "SEM SN",
@@ -12919,7 +12920,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       list.push({
         id: "test_" + t._id,
         category: "tests",
-        categoryLabel: "TESTE",
+        actionType: "Testou Máquina",
+        categoryLabel: isGood ? "TESTOU (BOA)" : isBad ? "TESTOU (RUIM)" : "TESTOU MÁQUINA",
         categoryColor: isGood ? C.green : isBad ? C.red : C.blue,
         icon: "🧪",
         sn: t.machineSN || "SEM SN",
@@ -12947,7 +12949,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           list.push({
             id: "m_add_" + m._id,
             category: "machines",
-            categoryLabel: "CADASTRO MÁQUINA",
+            actionType: "Adicionou Máquina",
+            categoryLabel: "ADICIONOU MÁQUINA",
             categoryColor: C.green,
             icon: "🖥️➕",
             sn: m.sn || "SEM SN",
@@ -12956,7 +12959,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
             date: normDate(addDate),
             who,
             empId: creatorId,
-            title: `Nova Máquina Cadastrada — ${m.sn || "SEM SN"} (${m.model || ""})`,
+            title: `Adicionou Máquina — ${m.sn || "SEM SN"} (${m.model || ""})`,
             from: null,
             to: m.situacao || "STOCK",
             detail: `Situação: ${m.situacao || "—"} · Destino: ${m.destino || "Estoque"}`
@@ -12981,7 +12984,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           list.push({
             id: `m_mod_${m._id}_${lIdx}`,
             category: "machines",
-            categoryLabel: `MODIF. MÁQUINA (${fieldLabel.toUpperCase()})`,
+            actionType: "Modificou Máquina",
+            categoryLabel: `MODIFICOU MÁQUINA (${fieldLabel.toUpperCase()})`,
             categoryColor: color,
             icon: "🖥️✏️",
             sn: m.sn || "SEM SN",
@@ -12990,7 +12994,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
             date: normDate(log.at),
             who,
             empId: log.by_id,
-            title: `Alterou ${fieldLabel} — ${m.sn || "SEM SN"} (${m.model || ""})`,
+            title: `Modificou Máquina (${fieldLabel}) — ${m.sn || "SEM SN"} (${m.model || ""})`,
             from: log.from ?? "—",
             to: log.to ?? "—",
             detail: `Campo "${fieldLabel}" alterado de "${log.from ?? "—"}" para "${log.to ?? "—"}"`
@@ -13010,7 +13014,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           list.push({
             id: "h_add_" + h._id,
             category: "hashes",
-            categoryLabel: "CADASTRO HASH",
+            actionType: "Adicionou HASH",
+            categoryLabel: "ADICIONOU HASH",
             categoryColor: "#a78bfa",
             icon: "⚡➕",
             sn: h.sn || "SEM SN",
@@ -13019,7 +13024,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
             date: normDate(addDate),
             who,
             empId: creatorId,
-            title: `Nova HASH Cadastrada — ${h.sn || "SEM SN"} (${h.model || ""})`,
+            title: `Adicionou HASH — ${h.sn || "SEM SN"} (${h.model || ""})`,
             from: null,
             to: h.status || "STOCK",
             detail: `Status: ${h.status || "—"} · Local: ${h.location || "—"}`
@@ -13038,7 +13043,8 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           list.push({
             id: `h_mod_${h._id}_${lIdx}`,
             category: "hashes",
-            categoryLabel: `MODIF. HASH (${fieldLabel.toUpperCase()})`,
+            actionType: "Modificou HASH",
+            categoryLabel: `MODIFICOU HASH (${fieldLabel.toUpperCase()})`,
             categoryColor: "#a78bfa",
             icon: "⚡✏️",
             sn: h.sn || "SEM SN",
@@ -13047,7 +13053,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
             date: normDate(log.at),
             who,
             empId: log.by_id,
-            title: `Alterou ${fieldLabel} — ${h.sn || "SEM SN"} (${h.model || ""})`,
+            title: `Modificou HASH (${fieldLabel}) — ${h.sn || "SEM SN"} (${h.model || ""})`,
             from: log.from ?? "—",
             to: log.to ?? "—",
             detail: `Campo "${fieldLabel}" alterado de "${log.from ?? "—"}" para "${log.to ?? "—"}"`
@@ -13373,10 +13379,10 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         {[
           { id: "all", label: "📋 Todos", count: allEvents.length },
-          { id: "repairs", label: "🔧 Consertos", count: countRepairs, color: C.accent },
-          { id: "tests", label: "🧪 Testes", count: countTests, color: C.blue },
-          { id: "machines", label: "🖥️ Máquinas", count: countMachines, color: C.green },
-          { id: "hashes", label: "⚡ HASHboards", count: countHashes, color: "#a78bfa" }
+          { id: "repairs", label: "🔧 Consertou HASH", count: countRepairs, color: C.accent },
+          { id: "tests", label: "🧪 Testou Máquina", count: countTests, color: C.blue },
+          { id: "machines", label: "🖥️ Adicionou / Modificou Máquina", count: countMachines, color: C.green },
+          { id: "hashes", label: "⚡ Adicionou / Modificou HASH", count: countHashes, color: "#a78bfa" }
         ].map(cat => (
           <button
             key={cat.id}
@@ -13528,8 +13534,22 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
               {/* Detalhes da Ação */}
               <div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 6 }}>
-                  {it.title}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                  <span style={{
+                    background: it.categoryColor ? `${it.categoryColor}22` : C.card,
+                    color: it.categoryColor || C.accent,
+                    border: `1px solid ${it.categoryColor || C.accent}`,
+                    borderRadius: 8,
+                    padding: "2px 8px",
+                    fontSize: 11,
+                    fontWeight: 900,
+                    textTransform: "uppercase"
+                  }}>
+                    {it.actionType || it.categoryLabel}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: C.text }}>
+                    {it.title}
+                  </span>
                 </div>
 
                 {it.from !== null ? (
@@ -16268,7 +16288,7 @@ function EmpHistory({ctx,emp}){
           item: m,
           sn: m.sn || "SEM SN",
           model: m.model || "—",
-          actionLabel: "Cadastrou máquina",
+          actionLabel: "Adicionou Máquina",
           detail: `Situação: ${m.situacao || "—"} · Destino: ${m.destino || "—"}`,
           at: at,
           date: at ? at.slice(0, 10) : ""
@@ -16284,7 +16304,7 @@ function EmpHistory({ctx,emp}){
               item: m,
               sn: m.sn || "SEM SN",
               model: m.model || "—",
-              actionLabel: `Alterou ${l.label || l.field || "campo"}`,
+              actionLabel: `Modificou Máquina (${l.label || l.field || "campo"})`,
               detail: `"${l.from ?? "—"}" → "${l.to ?? "—"}"`,
               at: at,
               date: at ? at.slice(0, 10) : ""
@@ -16309,7 +16329,7 @@ function EmpHistory({ctx,emp}){
           item: h,
           sn: h.sn || "SEM SN",
           model: h.model || "—",
-          actionLabel: "Cadastrou HASH",
+          actionLabel: "Adicionou HASH",
           detail: `Status: ${h.status || "—"} · Local: ${h.location || "—"}`,
           at: at,
           date: at ? at.slice(0, 10) : ""
@@ -16325,7 +16345,7 @@ function EmpHistory({ctx,emp}){
               item: h,
               sn: h.sn || "SEM SN",
               model: h.model || "—",
-              actionLabel: `Alterou ${l.label || l.field || "campo"}`,
+              actionLabel: `Modificou HASH (${l.label || l.field || "campo"})`,
               detail: `"${l.from ?? "—"}" → "${l.to ?? "—"}"`,
               at: at,
               date: at ? at.slice(0, 10) : ""
@@ -16457,10 +16477,10 @@ function EmpHistory({ctx,emp}){
     <div style={{display:"flex",gap:8,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
       {[
         { id: "all", label: "📋 Todos", count: dayR.length + dayT.length + dayM.length + dayH.length },
-        { id: "repairs", label: "🔧 Consertos", count: dayR.length, color: C.accent },
-        { id: "tests", label: "🧪 Testes", count: dayT.length, color: C.blue },
-        { id: "machines", label: "🖥️ Máquinas", count: dayM.length, color: C.green },
-        { id: "hashes", label: "⚡ HASHboards", count: dayH.length, color: "#a78bfa" }
+        { id: "repairs", label: "🔧 Consertou HASH", count: dayR.length, color: C.accent },
+        { id: "tests", label: "🧪 Testou Máquina", count: dayT.length, color: C.blue },
+        { id: "machines", label: "🖥️ Adicionou / Modificou Máquina", count: dayM.length, color: C.green },
+        { id: "hashes", label: "⚡ Adicionou / Modificou HASH", count: dayH.length, color: "#a78bfa" }
       ].map(tab => (
         <button
           key={tab.id}
@@ -16530,7 +16550,7 @@ function EmpHistory({ctx,emp}){
             <Card key={r._id} accent={accent} style={{margin:0,cursor:r.hashSN?"pointer":"default"}} onClick={()=>{if(r.hashSN)setSelectedHashSN(r.hashSN)}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div>
-                  <div style={{fontWeight:700,fontSize:14,color:C.text}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{background:accent+"22",color:accent,border:"1px solid "+accent,borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:900}}>🔧 CONSERTOU HASH</span><span style={{fontWeight:700,fontSize:14,color:C.text}}>{r.hashSN||"SEM SN"} — {r.model}</span></div>
                   <div style={{fontSize:11,color:C.muted,marginTop:2}}>Técnico: {emp.name} · Status: {r.status || "OK"}</div>
                   <div style={{fontSize:10,color:C.muted,marginTop:4}}>📅 {fmtTS(r._at || r.date)}</div>
                   {r.hashSN && <div style={{fontSize:11,color:C.accent,marginTop:4,fontWeight:700}}>🔍 Ver histórico completo da HASH ➔</div>}
@@ -16548,7 +16568,7 @@ function EmpHistory({ctx,emp}){
           <Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red} style={{margin:0,cursor:t.machineSN?"pointer":"default"}} onClick={()=>{if(t.machineSN)setSelectedMachineSN(t.machineSN)}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div>
-                <div style={{fontWeight:700,fontSize:14,color:C.text}}>🧪 TESTE — {t.machineSN||"SEM SN"} ({t.model})</div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}><span style={{background:C.blue+"22",color:C.blue,border:"1px solid "+C.blue,borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:900}}>🧪 TESTOU MÁQUINA</span><span style={{fontWeight:700,fontSize:14,color:C.text}}>{t.machineSN||"SEM SN"} ({t.model})</span></div>
                 <div style={{fontSize:11,color:C.muted,marginTop:2}}>
                   Resultado: {t.overallResult==="good"?"Aprovado (BOA)":t.overallResult==="bad"?"Reprovado (RUIM)":t.status}
                 </div>
