@@ -714,11 +714,11 @@ async function triggerSheetSync(url) {
 
   incrementWrites();
   try {
-    const r=await fetch(currentUrl,{
-      method:"POST",
-      headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({batch:b.map(({action,payload})=>({action,payload}))}),
-      keepalive:true
+    const payloadItems = b.map(({action,payload})=>({action,payload}));
+    const r = await fetch(currentUrl, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payloadItems)
     });
     const text = await r.text();
     let d = {};
@@ -738,8 +738,7 @@ async function triggerSheetSync(url) {
       const r2 = await fetch(currentUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ batch: fallbackBatch }),
-        keepalive: true
+        body: JSON.stringify(fallbackBatch)
       });
       const text2 = await r2.text();
       try {
@@ -752,16 +751,16 @@ async function triggerSheetSync(url) {
       d.error = "Resposta inesperada da planilha: " + JSON.stringify(d);
     }
 
-    if(d.error){
-      console.error("syncSheet erro:",d.error);
+    if (d.error) {
+      console.error("syncSheet erro:", d.error);
       addSheetSyncLog({ status: "error", count: b.length, summary: batchSummary, error: String(d.error) });
       onSyncSheetError?.(`Planilha não salvou "${b[0]?.action}": ${d.error}`);
       wQ = [...b, ...wQ];
       saveSheetQueue();
-      setTimeout(() => triggerSheetSync(currentUrl), 10000);
+      setTimeout(() => triggerSheetSync(currentUrl), 15000);
       return { ok: false, error: d.error, count: b.length };
     } else {
-      console.log(`✓ syncSheet: ${b.length} ação(ões) gravada(s) na planilha`,b.map(x=>x.action));
+      console.log(`✓ syncSheet: ${b.length} ação(ões) gravada(s) na planilha`, b.map(x=>x.action));
       addSheetSyncLog({ status: "ok", count: b.length, summary: batchSummary, msg: `Confirmado pelo Google (${d.status || 'ok'})` });
       // Limpa os IDs da fila no Supabase que foram enviados com sucesso pelo navegador
       b.forEach(item => {
@@ -774,13 +773,13 @@ async function triggerSheetSync(url) {
       }
       return { ok: true, count: b.length };
     }
-  }catch(e){
-    console.error("syncSheet falhou:",e);
+  } catch(e) {
+    console.error("syncSheet falhou:", e);
     addSheetSyncLog({ status: "error", count: b.length, summary: batchSummary, error: e.message });
     onSyncSheetError?.(`Planilha não respondeu pra "${b[0]?.action}": ${e.message}`);
     wQ = [...b, ...wQ];
     saveSheetQueue();
-    setTimeout(() => triggerSheetSync(currentUrl), 10000);
+    setTimeout(() => triggerSheetSync(currentUrl), 15000);
     return { ok: false, error: e.message, count: b.length };
   } finally {
     decrementWrites();
@@ -2442,7 +2441,13 @@ export default function App(){
     }
   },[]);
   useEffect(()=>{bootLoad()},[bootLoad]);
-  useEffect(()=>{onSyncSheetError=(msg)=>setDataWarnings(w=>[{msg:"⚠️ "+msg,at:stamp()},...w].slice(0,20))},[]);
+  useEffect(()=>{onSyncSheetError=(msg)=>{
+    const clean = "⚠️ " + msg;
+    setDataWarnings(w => {
+      if (w.length > 0 && w[0].msg === clean) return w;
+      return [{ msg: clean, at: stamp() }, ...w.filter(x => x.msg !== clean)].slice(0, 20);
+    });
+  }},[]);
   useEffect(()=>{
     const onBeforeUnload=e=>{if(hasActivePhotoUpload()){e.preventDefault();e.returnValue=""}};
     window.addEventListener("beforeunload",onBeforeUnload);
@@ -13808,9 +13813,10 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
     <div style={{fontWeight:900,fontSize:18,marginBottom:18}}>⚙️ Configurações</div>
     {dataWarnings.length>0&&<Card style={{marginBottom:14,border:`1px solid ${C.red}`}}>
       <SL>🛡️ AVISOS DE INTEGRIDADE DE DADOS ({dataWarnings.length})</SL>
-      <div style={{display:"flex",gap:8,marginBottom:10}}>
-        <Btn v="b" onClick={syncLocalToCloud} disabled={syncingCloud} style={{flex:1}}>{syncingCloud?(cloudSyncProg||"Salvando no Supabase..."):`☁️ Subir tudo pro Supabase (${data.machines.length} macs, ${data.hashes.length} hashes, ${data.employees.length} func)`}</Btn>
-        <Btn v="y" onClick={recalcProtection} disabled={syncingCloud} style={{flex:1}}>🔄 Recalcular proteção (o número atual está certo)</Btn>
+      <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+        <Btn v="b" onClick={syncLocalToCloud} disabled={syncingCloud} style={{flex:1,minWidth:220}}>{syncingCloud?(cloudSyncProg||"Salvando no Supabase..."):`☁️ Subir tudo pro Supabase (${data.machines.length} macs, ${data.hashes.length} hashes, ${data.employees.length} func)`}</Btn>
+        <Btn v="y" onClick={recalcProtection} disabled={syncingCloud} style={{flex:1,minWidth:220}}>🔄 Recalcular proteção (o número atual está certo)</Btn>
+        <Btn v="s" onClick={()=>{setDataWarnings([]);localStorage.removeItem("hs_data_warnings")}} disabled={syncingCloud} style={{minWidth:140}}>🧹 Limpar avisos</Btn>
       </div>
       {cloudSyncProg&&<div style={{color:C.blue,fontSize:11,marginBottom:6}}>⏳ {cloudSyncProg}</div>}
       {cloudSyncRes&&<Alrt type={cloudSyncRes.startsWith("✓")?"ok":"err"}>{cloudSyncRes}</Alrt>}
@@ -15563,16 +15569,116 @@ function ClientReport({ctx,client}){
 
 /* ═══ EQUIPE DETALHES ════════════════════════════════════════ */
 function EmpHistory({ctx,emp}){
-  const{data,mutate,user,webhookUrl}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
+  const{data,mutate,user,webhookUrl}=ctx;
+  const[dateFilter,setDateFilter]=useState(TODAY());
   const[searchSN,setSearchSN]=useState("");
+  const[activeTab,setActiveTab]=useState("all"); // "all" | "repairs" | "tests" | "machines" | "hashes"
   const isSuperAdmin=user.code==="019";
-  const allR=data.repairs.filter(r=>r.employeeId===emp._id||r._by===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id||t._by===emp._id);
-  const dayR=allR.filter(r=>{
+
+  const empNameNorm = (emp.name || "").trim().toLowerCase();
+  const isEmpMatch = (byName, byId, byCode) => {
+    if (byId && byId === emp._id) return true;
+    if (byCode && byCode === emp.code) return true;
+    if (byName && typeof byName === "string" && byName.trim().toLowerCase() === empNameNorm) return true;
+    return false;
+  };
+
+  // 1. Consertos de HASH
+  const allR = (data.repairs || []).filter(r => r.employeeId === emp._id || r._by === emp._id || isEmpMatch(r._byName, r._by, r.employeeCode));
+  
+  // 2. Testes de Máquinas
+  const allT = (data.tests || []).filter(t => t.employeeId === emp._id || t._by === emp._id || isEmpMatch(t.employeeName, t.employeeId, t.employeeCode));
+
+  // 3. Máquinas (Adicionadas & Modificadas)
+  const allM = useMemo(() => {
+    const list = [];
+    (data.machines || []).forEach(m => {
+      const isCreator = isEmpMatch(m.by_name || m.by || m._byName, m.by_id || m._by, m.ref);
+      if (isCreator) {
+        const at = m.added_at || m.addedAt || m._at || m.at || "";
+        list.push({
+          _id: "m_add_" + m._id,
+          type: "machine_add",
+          item: m,
+          sn: m.sn || "SEM SN",
+          model: m.model || "—",
+          actionLabel: "Cadastrou máquina",
+          detail: `Situação: ${m.situacao || "—"} · Destino: ${m.destino || "—"}`,
+          at: at,
+          date: at ? at.slice(0, 10) : ""
+        });
+      }
+      if (Array.isArray(m.changeLog)) {
+        m.changeLog.forEach((l, idx) => {
+          if (isEmpMatch(l.by, l.by_id || l.employeeId, l.byCode)) {
+            const at = l.at || "";
+            list.push({
+              _id: `m_mod_${m._id}_${idx}`,
+              type: "machine_mod",
+              item: m,
+              sn: m.sn || "SEM SN",
+              model: m.model || "—",
+              actionLabel: `Alterou ${l.label || l.field || "campo"}`,
+              detail: `"${l.from ?? "—"}" → "${l.to ?? "—"}"`,
+              at: at,
+              date: at ? at.slice(0, 10) : ""
+            });
+          }
+        });
+      }
+    });
+    return list.sort((a,b) => (b.at || "").localeCompare(a.at || ""));
+  }, [data.machines, emp]);
+
+  // 4. HASHboards (Adicionadas & Modificadas)
+  const allH = useMemo(() => {
+    const list = [];
+    (data.hashes || []).forEach(h => {
+      const isCreator = isEmpMatch(h.by_name || h.by || h.tecnico || h._byName, h.by_id || h._by || h.repairedBy, null);
+      if (isCreator) {
+        const at = h.added_at || h.addedAt || h._at || h.at || "";
+        list.push({
+          _id: "h_add_" + h._id,
+          type: "hash_add",
+          item: h,
+          sn: h.sn || "SEM SN",
+          model: h.model || "—",
+          actionLabel: "Cadastrou HASH",
+          detail: `Status: ${h.status || "—"} · Local: ${h.location || "—"}`,
+          at: at,
+          date: at ? at.slice(0, 10) : ""
+        });
+      }
+      if (Array.isArray(h.changeLog)) {
+        h.changeLog.forEach((l, idx) => {
+          if (isEmpMatch(l.by, l.by_id || l.employeeId, l.byCode)) {
+            const at = l.at || "";
+            list.push({
+              _id: `h_mod_${h._id}_${idx}`,
+              type: "hash_mod",
+              item: h,
+              sn: h.sn || "SEM SN",
+              model: h.model || "—",
+              actionLabel: `Alterou ${l.label || l.field || "campo"}`,
+              detail: `"${l.from ?? "—"}" → "${l.to ?? "—"}"`,
+              at: at,
+              date: at ? at.slice(0, 10) : ""
+            });
+          }
+        });
+      }
+    });
+    return list.sort((a,b) => (b.at || "").localeCompare(a.at || ""));
+  }, [data.hashes, emp]);
+
+  // Filtros de busca e data
+  const dayR = allR.filter(r => {
     const matchesDate = !dateFilter || r.date === dateFilter;
     const matchesSN = !searchSN || (r.hashSN && r.hashSN.toUpperCase().includes(searchSN));
     return matchesDate && matchesSN;
   });
-  const dayT=allT.filter(t=>{
+
+  const dayT = allT.filter(t => {
     const matchesDate = !dateFilter || t.date === dateFilter;
     const matchesSN = !searchSN || 
       (t.machineSN && t.machineSN.toUpperCase().includes(searchSN)) ||
@@ -15581,17 +15687,34 @@ function EmpHistory({ctx,emp}){
       (t.slot2HashSN && t.slot2HashSN.toUpperCase().includes(searchSN));
     return matchesDate && matchesSN;
   });
-  const byDate={};[...allR.map(r=>r.date),...allT.map(t=>t.date)].forEach(d=>{byDate[d]=(byDate[d]||0)+1});
-  const delItem=async(item,isRepair)=>{
-    if(isRepair) {
-      if(!confirm("Deseja realmente apagar essa HASH de conserto?\n\nIsso removerá a HASH do inventário, do histórico do técnico e de ambas as abas da planilha (HASH e REPARO).")) return;
-      
-      // 1. Apaga do Firebase Repairs
+
+  const dayM = allM.filter(m => {
+    const matchesDate = !dateFilter || m.date === dateFilter;
+    const matchesSN = !searchSN || (m.sn && m.sn.toUpperCase().includes(searchSN));
+    return matchesDate && matchesSN;
+  });
+
+  const dayH = allH.filter(h => {
+    const matchesDate = !dateFilter || h.date === dateFilter;
+    const matchesSN = !searchSN || (h.sn && h.sn.toUpperCase().includes(searchSN));
+    return matchesDate && matchesSN;
+  });
+
+  const byDate = {};
+  [
+    ...allR.map(r => r.date),
+    ...allT.map(t => t.date),
+    ...allM.map(m => m.date),
+    ...allH.map(h => h.date)
+  ].filter(Boolean).forEach(d => { byDate[d] = (byDate[d] || 0) + 1; });
+
+  const delItem = async (item, isRepair) => {
+    if (isRepair) {
+      if (!confirm("Deseja realmente apagar essa HASH de conserto?\n\nIsso removerá a HASH do inventário, do histórico do técnico e de ambas as abas da planilha (HASH e REPARO).")) return;
       await fbDel("repairs", item._id);
       mutate("repairs", arr => arr.filter(x => x._id !== item._id));
       await markChanged("repairs");
 
-      // 2. Apaga a HASH correspondente do inventário
       const foundH = data.hashes.find(h => h.sn === item.hashSN && item.hashSN);
       if (foundH) {
         await fbDel("hashes", foundH._id);
@@ -15599,7 +15722,6 @@ function EmpHistory({ctx,emp}){
         await markChanged("hashes");
       }
 
-      // 3. Apaga das duas abas da planilha (REPARO DE HASH e HASH)
       if (webhookUrl) {
         const techEmp = data.employees.find(e => e._id === item.employeeId);
         syncSheet(webhookUrl, "deleteRepairRow", {
@@ -15608,40 +15730,225 @@ function EmpHistory({ctx,emp}){
           date: item.date,
           employeeName: user.name
         });
-        
         syncSheet(webhookUrl, "deleteHashRow", {
           sn: item.hashSN,
           employeeName: user.name
         });
       }
     } else {
-      if(!confirm("Apagar essa movimentação do histórico? Não dá pra desfazer.")) return;
+      if (!confirm("Apagar essa movimentação do histórico? Não dá pra desfazer.")) return;
       await fbDel("tests", item._id);
       mutate("tests", arr => arr.filter(x => x._id !== item._id));
       await markChanged("tests");
     }
   };
-  return<div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
-      {[[allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent],[allT.length,"Testes",C.blue],[data.feedbacks?.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length||0,"Pendências",C.red]].map(([v,l,c])=><div key={l} style={{background:C.card2,borderRadius:10,padding:10,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontSize:10,color:C.muted}}>{l}</div></div>)}
+
+  const totalFiltered = (activeTab === "all" ? (dayR.length + dayT.length + dayM.length + dayH.length) :
+    activeTab === "repairs" ? dayR.length :
+    activeTab === "tests" ? dayT.length :
+    activeTab === "machines" ? dayM.length : dayH.length);
+
+  return <div>
+    {/* Grid de Totais por Categoria */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(90px, 1fr))",gap:8,marginBottom:14}}>
+      {[
+        [allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent,"repairs"],
+        [allT.length,"Testes",C.blue,"tests"],
+        [allM.length,"Máquinas",C.green,"machines"],
+        [allH.length,"HASHboards","#a78bfa","hashes"],
+        [data.feedbacks?.filter(f=>!f.resolved&&f.originalRepairerId===emp._id).length||0,"Pendências",C.red,"feedbacks"]
+      ].map(([v,l,c,key]) => (
+        <div 
+          key={l} 
+          onClick={() => key !== "feedbacks" && setActiveTab(activeTab === key ? "all" : key)} 
+          style={{
+            background: activeTab === key ? `${c}22` : C.card2,
+            border: activeTab === key ? `1px solid ${c}` : `1px solid transparent`,
+            borderRadius:10,
+            padding:"8px 6px",
+            textAlign:"center",
+            cursor: key !== "feedbacks" ? "pointer" : "default",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <div style={{fontSize:20,fontWeight:900,color:c}}>{v}</div>
+          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{l}</div>
+        </div>
+      ))}
     </div>
+
+    {/* Abas / Filtro de Categoria */}
+    <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+      {[
+        { id: "all", label: "📋 Todos", count: dayR.length + dayT.length + dayM.length + dayH.length },
+        { id: "repairs", label: "🔧 Consertos", count: dayR.length, color: C.accent },
+        { id: "tests", label: "🧪 Testes", count: dayT.length, color: C.blue },
+        { id: "machines", label: "🖥️ Máquinas", count: dayM.length, color: C.green },
+        { id: "hashes", label: "⚡ HASHboards", count: dayH.length, color: "#a78bfa" }
+      ].map(tab => (
+        <button
+          key={tab.id}
+          onClick={() => setActiveTab(tab.id)}
+          style={{
+            background: activeTab === tab.id ? (tab.color || C.accent) : C.card2,
+            color: activeTab === tab.id ? "#000" : C.text,
+            border: `1px solid ${activeTab === tab.id ? (tab.color || C.accent) : C.border}`,
+            borderRadius: 20,
+            padding: "5px 12px",
+            fontSize: 11,
+            fontWeight: activeTab === tab.id ? 800 : 500,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            display: "flex",
+            alignItems: "center",
+            gap: 5
+          }}
+        >
+          <span>{tab.label}</span>
+          <span style={{
+            background: activeTab === tab.id ? "rgba(0,0,0,0.2)" : C.card,
+            color: activeTab === tab.id ? "#000" : C.muted,
+            borderRadius: 10,
+            padding: "1px 6px",
+            fontSize: 10,
+            fontWeight: 700
+          }}>
+            {tab.count}
+          </span>
+        </button>
+      ))}
+    </div>
+
+    {/* Barra de Busca por SN */}
     <div style={{marginBottom:12}}>
-      <input value={searchSN} onChange={e=>setSearchSN(e.target.value.toUpperCase())} placeholder="🔍 Buscar por SN da HASH ou Máquina..." style={{...inp,width:"100%"}}/>
+      <input 
+        value={searchSN} 
+        onChange={e=>setSearchSN(e.target.value.toUpperCase())} 
+        placeholder="🔍 Buscar por SN da HASH ou Máquina..." 
+        style={{...inp,width:"100%"}}
+      />
     </div>
-    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}><div style={{flex:1}}><DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/></div><Btn v="s" onClick={()=>{setDateFilter("");setSearchSN("");}} style={{marginBottom:12,fontSize:11}}>📜 Tudo</Btn><Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📤</Btn></div>
-    {dayR.length===0&&dayT.length===0?<div style={{color:C.muted,fontSize:13,textAlign:"center",padding:16}}>Sem registros nesta data</div>:<>
-      {dayR.map(r=>{
-        const isRemove = r.type?.startsWith("remove");
-        const accent = r.type==="already_good"?C.green:r.type==="rework"?C.amber:isRemove?C.red:C.blue;
-        const icon = r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":r.type==="remove_machine"?"🗑️ MÁQUINA REMOVIDA":r.type==="remove_hash"?"🗑️ HASH REMOVIDA":"🔧";
-        return<Card key={r._id} accent={accent}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(r._at)}</div></div>{isSuperAdmin&&<button onClick={()=>delItem(r,true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></Card>
-      })}
-      {dayT.map(t=><Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}><div style={{display:"flex",justifyContent:"space-between"}}><div><div style={{fontWeight:700,fontSize:13}}>🧪 {t.machineSN||"SEM SN"} — {t.model}</div><div style={{fontSize:10,color:C.muted}}>{fmtTS(t._at)}</div></div>{isSuperAdmin&&<button onClick={()=>delItem(t,false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></Card>)}
-    </>}
-    <SL mt={12}>Por Dia</SL>
-    {Object.keys(byDate).sort().reverse().slice(0,20).map(d=><div key={d} onClick={()=>setDateFilter(d)} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid "+C.border,fontSize:12,cursor:"pointer"}}><span style={{color:d===dateFilter?C.accent:C.text}}>{fmtDate(d)}</span><Tag color={C.accent} small>{byDate[d]}</Tag></div>)}
+
+    {/* Filtro de Data e Ações */}
+    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}>
+      <div style={{flex:1}}>
+        <DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/>
+      </div>
+      <Btn v="s" onClick={()=>{setDateFilter("");setSearchSN("");setActiveTab("all");}} style={{marginBottom:12,fontSize:11}}>📜 Tudo</Btn>
+      <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📤</Btn>
+    </div>
+
+    {/* Lista de Registros */}
+    {totalFiltered === 0 ? (
+      <div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24,background:C.card2,borderRadius:8}}>
+        Sem registros {dateFilter ? `em ${fmtDate(dateFilter)}` : ""} nesta categoria
+      </div>
+    ) : (
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {/* Consertos */}
+        {(activeTab === "all" || activeTab === "repairs") && dayR.map(r => {
+          const isRemove = r.type?.startsWith("remove");
+          const accent = r.type==="already_good"?C.green:r.type==="rework"?C.amber:isRemove?C.red:C.blue;
+          const icon = r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":r.type==="remove_machine"?"🗑️ MÁQUINA REMOVIDA":r.type==="remove_hash"?"🗑️ HASH REMOVIDA":"🔧 CONSERTO";
+          return (
+            <Card key={r._id} accent={accent}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>Técnico: {emp.name} · Status: {r.status || "OK"}</div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmtTS(r._at || r.date)}</div>
+                </div>
+                {isSuperAdmin && (
+                  <button onClick={()=>delItem(r,true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:4}}>✕</button>
+                )}
+              </div>
+            </Card>
+          );
+        })}
+
+        {/* Testes */}
+        {(activeTab === "all" || activeTab === "tests") && dayT.map(t => (
+          <Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:C.text}}>🧪 TESTE — {t.machineSN||"SEM SN"} ({t.model})</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                  Resultado: {t.overallResult==="good"?"Aprovado (BOA)":t.overallResult==="bad"?"Reprovado (RUIM)":t.status}
+                </div>
+                <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmtTS(t._at || t.date)}</div>
+              </div>
+              {isSuperAdmin && (
+                <button onClick={()=>delItem(t,false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:4}}>✕</button>
+              )}
+            </div>
+          </Card>
+        ))}
+
+        {/* Máquinas (Cadastros & Alterações) */}
+        {(activeTab === "all" || activeTab === "machines") && dayM.map(m => {
+          const isAdd = m.type === "machine_add";
+          const accent = isAdd ? C.green : C.amber;
+          const icon = isAdd ? "🖥️➕" : "🖥️✏️";
+          return (
+            <Card key={m._id} accent={accent}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>
+                    {icon} <span style={{color:accent}}>{m.actionLabel}</span> — {m.sn} ({m.model})
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{m.detail}</div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmtTS(m.at)}</div>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+
+        {/* HASHboards (Cadastros & Alterações) */}
+        {(activeTab === "all" || activeTab === "hashes") && dayH.map(h => {
+          const isAdd = h.type === "hash_add";
+          const accent = isAdd ? "#a78bfa" : C.blue;
+          const icon = isAdd ? "⚡➕" : "⚡✏️";
+          return (
+            <Card key={h._id} accent={accent}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>
+                    {icon} <span style={{color:accent}}>{h.actionLabel}</span> — {h.sn} ({h.model})
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{h.detail}</div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmtTS(h.at)}</div>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    )}
+
+    {/* Histórico por Data */}
+    <SL mt={16}>Por Dia</SL>
+    {Object.keys(byDate).sort().reverse().slice(0,25).map(d => (
+      <div 
+        key={d} 
+        onClick={()=>setDateFilter(d)} 
+        style={{
+          display:"flex",
+          justifyContent:"space-between",
+          alignItems:"center",
+          padding:"8px 4px",
+          borderBottom:"1px solid "+C.border,
+          fontSize:12,
+          cursor:"pointer"
+        }}
+      >
+        <span style={{color:d===dateFilter?C.accent:C.text, fontWeight: d===dateFilter?700:400}}>{fmtDate(d)}</span>
+        <Tag color={d===dateFilter?C.accent:C.muted} small>{byDate[d]}</Tag>
+      </div>
+    ))}
   </div>;
 }
+
 function EmpEdit({ctx,emp,onClose}){
   const{data,mutate}=ctx;const[e,setE]=useState({...emp});
   const setPerm=(k,v)=>setE(p=>({...p,permissions:{...p.permissions,[k]:v}}));
