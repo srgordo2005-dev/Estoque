@@ -1256,7 +1256,31 @@ const DateInp=({label,...p})=>{
 };
 const Sel=({label,children,...p})=><div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<select {...p} style={{...inp,...p.style}}>{children}</select></div>;
 const Btn=({v="o",children,...p})=>{const vs={o:{bg:`linear-gradient(135deg, #ffd700, #b8860b)`,c:"#000",b:`0 0 15px rgba(255,215,0,0.4)`},s:{bg:`linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))`,c:C.text,b:`0 0 10px rgba(255,255,255,0.1)`},d:{bg:`linear-gradient(135deg, #ef4444, #991b1b)`,c:"#fff",b:`0 0 10px rgba(239,68,68,0.4)`},g:{bg:`linear-gradient(135deg, #22c55e, #14532d)`,c:"#fff",b:`0 0 10px rgba(34,197,94,0.4)`},b:{bg:`linear-gradient(135deg, #0ea5e9, #075985)`,c:"#fff",b:`0 0 10px rgba(14,165,233,0.4)`},p:{bg:`linear-gradient(135deg, #a855f7, #581c87)`,c:"#fff",b:`0 0 10px rgba(168,85,247,0.4)`},y:{bg:`linear-gradient(135deg, #fbbf24, #b45309)`,c:"#000",b:`0 0 10px rgba(251,191,36,0.4)`}};const st=vs[v]||vs.o;return<button className="premium-btn" {...p} style={{background:st.bg,color:st.c,border:"1px solid rgba(255,255,255,0.2)",boxShadow:st.b,borderRadius:12,padding:"12px 20px",fontWeight:800,fontSize:14,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,textTransform:"uppercase",letterSpacing:1,backdropFilter:"blur(5px)",transition:"all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",opacity:p.disabled?.5:1,...p.style}}>{children}</button>};
-const Modal=({title,onClose,children,wide})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",zIndex:300,display:"flex",alignItems:"flex-end"}}><div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:wide?880:640,margin:"0 auto",maxHeight:"92vh",overflow:"auto",padding:20,boxSizing:"border-box"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><div style={{fontWeight:800,fontSize:16,color:C.text}}>{title}</div><button onClick={onClose} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:18}}>✕</button></div>{children}</div></div>;
+const Modal=({title,onClose,children,wide,maxWidth})=>{
+  const effMaxWidth = maxWidth || (wide === "full" ? 1200 : wide ? 1040 : 640);
+  return (
+    <div 
+      style={{position:"fixed",inset:0,background:"rgba(0,0,0,.82)",backdropFilter:"blur(4px)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px",boxSizing:"border-box"}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose?.()}}
+    >
+      <div 
+        style={{background:C.card,borderRadius:18,width:"100%",maxWidth:effMaxWidth,margin:"0 auto",maxHeight:"92vh",overflow:"auto",padding:22,boxSizing:"border-box",border:`1px solid ${C.border}`,boxShadow:"0 25px 60px rgba(0,0,0,0.85)"}}
+        onClick={e=>e.stopPropagation()}
+      >
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+          <div style={{fontWeight:800,fontSize:18,color:C.text}}>{title}</div>
+          <button 
+            onClick={onClose} 
+            style={{background:C.card2,border:`1px solid ${C.border}`,color:C.subtle,borderRadius:8,width:34,height:34,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}
+          >
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+};
 const Card=({accent,onClick,children,style})=><div className="card-3d" onClick={onClick} style={{background:C.card,borderRadius:16,padding:20,marginBottom:16,cursor:onClick?"pointer":"default",border:accent?`1px solid ${accent}`:`1px solid rgba(255,215,0,0.1)`,borderLeft:accent?`4px solid ${accent}`:undefined,...style}}>{children}</div>;
 const Tag=({color,children,small})=><span style={{background:color,color:"#fff",borderRadius:6,padding:small?"1px 7px":"3px 9px",fontSize:small?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{children}</span>;
 const SL=({children,mt})=><div style={{color:C.subtle,fontSize:10,fontWeight:800,letterSpacing:1,marginBottom:8,marginTop:mt||0}}>{children}</div>;
@@ -4151,6 +4175,26 @@ const getItemModifiedDate = (item) => {
   if (item._at || item.at) return item._at || item.at;
   if (item.reviewed_at) return item.reviewed_at;
   return getItemCreatedDate(item);
+};
+
+
+const fmtLargeDate = (dStr) => {
+  if (!dStr) return { date: "Sem Data", time: "" };
+  try {
+    const d = new Date(dStr);
+    if (isNaN(d.getTime())) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+        const [y, m, day] = dStr.split("-");
+        return { date: `${day}/${m}/${y}`, time: "" };
+      }
+      return { date: String(dStr), time: "" };
+    }
+    const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return { date, time };
+  } catch {
+    return { date: String(dStr), time: "" };
+  }
 };
 
 const fmtDateDisplay = (dStr) => {
@@ -12217,7 +12261,7 @@ function TeamPage({ctx,canSeeEmp}){
           <div style={{textAlign:"right"}}><div style={{fontWeight:900,fontSize:22,color:(rT+tT)>0?C.green:C.border}}>{rT+gT+tT}</div><div style={{fontSize:9,color:C.muted}}>HOJE</div></div>
         </div>
         <div style={{display:"flex",gap:6,marginTop:10}}>
-          <Btn v="s" onClick={()=>setModal(<Modal title={"📋 "+e.name} onClose={()=>setModal(null)}><EmpHistory ctx={ctx} emp={e}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>📋 Histórico</Btn>
+          <Btn v="s" onClick={()=>setModal(<Modal title={"📋 "+e.name} wide onClose={()=>setModal(null)}><EmpHistory ctx={ctx} emp={e}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>📋 Histórico</Btn>
           <Btn v="b" onClick={()=>{setSubTab("daily");setDailyEmp(e._id)}} style={{flex:1,fontSize:11,padding:"7px"}}>📅 Ver Hoje</Btn>
           {isSuper&&<Btn v="s" onClick={()=>setModal(<Modal title={"✏️ "+e.name} onClose={()=>setModal(null)}><EmpEdit ctx={ctx} emp={e} onClose={()=>setModal(null)}/></Modal>)} style={{flex:1,fontSize:11,padding:"7px"}}>✏️ Editar</Btn>}
           <Btn v="s" onClick={()=>copyReport(e,data.repairs,data.tests,TODAY(),ctx.setModal)} style={{fontSize:11,padding:"7px"}}>📤</Btn>
@@ -15582,11 +15626,437 @@ function ClientReport({ctx,client}){
 }
 
 /* ═══ EQUIPE DETALHES ════════════════════════════════════════ */
+
+function MachineHistoryFullView({ ctx, sn, onBack }) {
+  const { data, setModal } = ctx;
+  const [sortOrder, setSortOrder] = useState("desc");
+
+  const machine = data.machines.find(m => m.sn === sn) || { sn, model: "—", situacao: "—" };
+
+  const events = useMemo(() => {
+    const list = [];
+
+    // 1. Cadastro inicial
+    const addDate = machine.added_at || machine.addedAt || machine._at || machine.at;
+    if (addDate) {
+      list.push({
+        id: "created",
+        type: "creation",
+        date: addDate,
+        title: "Cadastro da Máquina no Estoque",
+        by: machine.by_name || machine.by || machine._byName || "Sistema",
+        tag: "CADASTRO",
+        tagColor: C.green,
+        icon: "🖥️➕",
+        detail: `Máquina cadastrada no estoque com situação "${machine.situacao || "—"}"`,
+        from: null,
+        to: machine.situacao || "—"
+      });
+    }
+
+    // 2. Modificações registradas em changeLog
+    if (Array.isArray(machine.changeLog)) {
+      machine.changeLog.forEach((log, idx) => {
+        const fieldName = log.label || log.field || "Modificação";
+        let tagColor = C.amber;
+        let icon = "✏️";
+        if (log.field === "situacao") {
+          tagColor = log.to === "BOA" ? C.green : log.to === "RUIM" ? C.red : C.blue;
+          icon = "🏷️";
+        } else if (log.field === "destino") {
+          tagColor = "#8b5cf6";
+          icon = "🚚";
+        } else if (log.field?.startsWith("hash") || log.field === "controladora" || log.field === "fonte" || log.field === "fans") {
+          tagColor = C.accent;
+          icon = "⚡";
+        }
+
+        list.push({
+          id: `log_${idx}`,
+          type: "modification",
+          date: log.at,
+          title: `Alteração de ${fieldName}`,
+          field: fieldName,
+          by: log.by || log.by_name || "Usuário",
+          tag: fieldName.toUpperCase(),
+          tagColor,
+          icon,
+          from: log.from ?? "—",
+          to: log.to ?? "—"
+        });
+      });
+    }
+
+    // 3. Testes realizados nesta máquina
+    const tests = (data.tests || []).filter(t => t.machineSN === sn && sn);
+    tests.forEach((t, idx) => {
+      const emp = data.employees?.find(e => e._id === t.employeeId);
+      const isGood = t.overallResult === "good";
+      const isBad = t.overallResult === "bad";
+      list.push({
+        id: `test_${t._id || idx}`,
+        type: "test",
+        date: t._at || t.date,
+        title: `Teste de Bancada`,
+        by: emp?.name || t.employeeName || t._byName || "Técnico",
+        tag: isGood ? "TESTE APROVADO" : isBad ? "TESTE REPROVADO" : "TESTE",
+        tagColor: isGood ? C.green : isBad ? C.red : C.blue,
+        icon: "🧪",
+        from: null,
+        to: isGood ? "Aprovado (BOA)" : isBad ? "Reprovado (RUIM)" : t.status,
+        photoKey: t.testPhoto,
+        slots: [
+          t.slot0HashSN && `Slot 0: ${t.slot0HashSN} (${t.slot0Result || "OK"})`,
+          t.slot1HashSN && `Slot 1: ${t.slot1HashSN} (${t.slot1Result || "OK"})`,
+          t.slot2HashSN && `Slot 2: ${t.slot2HashSN} (${t.slot2Result || "OK"})`
+        ].filter(Boolean)
+      });
+    });
+
+    // Ordenação
+    list.sort((a, b) => {
+      const tA = new Date(a.date || 0).getTime() || 0;
+      const tB = new Date(b.date || 0).getTime() || 0;
+      return sortOrder === "desc" ? tB - tA : tA - tB;
+    });
+
+    return list;
+  }, [machine, data.tests, data.employees, sortOrder]);
+
+  const createdDate = machine.added_at || machine.addedAt || machine._at || machine.at;
+  const lastModDate = events[0]?.date || createdDate;
+
+  return (
+    <div>
+      {/* Botões de Navegação Superior */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <button 
+          onClick={onBack} 
+          style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:6}}
+        >
+          ← Voltar ao Histórico
+        </button>
+        <div style={{display:"flex",gap:8}}>
+          <button 
+            onClick={() => setSortOrder(s => s === "desc" ? "asc" : "desc")} 
+            style={{background:C.card2,border:`1px solid ${C.border}`,color:C.accent,borderRadius:8,padding:"8px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}
+          >
+            {sortOrder === "desc" ? "⬇️ Mais recentes primeiro" : "⬆️ Mais antigas primeiro"}
+          </button>
+          <button 
+            onClick={() => setModal(<Modal title={`🖥️ Detalhes: ${machine.sn}`} wide onClose={()=>setModal(null)}><MachineDetail ctx={ctx} machine={machine}/></Modal>)} 
+            style={{background:C.blue,border:"none",color:"#fff",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:12,fontWeight:800}}
+          >
+            ⚙️ Editar / Ver Detalhes
+          </button>
+        </div>
+      </div>
+
+      {/* Header Resumo da Máquina */}
+      <div style={{background:C.card2,borderRadius:14,padding:18,border:`1px solid ${C.border}`,marginBottom:18}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
+          <div>
+            <div style={{fontSize:22,fontWeight:900,color:"#fff",letterSpacing:0.5}}>
+              🖥️ {machine.sn || "SEM SN"}
+            </div>
+            <div style={{fontSize:14,color:C.accent,fontWeight:800,marginTop:2}}>
+              Modelo: {machine.model || "—"} {machine.th ? `(${machine.th} TH)` : ""}
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <SP s={machine.situacao}/>
+            {machine.destino && (
+              <span style={{background:"#8b5cf622",color:"#a78bfa",border:"1px solid #8b5cf6",borderRadius:6,padding:"3px 10px",fontSize:12,fontWeight:700}}>
+                👤 {machine.destino}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Resumo de Datas e Componentes */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:12,marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+          <div>
+            <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",fontWeight:800}}>📅 Data de Cadastro</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginTop:2}}>
+              {fmtDateDisplay(createdDate)}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",fontWeight:800}}>⚡ Última Modificação</div>
+            <div style={{fontSize:13,fontWeight:700,color:C.accent,marginTop:2}}>
+              {fmtDateDisplay(lastModDate)}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",fontWeight:800}}>🔌 Componentes</div>
+            <div style={{fontSize:11,color:C.text,marginTop:2}}>
+              H0: {machine.hash0||"—"} · H1: {machine.hash1||"—"} · H2: {machine.hash2||"—"} · CTR: {machine.controladora||"—"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Linha do Tempo de Modificações com DATAS GRANDES */}
+      <SL mt={12}>📋 HISTÓRICO COMPLETO DE MODIFICAÇÕES ({events.length})</SL>
+      {events.length === 0 ? (
+        <div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24,background:C.card2,borderRadius:10}}>
+          Nenhuma modificação registrada para esta máquina.
+        </div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {events.map((ev, index) => {
+            const dateObj = fmtLargeDate(ev.date);
+            return (
+              <div 
+                key={ev.id} 
+                style={{
+                  background: C.card2,
+                  borderRadius: 14,
+                  padding: "16px 20px",
+                  border: `1px solid ${C.border}`,
+                  borderLeft: `6px solid ${ev.tagColor || C.accent}`,
+                  boxShadow: "0 4px 15px rgba(0,0,0,0.25)"
+                }}
+              >
+                {/* Linha da DATA GRANDE */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${C.border}`,paddingBottom:10,marginBottom:12,flexWrap:"wrap",gap:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <span style={{fontSize:26}}>{ev.icon}</span>
+                    <div>
+                      {/* DATA GRANDE */}
+                      <div style={{fontSize:18,fontWeight:900,color:C.accent,letterSpacing:0.5}}>
+                        📅 {dateObj.date}
+                      </div>
+                      {dateObj.time && (
+                        <div style={{fontSize:13,color:"#fff",fontWeight:700,marginTop:2}}>
+                          ⏰ Horário: <span style={{color:"#ffd700",fontWeight:800}}>{dateObj.time}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{textAlign:"right"}}>
+                    <Tag color={ev.tagColor || C.blue}>{ev.tag}</Tag>
+                    <div style={{fontSize:11,color:C.muted,marginTop:4}}>
+                      Feito por: <strong style={{color:"#fff",fontSize:12}}>{ev.by}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Descrição e Valores */}
+                <div>
+                  <div style={{fontSize:14,fontWeight:800,color:C.text,marginBottom:6}}>
+                    {ev.title}
+                  </div>
+
+                  {ev.from !== null ? (
+                    <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginTop:8}}>
+                      <div style={{background:C.card,borderRadius:8,padding:"8px 14px",border:`1px solid ${C.border}`,minWidth:130}}>
+                        <span style={{fontSize:10,color:C.muted,textTransform:"uppercase",display:"block",fontWeight:700}}>Valor Anterior</span>
+                        <span style={{fontSize:14,fontWeight:800,color:C.red}}>{ev.from || "—"}</span>
+                      </div>
+                      <span style={{fontSize:22,color:C.accent,fontWeight:900}}>➔</span>
+                      <div style={{background:C.card,borderRadius:8,padding:"8px 14px",border:`1px solid ${C.border}`,minWidth:130}}>
+                        <span style={{fontSize:10,color:C.muted,textTransform:"uppercase",display:"block",fontWeight:700}}>Novo Valor</span>
+                        <span style={{fontSize:14,fontWeight:800,color:C.green}}>{ev.to || "—"}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{fontSize:12,color:C.subtle,marginTop:4}}>
+                      {ev.detail || ev.to}
+                    </div>
+                  )}
+
+                  {ev.slots && ev.slots.length > 0 && (
+                    <div style={{marginTop:8,padding:8,background:C.card,borderRadius:6,fontSize:11,color:C.muted}}>
+                      {ev.slots.join(" · ")}
+                    </div>
+                  )}
+
+                  {ev.photoKey && (
+                    <div style={{marginTop:10}}>
+                      <PhotoView photoKey={ev.photoKey} style={{maxHeight:160,borderRadius:8}}/>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HashHistoryFullView({ ctx, sn, onBack }) {
+  const { data, setModal } = ctx;
+  const [sortOrder, setSortOrder] = useState("desc");
+
+  const hash = data.hashes.find(h => h.sn === sn) || { sn, model: "—", status: "—" };
+
+  const events = useMemo(() => {
+    const list = [];
+
+    // 1. Cadastro inicial
+    const addDate = hash.added_at || hash.addedAt || hash._at || hash.at;
+    if (addDate) {
+      list.push({
+        id: "created",
+        type: "creation",
+        date: addDate,
+        title: "Cadastro da HASHboard",
+        by: hash.by_name || hash.by || hash._byName || hash.tecnico || "Sistema",
+        tag: "CADASTRO",
+        tagColor: C.green,
+        icon: "⚡➕",
+        detail: `Placa cadastrada com status "${hash.status || "—"}"`,
+        from: null,
+        to: hash.status || "—"
+      });
+    }
+
+    // 2. Modificações em changeLog
+    if (Array.isArray(hash.changeLog)) {
+      hash.changeLog.forEach((log, idx) => {
+        const fieldName = log.label || log.field || "Modificação";
+        list.push({
+          id: `log_${idx}`,
+          type: "modification",
+          date: log.at,
+          title: `Alteração de ${fieldName}`,
+          field: fieldName,
+          by: log.by || log.by_name || "Usuário",
+          tag: fieldName.toUpperCase(),
+          tagColor: C.accent,
+          icon: "✏️",
+          from: log.from ?? "—",
+          to: log.to ?? "—"
+        });
+      });
+    }
+
+    // 3. Consertos da placa
+    const repairs = (data.repairs || []).filter(r => r.hashSN === sn && sn);
+    repairs.forEach((r, idx) => {
+      const emp = data.employees?.find(e => e._id === r.employeeId);
+      list.push({
+        id: `repair_${r._id || idx}`,
+        type: "repair",
+        date: r._at || r.date,
+        title: `Conserto Realizado`,
+        by: emp?.name || r._byName || "Técnico",
+        tag: "CONSERTO",
+        tagColor: C.accent,
+        icon: "🔧",
+        from: null,
+        to: `Status: ${r.status || "OK"} · Chips: ${r.chips || 0} · LDOs: ${r.ldos || 0}`,
+        notes: r.obsManual
+      });
+    });
+
+    list.sort((a, b) => {
+      const tA = new Date(a.date || 0).getTime() || 0;
+      const tB = new Date(b.date || 0).getTime() || 0;
+      return sortOrder === "desc" ? tB - tA : tA - tB;
+    });
+
+    return list;
+  }, [hash, data.repairs, data.employees, sortOrder]);
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <button 
+          onClick={onBack} 
+          style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"8px 16px",cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:6}}
+        >
+          ← Voltar ao Histórico
+        </button>
+        <button 
+          onClick={() => setSortOrder(s => s === "desc" ? "asc" : "desc")} 
+          style={{background:C.card2,border:`1px solid ${C.border}`,color:C.accent,borderRadius:8,padding:"8px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}
+        >
+          {sortOrder === "desc" ? "⬇️ Mais recentes primeiro" : "⬆️ Mais antigas primeiro"}
+        </button>
+      </div>
+
+      <div style={{background:C.card2,borderRadius:14,padding:18,border:`1px solid ${C.border}`,marginBottom:18}}>
+        <div style={{fontSize:22,fontWeight:900,color:"#fff"}}>
+          ⚡ {hash.sn || "SEM SN"}
+        </div>
+        <div style={{fontSize:14,color:C.accent,fontWeight:800,marginTop:2}}>
+          Modelo: {hash.model || "—"} · Status: {hash.status || "—"} {hash.location ? `· Local: ${hash.location}` : ""}
+        </div>
+      </div>
+
+      <SL mt={12}>📋 HISTÓRICO COMPLETO DA HASHBOARD ({events.length})</SL>
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {events.map(ev => {
+          const dateObj = fmtLargeDate(ev.date);
+          return (
+            <div 
+              key={ev.id} 
+              style={{
+                background: C.card2,
+                borderRadius: 14,
+                padding: "16px 20px",
+                border: `1px solid ${C.border}`,
+                borderLeft: `6px solid ${ev.tagColor || C.accent}`
+              }}
+            >
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${C.border}`,paddingBottom:10,marginBottom:12,flexWrap:"wrap",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <span style={{fontSize:26}}>{ev.icon}</span>
+                  <div>
+                    <div style={{fontSize:18,fontWeight:900,color:C.accent}}>
+                      📅 {dateObj.date}
+                    </div>
+                    {dateObj.time && (
+                      <div style={{fontSize:13,color:"#fff",fontWeight:700,marginTop:2}}>
+                        ⏰ Horário: <span style={{color:"#ffd700"}}>{dateObj.time}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <Tag color={ev.tagColor || C.blue}>{ev.tag}</Tag>
+                  <div style={{fontSize:11,color:C.muted,marginTop:4}}>Por: <strong style={{color:"#fff"}}>{ev.by}</strong></div>
+                </div>
+              </div>
+
+              <div>
+                <div style={{fontSize:14,fontWeight:800,color:C.text}}>{ev.title}</div>
+                {ev.from !== null ? (
+                  <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginTop:8}}>
+                    <div style={{background:C.card,borderRadius:8,padding:"8px 14px",border:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:10,color:C.muted,display:"block"}}>Anterior</span>
+                      <span style={{fontSize:14,fontWeight:800,color:C.red}}>{ev.from || "—"}</span>
+                    </div>
+                    <span style={{fontSize:22,color:C.accent}}>➔</span>
+                    <div style={{background:C.card,borderRadius:8,padding:"8px 14px",border:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:10,color:C.muted,display:"block"}}>Novo</span>
+                      <span style={{fontSize:14,fontWeight:800,color:C.green}}>{ev.to || "—"}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{fontSize:12,color:C.subtle,marginTop:4}}>{ev.detail || ev.to}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function EmpHistory({ctx,emp}){
   const{data,mutate,user,webhookUrl}=ctx;
   const[dateFilter,setDateFilter]=useState(TODAY());
   const[searchSN,setSearchSN]=useState("");
   const[activeTab,setActiveTab]=useState("all"); // "all" | "repairs" | "tests" | "machines" | "hashes"
+  const[selectedMachineSN, setSelectedMachineSN]=useState(null);
+  const[selectedHashSN, setSelectedHashSN]=useState(null);
   const isSuperAdmin=user.code==="019";
 
   const empNameNorm = (emp.name || "").trim().toLowerCase();
@@ -15685,6 +16155,16 @@ function EmpHistory({ctx,emp}){
     return list.sort((a,b) => (b.at || "").localeCompare(a.at || ""));
   }, [data.hashes, emp]);
 
+  // Se o usuário clicou numa máquina para ver o histórico completo:
+  if (selectedMachineSN) {
+    return <MachineHistoryFullView ctx={ctx} sn={selectedMachineSN} onBack={() => setSelectedMachineSN(null)} />;
+  }
+
+  // Se o usuário clicou numa HASH para ver o histórico completo:
+  if (selectedHashSN) {
+    return <HashHistoryFullView ctx={ctx} sn={selectedHashSN} onBack={() => setSelectedHashSN(null)} />;
+  }
+
   // Filtros de busca e data
   const dayR = allR.filter(r => {
     const matchesDate = !dateFilter || r.date === dateFilter;
@@ -15764,7 +16244,7 @@ function EmpHistory({ctx,emp}){
 
   return <div>
     {/* Grid de Totais por Categoria */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(90px, 1fr))",gap:8,marginBottom:14}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:8,marginBottom:14}}>
       {[
         [allR.filter(r=>r.type!=="already_good").length,"Consertos",C.accent,"repairs"],
         [allT.length,"Testes",C.blue,"tests"],
@@ -15779,20 +16259,20 @@ function EmpHistory({ctx,emp}){
             background: activeTab === key ? `${c}22` : C.card2,
             border: activeTab === key ? `1px solid ${c}` : `1px solid transparent`,
             borderRadius:10,
-            padding:"8px 6px",
+            padding:"10px 8px",
             textAlign:"center",
             cursor: key !== "feedbacks" ? "pointer" : "default",
             transition: "all 0.15s ease"
           }}
         >
-          <div style={{fontSize:20,fontWeight:900,color:c}}>{v}</div>
-          <div style={{fontSize:10,color:C.muted,marginTop:2}}>{l}</div>
+          <div style={{fontSize:22,fontWeight:900,color:c}}>{v}</div>
+          <div style={{fontSize:11,color:C.muted,marginTop:2}}>{l}</div>
         </div>
       ))}
     </div>
 
     {/* Abas / Filtro de Categoria */}
-    <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+    <div style={{display:"flex",gap:8,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
       {[
         { id: "all", label: "📋 Todos", count: dayR.length + dayT.length + dayM.length + dayH.length },
         { id: "repairs", label: "🔧 Consertos", count: dayR.length, color: C.accent },
@@ -15808,24 +16288,24 @@ function EmpHistory({ctx,emp}){
             color: activeTab === tab.id ? "#000" : C.text,
             border: `1px solid ${activeTab === tab.id ? (tab.color || C.accent) : C.border}`,
             borderRadius: 20,
-            padding: "5px 12px",
-            fontSize: 11,
-            fontWeight: activeTab === tab.id ? 800 : 500,
+            padding: "6px 14px",
+            fontSize: 12,
+            fontWeight: activeTab === tab.id ? 800 : 600,
             cursor: "pointer",
             whiteSpace: "nowrap",
             display: "flex",
             alignItems: "center",
-            gap: 5
+            gap: 6
           }}
         >
           <span>{tab.label}</span>
           <span style={{
-            background: activeTab === tab.id ? "rgba(0,0,0,0.2)" : C.card,
+            background: activeTab === tab.id ? "rgba(0,0,0,0.25)" : C.card,
             color: activeTab === tab.id ? "#000" : C.muted,
             borderRadius: 10,
-            padding: "1px 6px",
+            padding: "1px 7px",
             fontSize: 10,
-            fontWeight: 700
+            fontWeight: 800
           }}>
             {tab.count}
           </span>
@@ -15839,41 +16319,42 @@ function EmpHistory({ctx,emp}){
         value={searchSN} 
         onChange={e=>setSearchSN(e.target.value.toUpperCase())} 
         placeholder="🔍 Buscar por SN da HASH ou Máquina..." 
-        style={{...inp,width:"100%"}}
+        style={{...inp,width:"100%",padding:"10px 14px",fontSize:13}}
       />
     </div>
 
     {/* Filtro de Data e Ações */}
-    <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}>
+    <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"flex-end"}}>
       <div style={{flex:1}}>
         <DateInp label="Data" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}/>
       </div>
-      <Btn v="s" onClick={()=>{setDateFilter("");setSearchSN("");setActiveTab("all");}} style={{marginBottom:12,fontSize:11}}>📜 Tudo</Btn>
-      <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12}}>📤</Btn>
+      <Btn v="s" onClick={()=>{setDateFilter("");setSearchSN("");setActiveTab("all");}} style={{marginBottom:12,fontSize:11,padding:"10px 14px"}}>📜 Tudo</Btn>
+      <Btn v="s" onClick={()=>copyReport(emp,data.repairs,data.tests,dateFilter,ctx.setModal)} style={{marginBottom:12,fontSize:12,padding:"10px 14px"}}>📤 Copiar</Btn>
     </div>
 
     {/* Lista de Registros */}
     {totalFiltered === 0 ? (
-      <div style={{color:C.muted,fontSize:13,textAlign:"center",padding:24,background:C.card2,borderRadius:8}}>
+      <div style={{color:C.muted,fontSize:13,textAlign:"center",padding:28,background:C.card2,borderRadius:10}}>
         Sem registros {dateFilter ? `em ${fmtDate(dateFilter)}` : ""} nesta categoria
       </div>
     ) : (
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {/* Consertos */}
         {(activeTab === "all" || activeTab === "repairs") && dayR.map(r => {
           const isRemove = r.type?.startsWith("remove");
           const accent = r.type==="already_good"?C.green:r.type==="rework"?C.amber:isRemove?C.red:C.blue;
           const icon = r.type==="already_good"?"✅":r.type==="rework"?"🔁 RETRABALHO":r.type==="remove_machine"?"🗑️ MÁQUINA REMOVIDA":r.type==="remove_hash"?"🗑️ HASH REMOVIDA":"🔧 CONSERTO";
           return (
-            <Card key={r._id} accent={accent}>
+            <Card key={r._id} accent={accent} style={{margin:0,cursor:r.hashSN?"pointer":"default"}} onClick={()=>{if(r.hashSN)setSelectedHashSN(r.hashSN)}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div>
-                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div>
+                  <div style={{fontWeight:700,fontSize:14,color:C.text}}>{icon} {r.hashSN||"SEM SN"} — {r.model}</div>
                   <div style={{fontSize:11,color:C.muted,marginTop:2}}>Técnico: {emp.name} · Status: {r.status || "OK"}</div>
-                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmtTS(r._at || r.date)}</div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:4}}>📅 {fmtTS(r._at || r.date)}</div>
+                  {r.hashSN && <div style={{fontSize:11,color:C.accent,marginTop:4,fontWeight:700}}>🔍 Ver histórico completo da HASH ➔</div>}
                 </div>
                 {isSuperAdmin && (
-                  <button onClick={()=>delItem(r,true)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:4}}>✕</button>
+                  <button onClick={(e)=>{e.stopPropagation();delItem(r,true)}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:4}}>✕</button>
                 )}
               </div>
             </Card>
@@ -15882,17 +16363,18 @@ function EmpHistory({ctx,emp}){
 
         {/* Testes */}
         {(activeTab === "all" || activeTab === "tests") && dayT.map(t => (
-          <Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red}>
+          <Card key={t._id} accent={t.status==="pending"?C.blue:t.status==="rejected"?C.amber:t.overallResult==="good"?C.green:C.red} style={{margin:0,cursor:t.machineSN?"pointer":"default"}} onClick={()=>{if(t.machineSN)setSelectedMachineSN(t.machineSN)}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div>
-                <div style={{fontWeight:700,fontSize:13,color:C.text}}>🧪 TESTE — {t.machineSN||"SEM SN"} ({t.model})</div>
+                <div style={{fontWeight:700,fontSize:14,color:C.text}}>🧪 TESTE — {t.machineSN||"SEM SN"} ({t.model})</div>
                 <div style={{fontSize:11,color:C.muted,marginTop:2}}>
                   Resultado: {t.overallResult==="good"?"Aprovado (BOA)":t.overallResult==="bad"?"Reprovado (RUIM)":t.status}
                 </div>
-                <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmtTS(t._at || t.date)}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:4}}>📅 {fmtTS(t._at || t.date)}</div>
+                {t.machineSN && <div style={{fontSize:11,color:C.blue,marginTop:4,fontWeight:700}}>🔍 Ver histórico completo da máquina ➔</div>}
               </div>
               {isSuperAdmin && (
-                <button onClick={()=>delItem(t,false)} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:4}}>✕</button>
+                <button onClick={(e)=>{e.stopPropagation();delItem(t,false)}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:4}}>✕</button>
               )}
             </div>
           </Card>
@@ -15904,14 +16386,26 @@ function EmpHistory({ctx,emp}){
           const accent = isAdd ? C.green : C.amber;
           const icon = isAdd ? "🖥️➕" : "🖥️✏️";
           return (
-            <Card key={m._id} accent={accent}>
+            <Card 
+              key={m._id} 
+              accent={accent}
+              style={{margin:0,cursor:"pointer",transition:"all 0.15s ease"}}
+              onClick={() => setSelectedMachineSN(m.sn)}
+            >
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div>
-                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>
+                  <div style={{fontWeight:700,fontSize:14,color:C.text}}>
                     {icon} <span style={{color:accent}}>{m.actionLabel}</span> — {m.sn} ({m.model})
                   </div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{m.detail}</div>
-                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmtTS(m.at)}</div>
+                  <div style={{fontSize:12,color:"#fff",marginTop:4,background:C.card2,display:"inline-block",padding:"3px 8px",borderRadius:6}}>
+                    {m.detail}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:6}}>
+                    📅 {fmtTS(m.at)}
+                  </div>
+                  <div style={{fontSize:11,color:C.accent,marginTop:6,display:"flex",alignItems:"center",gap:4,fontWeight:700}}>
+                    🔍 Toque para ver histórico completo desta máquina ➔
+                  </div>
                 </div>
               </div>
             </Card>
@@ -15924,14 +16418,26 @@ function EmpHistory({ctx,emp}){
           const accent = isAdd ? "#a78bfa" : C.blue;
           const icon = isAdd ? "⚡➕" : "⚡✏️";
           return (
-            <Card key={h._id} accent={accent}>
+            <Card 
+              key={h._id} 
+              accent={accent}
+              style={{margin:0,cursor:"pointer",transition:"all 0.15s ease"}}
+              onClick={() => setSelectedHashSN(h.sn)}
+            >
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                 <div>
-                  <div style={{fontWeight:700,fontSize:13,color:C.text}}>
+                  <div style={{fontWeight:700,fontSize:14,color:C.text}}>
                     {icon} <span style={{color:accent}}>{h.actionLabel}</span> — {h.sn} ({h.model})
                   </div>
-                  <div style={{fontSize:11,color:C.muted,marginTop:2}}>{h.detail}</div>
-                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmtTS(h.at)}</div>
+                  <div style={{fontSize:12,color:"#fff",marginTop:4,background:C.card2,display:"inline-block",padding:"3px 8px",borderRadius:6}}>
+                    {h.detail}
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,marginTop:6}}>
+                    📅 {fmtTS(h.at)}
+                  </div>
+                  <div style={{fontSize:11,color:"#a78bfa",marginTop:6,display:"flex",alignItems:"center",gap:4,fontWeight:700}}>
+                    🔍 Toque para ver histórico completo desta HASHboard ➔
+                  </div>
                 </div>
               </div>
             </Card>
@@ -15941,7 +16447,7 @@ function EmpHistory({ctx,emp}){
     )}
 
     {/* Histórico por Data */}
-    <SL mt={16}>Por Dia</SL>
+    <SL mt={20}>Por Dia</SL>
     {Object.keys(byDate).sort().reverse().slice(0,25).map(d => (
       <div 
         key={d} 
@@ -15950,13 +16456,13 @@ function EmpHistory({ctx,emp}){
           display:"flex",
           justifyContent:"space-between",
           alignItems:"center",
-          padding:"8px 4px",
+          padding:"9px 6px",
           borderBottom:"1px solid "+C.border,
-          fontSize:12,
+          fontSize:13,
           cursor:"pointer"
         }}
       >
-        <span style={{color:d===dateFilter?C.accent:C.text, fontWeight: d===dateFilter?700:400}}>{fmtDate(d)}</span>
+        <span style={{color:d===dateFilter?C.accent:C.text, fontWeight: d===dateFilter?800:400}}>📅 {fmtDate(d)}</span>
         <Tag color={d===dateFilter?C.accent:C.muted} small>{byDate[d]}</Tag>
       </div>
     ))}
