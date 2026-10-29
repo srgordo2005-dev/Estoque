@@ -4119,6 +4119,72 @@ function AdminSummary({ctx, data, setTab}){
 }
 
 
+
+/* ═══ UTILITÁRIOS GLOBAIS DE DATA (CRIAÇÃO E MODIFICAÇÃO) ═══════════ */
+const getItemCreatedDate = (item) => {
+  if (!item) return null;
+  if (item.addedAt && String(item.addedAt).length >= 10) return item.addedAt;
+  if (item.added_at && String(item.added_at).length >= 10) return item.added_at;
+  if (item.createdAt && String(item.createdAt).length >= 10) return item.createdAt;
+  if (item.created_at && String(item.created_at).length >= 10) return item.created_at;
+  if (Array.isArray(item.changeLog) && item.changeLog.length > 0) {
+    const oldest = item.changeLog[item.changeLog.length - 1];
+    if (oldest?.at) return oldest.at;
+  }
+  return item._at || item.at || null;
+};
+
+const getItemModifiedDate = (item) => {
+  if (!item) return null;
+  if (Array.isArray(item.changeLog) && item.changeLog.length > 0) {
+    if (item.changeLog[0]?.at) return item.changeLog[0].at;
+  }
+  if (item.updatedAt && String(item.updatedAt).length >= 10) return item.updatedAt;
+  if (item.updated_at && String(item.updated_at).length >= 10) return item.updated_at;
+  if (item._at || item.at) return item._at || item.at;
+  if (item.reviewed_at) return item.reviewed_at;
+  return getItemCreatedDate(item);
+};
+
+const fmtDateDisplay = (dStr) => {
+  if (!dStr) return "—";
+  try {
+    const d = new Date(dStr);
+    if (isNaN(d.getTime())) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+        const [y, m, day] = dStr.split("-");
+        return `${day}/${m}/${y}`;
+      }
+      return String(dStr);
+    }
+    return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return String(dStr);
+  }
+};
+
+const isInDateRange = (dStr, start, end) => {
+  if (!dStr) return false;
+  let ymd = "";
+  try {
+    const d = new Date(dStr);
+    if (!isNaN(d.getTime())) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      ymd = `${year}-${month}-${day}`;
+    } else if (typeof dStr === "string" && dStr.length >= 10) {
+      ymd = dStr.slice(0, 10);
+    }
+  } catch {
+    ymd = String(dStr).slice(0, 10);
+  }
+  if (!ymd) return false;
+  if (start && ymd < start) return false;
+  if (end && ymd > end) return false;
+  return true;
+};
+
 /* ═══ MACHINES ══════════════════════════════════════════════════ */
 function FilterBar({filters,active,onToggle,counts,label}){
   const[open,setOpen]=useState(false);
@@ -4185,6 +4251,7 @@ function MacPage({ctx}){
   const [search, setSearch] = useState("");
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
+  const [dateType, setDateType] = useState("any"); // "any" | "created" | "modified"
   const [selected, setSelected] = useState(new Set());
   const [selMode, setSelMode] = useState(false);
   const [bulkAction, setBulkAction] = useState(null);
@@ -4208,16 +4275,21 @@ function MacPage({ctx}){
     const typOk=typF.length===0||typF.some(([k])=>(k==="complete"&&m.type==="complete")||(k==="shell"&&m.type==="shell")||(k==="nosn"&&!m.sn)||(k==="withHash"&&(m.hash0==="ON"||m.hash1==="ON"||m.hash2==="ON"))||(k==="noHash"&&m.hash0!=="ON"&&m.hash1!=="ON"&&m.hash2!=="ON"));
     const modelOk=modelFilters.size===0||modelFilters.has(m.model);
     const dateOk=(!dateStart && !dateEnd) || (() => {
-      const primary = m._at || m.at || m.created_at || m.added_at || m.reviewed_at;
-      const match = d => {
-        if (!d) return false;
-        const ymd = String(d).slice(0, 10);
-        if (dateStart && ymd < dateStart) return false;
-        if (dateEnd && ymd > dateEnd) return false;
-        return true;
-      };
-      if (match(primary)) return true;
-      if (Array.isArray(m.changeLog) && m.changeLog.some(l => match(l.at))) return true;
+      const cDate = getItemCreatedDate(m);
+      const mDate = getItemModifiedDate(m);
+      const effEnd = dateEnd || dateStart;
+      if (dateType === "created") {
+        return isInDateRange(cDate, dateStart, effEnd);
+      }
+      if (dateType === "modified") {
+        if (isInDateRange(mDate, dateStart, effEnd)) return true;
+        if (Array.isArray(m.changeLog) && m.changeLog.some(l => isInDateRange(l.at, dateStart, effEnd))) return true;
+        return false;
+      }
+      // "any"
+      if (isInDateRange(cDate, dateStart, effEnd)) return true;
+      if (isInDateRange(mDate, dateStart, effEnd)) return true;
+      if (Array.isArray(m.changeLog) && m.changeLog.some(l => isInDateRange(l.at, dateStart, effEnd))) return true;
       return false;
     })();
     return ms&&sitOk&&typOk&&modelOk&&dateOk;
@@ -4251,26 +4323,83 @@ function MacPage({ctx}){
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por SN, modelo, local, destino..." style={{background:"none",border:"none",color:C.text,fontSize:16,flex:1,outline:"none", fontWeight:600}}/>
       </div>
 
-      {/* Filtro por Data (De tal até tal) */}
-      <div style={{background:C.card,borderRadius:12,padding:"10px 14px",border:`1px solid ${(dateStart||dateEnd)?C.accent:C.border}`,display:"flex",flexDirection:"column",gap:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:11,fontWeight:800,color:(dateStart||dateEnd)?C.accent:C.subtle,letterSpacing:1,textTransform:"uppercase",display:"flex",alignItems:"center",gap:6}}>
-            📅 Filtrar por Data {(dateStart||dateEnd)&&<Tag color={C.accent} small>Ativo</Tag>}
-          </span>
-          {(dateStart||dateEnd)&&<button onClick={()=>{setDateStart("");setDateEnd("")}} style={{background:"none",border:"none",color:C.accent,cursor:"pointer",fontSize:11,fontWeight:700}}>✕ Limpar data</button>}
-        </div>
-        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-          <div style={{flex:1,minWidth:130,display:"flex",alignItems:"center",gap:6,background:C.card2,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted,fontWeight:700}}>De:</span>
-            <input type="date" value={dateStart} onChange={e=>setDateStart(e.target.value)} style={{background:"none",border:"none",color:C.text,fontSize:12,outline:"none",width:"100%",cursor:"pointer",fontWeight:600}}/>
+      {/* Filtro por Data e Métricas em Tempo Real */}
+      {(() => {
+        const effEnd = dateEnd || dateStart;
+        const macCountCreated = (dateStart || dateEnd)
+          ? data.machines.filter(m => isInDateRange(getItemCreatedDate(m), dateStart, effEnd)).length
+          : data.machines.filter(m => isInDateRange(getItemCreatedDate(m), TODAY(), TODAY())).length;
+        const macCountModified = (dateStart || dateEnd)
+          ? data.machines.filter(m => {
+              const mDate = getItemModifiedDate(m);
+              if (isInDateRange(mDate, dateStart, effEnd)) return true;
+              if (Array.isArray(m.changeLog) && m.changeLog.some(l => isInDateRange(l.at, dateStart, effEnd))) return true;
+              return false;
+            }).length
+          : data.machines.filter(m => {
+              const mDate = getItemModifiedDate(m);
+              if (isInDateRange(mDate, TODAY(), TODAY())) return true;
+              if (Array.isArray(m.changeLog) && m.changeLog.some(l => isInDateRange(l.at, TODAY(), TODAY()))) return true;
+              return false;
+            }).length;
+
+        return (
+          <div style={{background:C.card,borderRadius:14,padding:"12px 16px",border:`1px solid ${(dateStart||dateEnd)?C.accent:C.border}`,boxShadow:"0 4px 16px rgba(0,0,0,0.2)",display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:16}}>📅</span>
+                <span style={{fontSize:12,fontWeight:900,color:(dateStart||dateEnd)?C.accent:C.text,letterSpacing:0.5,textTransform:"uppercase"}}>
+                  Filtro por Data
+                </span>
+                {(dateStart||dateEnd)&&<Tag color={C.accent} small>Ativo</Tag>}
+              </div>
+
+              <div style={{display:"flex",gap:4,background:C.card2,padding:3,borderRadius:8,border:`1px solid ${C.border}`}}>
+                <button type="button" onClick={()=>setDateType("any")} style={{background:dateType==="any"?C.accent:"none",border:"none",color:dateType==="any"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>Qualquer Data</button>
+                <button type="button" onClick={()=>setDateType("created")} style={{background:dateType==="created"?C.accent:"none",border:"none",color:dateType==="created"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>✨ Criação</button>
+                <button type="button" onClick={()=>setDateType("modified")} style={{background:dateType==="modified"?C.accent:"none",border:"none",color:dateType==="modified"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>🔄 Modificação</button>
+              </div>
+
+              {(dateStart||dateEnd)&&<button onClick={()=>{setDateStart("");setDateEnd("")}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:11,fontWeight:800}}>✕ Limpar data</button>}
+            </div>
+
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:130,display:"flex",alignItems:"center",gap:6,background:C.card2,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+                <span style={{fontSize:11,color:C.muted,fontWeight:700}}>De:</span>
+                <input type="date" value={dateStart} onChange={e=>setDateStart(e.target.value)} style={{background:"none",border:"none",color:C.text,fontSize:12,outline:"none",width:"100%",cursor:"pointer",fontWeight:600}}/>
+              </div>
+              <span style={{fontSize:12,color:C.muted,fontWeight:700}}>até</span>
+              <div style={{flex:1,minWidth:130,display:"flex",alignItems:"center",gap:6,background:C.card2,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+                <span style={{fontSize:11,color:C.muted,fontWeight:700}}>Até:</span>
+                <input type="date" value={dateEnd} onChange={e=>setDateEnd(e.target.value)} style={{background:"none",border:"none",color:C.text,fontSize:12,outline:"none",width:"100%",cursor:"pointer",fontWeight:600}}/>
+              </div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                <button type="button" onClick={()=>{const t=TODAY();setDateStart(t);setDateEnd(t)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Hoje</button>
+                <button type="button" onClick={()=>{const d=new Date();d.setDate(d.getDate()-1);const y=d.toISOString().slice(0,10);setDateStart(y);setDateEnd(y)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Ontem</button>
+                <button type="button" onClick={()=>{const d=new Date();d.setDate(d.getDate()-7);setDateStart(d.toISOString().slice(0,10));setDateEnd(TODAY())}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>7 Dias</button>
+              </div>
+            </div>
+
+            {/* Contador em Tempo Real */}
+            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:"rgba(255,215,0,0.06)",border:`1px solid rgba(255,215,0,0.2)`,borderRadius:10,padding:"8px 12px"}}>
+              <div style={{fontSize:11,fontWeight:800,color:C.subtle,textTransform:"uppercase"}}>
+                {(dateStart||dateEnd) ? (dateStart===effEnd ? `Em ${fmtDateDisplay(dateStart)}:` : `No período:`) : `Hoje (${fmtDateDisplay(TODAY())}):`}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:13}}>✨</span>
+                <span style={{fontSize:12,color:C.muted}}>Criadas:</span>
+                <span style={{fontSize:13,fontWeight:900,color:C.green}}>{macCountCreated}</span>
+              </div>
+              <div style={{width:1,height:14,background:C.border}}/>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:13}}>🔄</span>
+                <span style={{fontSize:12,color:C.muted}}>Modificadas:</span>
+                <span style={{fontSize:13,fontWeight:900,color:"#ffd700"}}>{macCountModified}</span>
+              </div>
+            </div>
           </div>
-          <span style={{fontSize:12,color:C.muted,fontWeight:700}}>até</span>
-          <div style={{flex:1,minWidth:130,display:"flex",alignItems:"center",gap:6,background:C.card2,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
-            <span style={{fontSize:11,color:C.muted,fontWeight:700}}>Até:</span>
-            <input type="date" value={dateEnd} onChange={e=>setDateEnd(e.target.value)} style={{background:"none",border:"none",color:C.text,fontSize:12,outline:"none",width:"100%",cursor:"pointer",fontWeight:600}}/>
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       <FilterBar filters={macFilters} active={activeFilters} onToggle={toggleFilter} counts={macCounts} label={"Situação/Tipo ("+filtered.length+"/"+data.machines.length+")"}/>
       
@@ -4301,7 +4430,34 @@ function MacPage({ctx}){
       :sorted.map(m=><div key={m._id} style={{position:"relative"}}>
       {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(m._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(m._id):s.delete(m._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
       <Card accent={SIT_C[m.situacao]||C.border} onClick={()=>!selMode&&openDetail(m)} style={{paddingLeft:selMode?36:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:14,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}{m.sheetRow&&<span style={{fontSize:11,color:C.muted,fontWeight:500,marginLeft:6}}>(Linha {m.sheetRow})</span>}</div><div style={{color:C.muted,fontSize:12}}>{m.model} · {m.th}TH</div><By by={m._byName} at={m._at}/><LastMove log={m.changeLog}/></div><SP s={m.situacao}/></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+          <div>
+            <div style={{fontWeight:800,fontSize:15,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}{m.sheetRow&&<span style={{fontSize:11,color:C.muted,fontWeight:500,marginLeft:6}}>(Linha {m.sheetRow})</span>}</div>
+            <div style={{color:C.muted,fontSize:12,marginTop:2}}>{m.model} · <b style={{color:C.blue}}>{m.th}TH</b></div>
+          </div>
+          <SP s={m.situacao}/>
+        </div>
+
+        {/* DATAS EM DESTAQUE (GRANDE E VISÍVEL) */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:8,background:"rgba(0,0,0,0.35)",border:`1px solid rgba(255,255,255,0.08)`,borderRadius:10,padding:"8px 12px",margin:"8px 0 10px"}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:C.subtle,display:"flex",alignItems:"center",gap:4,letterSpacing:0.5,textTransform:"uppercase"}}>
+              <span>✨</span> CRIADA EM:
+            </div>
+            <div style={{fontSize:13,fontWeight:900,color:"#e2e8f0",marginTop:2}}>
+              {fmtDateDisplay(getItemCreatedDate(m))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:C.accent,display:"flex",alignItems:"center",gap:4,letterSpacing:0.5,textTransform:"uppercase"}}>
+              <span>🔄</span> MODIFICADA EM:
+            </div>
+            <div style={{fontSize:13,fontWeight:900,color:"#ffd700",marginTop:2}}>
+              {fmtDateDisplay(getItemModifiedDate(m))}
+            </div>
+          </div>
+        </div>
+
         <div style={{display:"flex",gap:5,flexWrap:"wrap"}}><HP s={m.hash0}/><HP s={m.hash1}/><HP s={m.hash2}/>{m.controladora&&<span style={{fontSize:10,color:C.subtle}}>CTR:{m.controladora}</span>}{m.fans&&<span style={{fontSize:10,color:C.subtle}}>FAN:{m.fans}</span>}</div>
       </Card></div>)}
     {bulkAction&&<Modal wide={bulkAction==="report"} title={bulkAction==="report"?"📊 Relatório Profissional de Máquinas":bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="pallet"?"📦 Mover p/ Palete":bulkAction==="client"?"👤 Enviar p/ Cliente":bulkAction==="slots"?"🔌 Alterar Slots em Lote":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
@@ -8589,13 +8745,33 @@ function MachineDetail({ctx,machine,readOnly}){
 
 /* ═══ HASHES ════════════════════════════════════════════════════ */
 function HashPage({ctx}){
-  const{data,setModal,mutate,user,gChips}=ctx;const[search,setSearch]=useState(""),[fS,setFS]=useState("all"),[modelFilters,setModelFilters]=useState(new Set()),[selected,setSelected]=useState(new Set()),[selMode,setSelMode]=useState(false),[bulkAction,setBulkAction]=useState(null);
+  const{data,setModal,mutate,user,gChips}=ctx;
+  const[search,setSearch]=useState(""),[fS,setFS]=useState("all"),[modelFilters,setModelFilters]=useState(new Set()),[selected,setSelected]=useState(new Set()),[selMode,setSelMode]=useState(false),[bulkAction,setBulkAction]=useState(null);
+  const[dateStart,setDateStart]=useState("");
+  const[dateEnd,setDateEnd]=useState("");
+  const[dateType,setDateType]=useState("any");
   const toggleModel=mo=>setModelFilters(s=>{const n=new Set(s);n.has(mo)?n.delete(mo):n.add(mo);return n});
   const allModelsUsed=[...new Set(data.hashes.map(h=>h.model).filter(Boolean))].sort();
   const q=search.toLowerCase();
   const filtered=data.hashes.filter(h=>(!q||(h.sn||"").toLowerCase().includes(q)||h.model?.toLowerCase().includes(q)||h.location?.toLowerCase().includes(q)))
     .filter(h=>fS==="all"||h.status===fS)
-    .filter(h=>modelFilters.size===0||modelFilters.has(h.model));
+    .filter(h=>modelFilters.size===0||modelFilters.has(h.model))
+    .filter(h=>{
+      if(!dateStart && !dateEnd) return true;
+      const cDate = getItemCreatedDate(h);
+      const mDate = getItemModifiedDate(h);
+      const effEnd = dateEnd || dateStart;
+      if (dateType === "created") return isInDateRange(cDate, dateStart, effEnd);
+      if (dateType === "modified") {
+        if (isInDateRange(mDate, dateStart, effEnd)) return true;
+        if (Array.isArray(h.changeLog) && h.changeLog.some(l => isInDateRange(l.at, dateStart, effEnd))) return true;
+        return false;
+      }
+      if (isInDateRange(cDate, dateStart, effEnd)) return true;
+      if (isInDateRange(mDate, dateStart, effEnd)) return true;
+      if (Array.isArray(h.changeLog) && h.changeLog.some(l => isInDateRange(l.at, dateStart, effEnd))) return true;
+      return false;
+    });
   const sorted = [...filtered].sort((a,b)=>(b._at||b.createdAt||"").localeCompare(a._at||a.createdAt||""));
   const openAdd=()=>setModal(<Modal title="Adicionar HASH" onClose={()=>setModal(null)}><HashAddMode ctx={ctx} onClose={()=>setModal(null)}/></Modal>);
   const openDetail=h=>setModal(<Modal title={`⚡ ${h.sn||"SEM SN"}`} onClose={()=>setModal(null)}><HashDetail ctx={ctx} hash={h}/></Modal>);
@@ -8616,6 +8792,83 @@ function HashPage({ctx}){
         <span style={{fontSize: 22}}>🔍</span>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por SN, modelo, local..." style={{background:"none",border:"none",color:C.text,fontSize:16,flex:1,outline:"none", fontWeight:600}}/>
       </div>
+
+      {/* Filtro por Data e Métricas HASH */}
+      {(() => {
+        const effEnd = dateEnd || dateStart;
+        const hashCountCreated = (dateStart || dateEnd)
+          ? data.hashes.filter(h => isInDateRange(getItemCreatedDate(h), dateStart, effEnd)).length
+          : data.hashes.filter(h => isInDateRange(getItemCreatedDate(h), TODAY(), TODAY())).length;
+        const hashCountModified = (dateStart || dateEnd)
+          ? data.hashes.filter(h => {
+              const mDate = getItemModifiedDate(h);
+              if (isInDateRange(mDate, dateStart, effEnd)) return true;
+              if (Array.isArray(h.changeLog) && h.changeLog.some(l => isInDateRange(l.at, dateStart, effEnd))) return true;
+              return false;
+            }).length
+          : data.hashes.filter(h => {
+              const mDate = getItemModifiedDate(h);
+              if (isInDateRange(mDate, TODAY(), TODAY())) return true;
+              if (Array.isArray(h.changeLog) && h.changeLog.some(l => isInDateRange(l.at, TODAY(), TODAY()))) return true;
+              return false;
+            }).length;
+
+        return (
+          <div style={{background:C.card,borderRadius:14,padding:"12px 16px",border:`1px solid ${(dateStart||dateEnd)?C.accent:C.border}`,boxShadow:"0 4px 16px rgba(0,0,0,0.2)",display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:16}}>📅</span>
+                <span style={{fontSize:12,fontWeight:900,color:(dateStart||dateEnd)?C.accent:C.text,letterSpacing:0.5,textTransform:"uppercase"}}>
+                  Filtro por Data
+                </span>
+                {(dateStart||dateEnd)&&<Tag color={C.accent} small>Ativo</Tag>}
+              </div>
+
+              <div style={{display:"flex",gap:4,background:C.card2,padding:3,borderRadius:8,border:`1px solid ${C.border}`}}>
+                <button type="button" onClick={()=>setDateType("any")} style={{background:dateType==="any"?C.accent:"none",border:"none",color:dateType==="any"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>Qualquer Data</button>
+                <button type="button" onClick={()=>setDateType("created")} style={{background:dateType==="created"?C.accent:"none",border:"none",color:dateType==="created"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>✨ Criação</button>
+                <button type="button" onClick={()=>setDateType("modified")} style={{background:dateType==="modified"?C.accent:"none",border:"none",color:dateType==="modified"?"#fff":C.muted,padding:"4px 8px",borderRadius:6,fontSize:10,fontWeight:800,cursor:"pointer"}}>🔄 Modificação</button>
+              </div>
+
+              {(dateStart||dateEnd)&&<button onClick={()=>{setDateStart("");setDateEnd("")}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:11,fontWeight:800}}>✕ Limpar data</button>}
+            </div>
+
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:130,display:"flex",alignItems:"center",gap:6,background:C.card2,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+                <span style={{fontSize:11,color:C.muted,fontWeight:700}}>De:</span>
+                <input type="date" value={dateStart} onChange={e=>setDateStart(e.target.value)} style={{background:"none",border:"none",color:C.text,fontSize:12,outline:"none",width:"100%",cursor:"pointer",fontWeight:600}}/>
+              </div>
+              <span style={{fontSize:12,color:C.muted,fontWeight:700}}>até</span>
+              <div style={{flex:1,minWidth:130,display:"flex",alignItems:"center",gap:6,background:C.card2,borderRadius:8,padding:"6px 10px",border:`1px solid ${C.border}`}}>
+                <span style={{fontSize:11,color:C.muted,fontWeight:700}}>Até:</span>
+                <input type="date" value={dateEnd} onChange={e=>setDateEnd(e.target.value)} style={{background:"none",border:"none",color:C.text,fontSize:12,outline:"none",width:"100%",cursor:"pointer",fontWeight:600}}/>
+              </div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                <button type="button" onClick={()=>{const t=TODAY();setDateStart(t);setDateEnd(t)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Hoje</button>
+                <button type="button" onClick={()=>{const d=new Date();d.setDate(d.getDate()-1);const y=d.toISOString().slice(0,10);setDateStart(y);setDateEnd(y)}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Ontem</button>
+                <button type="button" onClick={()=>{const d=new Date();d.setDate(d.getDate()-7);setDateStart(d.toISOString().slice(0,10));setDateEnd(TODAY())}} style={{background:C.card2,border:`1px solid ${C.border}`,color:C.text,borderRadius:6,padding:"5px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>7 Dias</button>
+              </div>
+            </div>
+
+            <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",background:"rgba(255,215,0,0.06)",border:`1px solid rgba(255,215,0,0.2)`,borderRadius:10,padding:"8px 12px"}}>
+              <div style={{fontSize:11,fontWeight:800,color:C.subtle,textTransform:"uppercase"}}>
+                {(dateStart||dateEnd) ? (dateStart===effEnd ? `Em ${fmtDateDisplay(dateStart)}:` : `No período:`) : `Hoje (${fmtDateDisplay(TODAY())}):`}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:13}}>✨</span>
+                <span style={{fontSize:12,color:C.muted}}>Criadas:</span>
+                <span style={{fontSize:13,fontWeight:900,color:C.green}}>{hashCountCreated}</span>
+              </div>
+              <div style={{width:1,height:14,background:C.border}}/>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:13}}>🔄</span>
+                <span style={{fontSize:12,color:C.muted}}>Modificadas:</span>
+                <span style={{fontSize:13,fontWeight:900,color:"#ffd700"}}>{hashCountModified}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
 <button onClick={()=>setFS("all")} style={{background:fS==="all"?C.accent:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>Todas</button>{HST_OPTS.map(s=><button key={s} onClick={()=>setFS(s)} style={{background:fS===s?HST_C[s]:C.card,color:"#fff",border:"none",borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{s}</button>)}
@@ -8645,9 +8898,35 @@ function HashPage({ctx}){
       :sorted.map(h=>{const mac=data.machines.find(m=>m.sn===h.machineSN);const rep=data.employees.find(e=>e._id===h.repairedBy);const repName=rep?.name||h.repairedByName;return<div key={h._id} style={{position:"relative"}}>
       {selMode&&<div style={{position:"absolute",top:10,left:10,zIndex:5}}><input type="checkbox" checked={selected.has(h._id)} onChange={e=>{const s=new Set(selected);e.target.checked?s.add(h._id):s.delete(h._id);setSelected(s)}} style={{width:18,height:18,cursor:"pointer"}}/></div>}
       <Card accent={HST_C[h.status]||C.border} onClick={()=>!selMode&&openDetail(h)} style={{paddingLeft:selMode?36:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div><div style={{fontWeight:800,fontSize:14,color:h.status==="IRREPARAVEL"?"#9ca3af":C.blue}}>⚡ {h.sn||"SEM SN"}</div><div style={{color:C.muted,fontSize:12}}>{h.model}{h.material?` · ${h.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{(h.chips||gChips(h.model,h.material))?` · ${h.chips||gChips(h.model,h.material)} chips`:""}</div></div><HP s={h.status}/></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontWeight:800,fontSize:15,color:h.status==="IRREPARAVEL"?"#9ca3af":C.blue}}>⚡ {h.sn||"SEM SN"}</div>
+            <div style={{color:C.muted,fontSize:12,marginTop:2}}>{h.model}{h.material?` · ${h.material==="FIBRA"?"Fibra":"Alumínio"}`:""}{(h.chips||gChips(h.model,h.material))?` · ${h.chips||gChips(h.model,h.material)} chips`:""}</div>
+          </div>
+          <HP s={h.status}/>
+        </div>
+
+        {/* DATAS EM DESTAQUE HASH (GRANDE E VISÍVEL) */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:8,background:"rgba(0,0,0,0.35)",border:`1px solid rgba(255,255,255,0.08)`,borderRadius:10,padding:"8px 12px",margin:"8px 0 10px"}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:C.subtle,display:"flex",alignItems:"center",gap:4,letterSpacing:0.5,textTransform:"uppercase"}}>
+              <span>✨</span> CRIADA EM:
+            </div>
+            <div style={{fontSize:13,fontWeight:900,color:"#e2e8f0",marginTop:2}}>
+              {fmtDateDisplay(getItemCreatedDate(h))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:800,color:C.accent,display:"flex",alignItems:"center",gap:4,letterSpacing:0.5,textTransform:"uppercase"}}>
+              <span>🔄</span> MODIFICADA EM:
+            </div>
+            <div style={{fontSize:13,fontWeight:900,color:"#ffd700",marginTop:2}}>
+              {fmtDateDisplay(getItemModifiedDate(h))}
+            </div>
+          </div>
+        </div>
+
         <div style={{display:"flex",gap:10,fontSize:11,color:C.muted,marginTop:5}}>{mac?<span style={{color:C.accent}}>🖥️ {mac.sn||"SEM SN"} · Slot {h.slot>=0?h.slot+1:"?"}</span>:<span>📦 Solta</span>}{repName&&<span>👷 {repName}</span>}</div>
-        <By by={h._byName} at={h._at}/><LastMove log={h.changeLog}/>
       </Card></div>})}
     {bulkAction&&<Modal wide={bulkAction==="report"} title={bulkAction==="report"?"📊 Relatório Profissional de HASHboards":bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="location"?"📍 Mudar Local em Lote":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
       {bulkAction==="report"?<HashReportModal ctx={ctx} hashes={selHashes} onClose={()=>setBulkAction(null)}/>:<BulkHashAction ctx={ctx} action={bulkAction} hashes={selHashes} onDone={()=>{setBulkAction(null);setSelected(new Set());setSelMode(false)}}/>}
