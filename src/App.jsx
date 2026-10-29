@@ -2622,7 +2622,7 @@ export default function App(){
     ...(p.machines||p.hashes||isAdmin?[{id:"pal",icon:"📦",label:"Paletes"}]:[]),...(canSeeClients?[{id:"cli",icon:"👥",label:"Clientes"}]:[]),...(canApprove?[{id:"approvals",icon:"✅",label:"Revisão"}]:[]),...(canSeeTeam?[{id:"team",icon:"👷",label:"Equipe"}]:[]),...(user?.code==="019"?[{id:"scanner",icon:"📡",label:"Scanner"}]:[]),...(user?.code==="019"?[{id:"datacenter",icon:"🌐",label:"Fazenda"}]:[]),...(isSuperAdmin?[{id:"cfg",icon:"⚙️",label:"Config"}]:[]),
   ];
 
-  return<div style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,maxWidth:1240,margin:"0 auto",position:"relative"}}>
+  return<div className="app-layout-wrapper" style={{background:C.bg,minHeight:"100vh",fontFamily:"'Inter',system-ui,sans-serif",color:C.text,width:"100%",minWidth:"100%",position:"relative"}}>
     
     <div className="floating-coins-container">
       <div className="floating-coin coin-1">₿</div>
@@ -2671,7 +2671,7 @@ export default function App(){
       <div className="bg-blob-2" />
     </div>
 
-    <div style={{position:"relative",zIndex:1}}>
+    <div className="app-main-content" style={{position:"relative",zIndex:1}}>
       <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,padding:"12px 16px",position:"sticky",top:0,zIndex:100,display:"flex",alignItems:"center",gap:10}}>
         <img src="/logo.jpg" style={{width:24, height:24, borderRadius:"20%"}} alt="logo" />
         <div style={{flex:1, display:'flex', alignItems:'center', gap:8}}>
@@ -2721,7 +2721,7 @@ export default function App(){
       </div>
       {isSuperAdmin&&dataWarnings.length>0&&<div style={{background:"#2a0c0c",borderBottom:`1px solid ${C.red}`,padding:"8px 16px",fontSize:11,color:"#ff9b9b"}}>🛡️ {dataWarnings[0].msg} <span style={{color:C.muted}}>· ver mais em Config</span></div>}
       {isSuperAdmin&&dailyDiff&&<div onClick={()=>{setDailyDiff(null);setModal(<Modal title="🔄 Comparar com a Planilha" onClose={()=>setModal(null)}><SheetCompareReview ctx={ctx} onClose={()=>setModal(null)}/></Modal>)}} style={{background:"#2a1a0c",borderBottom:`1px solid ${C.amber}`,padding:"8px 16px",fontSize:11,color:C.amber,cursor:"pointer"}}>🔄 Checagem diária: {dailyDiff.total} diferença(s) entre o app e a planilha — toque pra ver e resolver</div>}
-      <div style={{padding:"14px 12px 100px"}}>
+      <div className="app-content-body">
         {tab==="home"&&<HomePage ctx={ctx} isAdmin={isAdmin} canApprove={canApprove} myFdbs={myFdbs} myRevisit={myRevisit} pendingApprs={pendingApprs} canSeeEmp={canSeeEmp}/>}
         {tab==="mac"&&(p.machines||isAdmin)&&<MacPage ctx={ctx}/>}
         {tab==="hsh"&&(p.hashes||isAdmin)&&<HashPage ctx={ctx}/>}
@@ -2736,17 +2736,20 @@ export default function App(){
         {tab==="datacenter"&&user?.code==="019"&&<DataCenterPage ctx={ctx}/>}
         {tab==="cfg"&&isSuperAdmin&&<CfgPage ctx={ctx}/>}
       </div>
-      {/* NAVEGAÇÃO LATERAL TECNOLÓGICA & RESPONSIVA */}
+      {/* NAVEGAÇÃO LATERAL TECNOLÓGICA & RESPONSIVA (RESPONSIVE NO-OVERLAP) */}
       <style>{`
         @media (min-width: 900px) {
-          .app-layout-wrapper { display: flex !important; min-height: 100vh; }
-          .app-sidebar { width: 250px; min-width: 250px; background: #0c1017; border-right: 1px solid ${C.border}; display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 200; backdrop-filter: blur(16px); }
-          .app-main-content { flex: 1; margin-left: 250px; padding: 20px 24px 40px !important; max-width: calc(100% - 250px); }
+          .app-layout-wrapper { display: flex !important; min-height: 100vh; width: 100% !important; }
+          .premium-sidebar { width: 260px !important; min-width: 260px !important; display: flex !important; position: fixed; top: 0; bottom: 0; left: 0; z-index: 200; }
+          .app-main-content { margin-left: 260px !important; width: calc(100% - 260px) !important; min-height: 100vh; display: flex; flex-direction: column; flex: 1; }
+          .app-content-body { padding: 20px 24px 60px !important; width: 100%; max-width: 1540px; margin: 0 auto; box-sizing: border-box; flex: 1; }
           .mobile-bottom-nav { display: none !important; }
         }
         @media (max-width: 899px) {
-          .app-sidebar { display: none !important; } .premium-sidebar { display: none !important; }
-          .app-main-content { padding: 14px 12px 100px !important; }
+          .app-layout-wrapper { width: 100% !important; }
+          .premium-sidebar { display: none !important; }
+          .app-main-content { margin-left: 0 !important; width: 100% !important; min-height: 100vh; display: flex; flex-direction: column; }
+          .app-content-body { padding: 14px 12px 100px !important; width: 100%; box-sizing: border-box; }
           .mobile-bottom-nav { display: flex !important; position: fixed; bottom: 0; left: 0; right: 0; background: #0c1017; border-top: 1px solid ${C.border}; z-index: 200; }
         }
       `}</style>
@@ -2810,9 +2813,7 @@ export default function App(){
       </aside>
 
       {/* MAIN CONTENT WRAPPER */}
-      <div className="app-main-content">
-        
-      </div>
+      
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
       {!mobileMenuHidden ? (

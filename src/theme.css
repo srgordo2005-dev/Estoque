@@ -85,16 +85,16 @@ h1, h2, h3, h4, h5, h6, .serif-title {
 
 /* Sidebar Ultra Premium */
 .premium-sidebar {
-  width: 280px; 
-  min-width: 280px; 
+  width: 260px; 
+  min-width: 260px; 
   background: linear-gradient(180deg, #0a0f19 0%, #111827 100%);
   border-right: 1px solid rgba(255, 215, 0, 0.4); 
   display: flex; 
   flex-direction: column; 
   position: fixed; 
   top: 0; bottom: 0; left: 0; 
-  z-index: 300; 
-  box-shadow: 15px 0 40px rgba(0,0,0,0.9);
+  z-index: 250; 
+  box-shadow: 10px 0 30px rgba(0,0,0,0.8);
 }
 
 .premium-sidebar-btn {
