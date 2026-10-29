@@ -2124,15 +2124,17 @@ export default function App(){
   // Mapeia a chave usada em markChanged() para o nome real da coleção no Firestore/Supabase
   const META_TO_COL={machines:"machines",hashes:"hashes",repairs:"repairs",tests:"tests",feedbacks:"feedbacks",approvals:"pendingApprovals",customModels:"customModels",pallets:"pallets",clients:"clients",shipments:"shipments",loadPhotos:"loadPhotos",orders:"orders",farmMachines:"farmMachines"};
   
-  // Cache buster: força expiração automática de caches obsoletos de consertos e hashes
-  const HS_DATA_VERSION="v7_fix_models";
+  // Cache buster: força expiração automática de caches obsoletos e sincroniza com os 1608 do estoque
+  const HS_DATA_VERSION="v10_stock_1608";
   if(typeof window!=="undefined"&&localStorage.getItem("hs_data_version")!==HS_DATA_VERSION){
+    localStorage.removeItem("hs_machines");
     localStorage.removeItem("hs_hashes");
     localStorage.removeItem("hs_repairs");
+    localStorage.removeItem("hs_tests");
     localStorage.removeItem("hs_customModels");
     localStorage.removeItem("hs_lastFullFetch");
-    localStorage.setItem("hs_maxcount_hashes","274");
-    localStorage.setItem("hs_maxcount_repairs","91");
+    localStorage.setItem("hs_maxcount_machines","1883");
+    localStorage.setItem("hs_maxcount_hashes","296");
     localStorage.setItem("hs_data_version",HS_DATA_VERSION);
   }
 
@@ -2144,7 +2146,7 @@ export default function App(){
     let colsToFetch = [...cols];
     if (!onlyKeys) {
       const lastFetch = Number(localStorage.getItem("hs_lastFullFetch") || "0");
-      if (Date.now() - lastFetch < 4 * 60 * 60 * 1000) {
+      if (Date.now() - lastFetch < 30 * 1000) {
         colsToFetch = colsToFetch.filter(c => {
            let cacheKey = "hs_" + (c === "pendingApprovals" ? "approvals" : c);
            return !localStorage.getItem(cacheKey);
@@ -13865,6 +13867,18 @@ const doImportHashes=async()=>{if(!url){alert("Configure o webhook");return}setI
       {fixHistProg&&<div style={{color:C.blue,fontSize:12,marginBottom:8}}>⏳ {fixHistProg}</div>}
       {fixHistRes&&<Alrt type={fixHistRes.startsWith("✓")?"ok":"err"}>{fixHistRes}</Alrt>}
       <Btn v="b" onClick={fixMissingHistory} disabled={fixingHist} style={{width:"100%"}}>{fixingHist?"Processando...":"📋 Recriar Histórico Faltante"}</Btn>
+    </Card>
+    <Card style={{marginBottom:14,border:`1px solid ${C.accent}`}}>
+      <SL>🔄 ATUALIZAR ESTOQUE DO SUPABASE (FORÇAR 1608 MÁQUINAS)</SL>
+      <div style={{color:C.muted,fontSize:11,marginBottom:10}}>Limpa qualquer cache antigo do navegador e baixa imediatamente as 1883 máquinas do banco de dados na nuvem (1608 ativas no estoque).</div>
+      <Btn v="y" onClick={async()=>{
+        localStorage.removeItem("hs_machines");
+        localStorage.removeItem("hs_hashes");
+        localStorage.removeItem("hs_lastFullFetch");
+        localStorage.setItem("hs_maxcount_machines","1883");
+        await loadAll();
+        alert("✓ Sucesso! Estoque sincronizado diretamente com o Supabase.");
+      }} style={{width:"100%"}}>🔄 Recarregar Dados Agora do Banco (Supabase)</Btn>
     </Card>
     <MigrationPanel ctx={ctx}/>
     <Card style={{marginBottom:14,border:`1px solid ${C.green}`}}>
