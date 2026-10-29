@@ -3142,11 +3142,16 @@ function CamModal({ctx,onClose}){
 function QMacEdit({item,ctx,onUpdate}){
   const{mutate,user,webhookUrl}=ctx;
   const save=async s=>{
-    const u={...item,situacao:s,...audit(user)};
+    const forceOn = s === "BOA";
+    const compPatch = forceOn ? { hash0: "ON", hash1: "ON", hash2: "ON", controladora: "ON", fonte: "ON", fans: "ON" } : {};
+    const u={...item,situacao:s,...compPatch,...audit(user)};
     mutate("machines",m=>m.map(x=>x._id===item._id?u:x));
     await fbSet("machines",item._id,u);
     await markChanged("machines");
     syncSheet(webhookUrl,"updateMachine",{sn:u.sn||undefined,row:!u.sn?item.sheetRow:undefined,field:"situacao",to:s,employeeName:user.name,employeeCode:user.code});
+    if(forceOn){
+      ["hash0","hash1","hash2","controladora","fonte","fans"].forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:k,to:"ON",employeeName:user.name,employeeCode:user.code}));
+    }
     onUpdate(u);
   };
   return<div>
@@ -8391,20 +8396,76 @@ function MachineDetail({ctx,machine,readOnly}){
       await upd("destino", "");
       syncSheet(webhookUrl,"machineFromClient",{sn:m.sn,employeeName:user.name,employeeCode:user.code});
     }
-    await upd("situacao",s);
-    // Marcar como BOA = máquina 100% funcionando — todas as peças ficam ON
-    // automaticamente. Pra qualquer outro status, fica livre (pode salvar
-    // parcial: só 1 HASH boa, só a controladora, só o fan, etc.).
-    if(s==="BOA"){
-      const patch={hash0:"ON",hash1:"ON",hash2:"ON",controladora:"ON",fonte:"ON",fans:"ON"};
-      const changedFields=Object.keys(patch).filter(k=>m[k]!==patch[k]);
-      if(changedFields.length){
-        const newLog=changedFields.map(k=>({field:k,label:FIELD_LABELS[k]||k,from:m[k]??"",to:patch[k],by:user.name,at:stamp()}));
-        const u={...m,...patch,changeLog:[...newLog,...(m.changeLog||[])].slice(0,80),...audit(user)};
-        setM(u);mutate("machines",arr=>arr.map(x=>x._id===m._id?u:x));
-        await fbSet("machines",m._id,u);await markChanged("machines");
-        changedFields.forEach(k=>syncSheet(webhookUrl,"updateMachine",{sn:u.sn,field:k,to:patch[k],employeeName:user.name,employeeCode:user.code}));
+    // Atualização ATÔMICA de uma única vez (evita reverter pra RUIM e salva tudo junto)
+    const isBoa = s === "BOA";
+    const compPatch = isBoa ? {
+      hash0: "ON",
+      hash1: "ON",
+      hash2: "ON",
+      controladora: "ON",
+      fonte: "ON",
+      fans: "ON"
+    } : {};
+
+    const fullPatch = {
+      situacao: s,
+      ...compPatch,
+      ...((!exitSits.includes(s) && m.destino) ? { destino: "" } : {})
+    };
+
+    const changedFields = Object.keys(fullPatch).filter(k => m[k] !== fullPatch[k]);
+    const newLogs = changedFields.map(k => ({
+      field: k,
+      label: FIELD_LABELS[k] || k,
+      from: m[k] ?? "",
+      to: fullPatch[k] ?? "",
+      by: user.name,
+      at: stamp()
+    }));
+
+    const u = {
+      ...m,
+      ...fullPatch,
+      situacao: s, // 100% garantido como s ("BOA") sem conflito de closure
+      changeLog: [...newLogs, ...(m.changeLog || [])].slice(0, 80),
+      ...audit(user)
+    };
+
+    setM(u);
+    mutate("machines", arr => arr.map(x => x._id === m._id ? u : x));
+    const res = await fbSet("machines", m._id, u);
+    if (!res.ok) {
+      alert("❌ Erro ao salvar no banco de dados (Supabase):\n" + res.error);
+      setM(m);
+      mutate("machines", arr => arr.map(x => x._id === m._id ? m : x));
+      return;
+    }
+    await markChanged("machines");
+
+    // Se marcou como BOA, também atualiza as placas HASH internas vinculadas pra NA MAQUINA
+    if (isBoa && m.sn) {
+      const mHashes = data.hashes.filter(h => normSNField(h.machineSN) === normSNField(m.sn));
+      for (const h of mHashes) {
+        if (h.status !== "NA MAQUINA" && h.status !== "ON") {
+          const hu = {
+            ...h,
+            status: "NA MAQUINA",
+            changeLog: [{ field: "status", label: "Status", from: h.status, to: "NA MAQUINA (máquina BOA)", by: user.name, at: stamp() }, ...(h.changeLog || [])].slice(0, 80),
+            ...audit(user)
+          };
+          mutate("hashes", arr => arr.map(x => x._id === h._id ? hu : x));
+          await fbSet("hashes", h._id, hu);
+          syncSheet(webhookUrl, "updateHash", { sn: hu.sn, model: hu.model, status: "NA MAQUINA", machineSN: m.sn, employeeName: user.name, employeeCode: user.code });
+        }
       }
+      if (mHashes.length) await markChanged("hashes");
+    }
+
+    syncSheet(webhookUrl, "updateMachine", { id: u._id, sn: u.sn || "SEM SN", row: u.sheetRow, field: "situacao", to: s, employeeName: user.name, employeeCode: user.code });
+    if (isBoa) {
+      ["hash0", "hash1", "hash2", "controladora", "fonte", "fans"].forEach(k => {
+        syncSheet(webhookUrl, "updateMachine", { sn: u.sn, field: k, to: "ON", employeeName: user.name, employeeCode: user.code });
+      });
     }
   };
   return(
