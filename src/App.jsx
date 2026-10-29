@@ -12820,33 +12820,22 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
   const savedStart = localStorage.getItem("hs_team_start_date");
   const savedEnd = localStorage.getItem("hs_team_end_date");
 
-  const[startDate,setStartDate]=useState(savedStart !== null ? savedStart : "");
-  const[endDate,setEndDate]=useState(savedEnd !== null ? savedEnd : "");
-  
-  // Multi-seleção de Funcionários: Array de IDs (vazio = todos)
-  const[selectedEmps,setSelectedEmps]=useState(initEmp ? [initEmp] : []);
+  const [startDate, setStartDate] = useState(savedStart !== null ? savedStart : TODAY());
+  const [endDate, setEndDate] = useState(savedEnd !== null ? savedEnd : TODAY());
+  const [selectedEmps, setSelectedEmps] = useState(initEmp ? [initEmp] : []);
+  const [activeCategory, setActiveCategory] = useState("all"); // "all" | "repairs" | "tests" | "machines" | "hashes"
+  const [searchQ, setSearchQ] = useState("");
+  const [sortOrder, setSortOrder] = useState("desc");
 
-  // Limpa o localStorage após ler para não travar próximos acessos
   useEffect(() => {
     localStorage.removeItem("hs_team_start_date");
     localStorage.removeItem("hs_team_end_date");
   }, []);
 
-  // Apenas Consertos ativado por padrão conforme solicitado
-  const[types,setTypes]=useState({
-    repairs: true,
-    alreadyGood: false,
-    tests: true
-  });
-
   const toggleEmp = (id) => {
     setSelectedEmps(prev => 
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
-  };
-
-  const toggleType = (key) => {
-    setTypes(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const normDate = (str) => {
@@ -12862,16 +12851,6 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     return s.slice(0, 10);
   };
 
-  const matchEmp = (byId, byName) => {
-    if (selectedEmps.length === 0) return true;
-    if (byId && selectedEmps.includes(byId)) return true;
-    if (byName) {
-      const selectedNames = employees.filter(e => selectedEmps.includes(e._id)).map(e => (e.name || "").toLowerCase().trim()).filter(Boolean);
-      if (selectedNames.includes(byName.toLowerCase().trim())) return true;
-    }
-    return false;
-  };
-
   const inRange = (dateStr) => {
     if (!dateStr) return true;
     const d = normDate(dateStr);
@@ -12881,246 +12860,284 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
     return true;
   };
 
-  const filteredRepairs = data.repairs.filter(r => {
-    if (!inRange(r.date || r._at)) return false;
-    if (!matchEmp(r._by || r.employeeId, r._byName)) return false;
-    const isAlreadyGood = r.type === "already_good";
-    const isRemove = r.type?.startsWith("remove");
-    if (isRemove) return false;
-    if (!isAlreadyGood && !types.repairs) return false;
-    if (isAlreadyGood && !types.alreadyGood) return false;
-    return true;
-  });
+  const matchEmpFull = (empId, empName, empCode) => {
+    if (selectedEmps.length === 0) return true;
+    if (empId && selectedEmps.includes(empId)) return true;
+    if (empCode) {
+      const matchByCode = employees.find(e => e.code === empCode && selectedEmps.includes(e._id));
+      if (matchByCode) return true;
+    }
+    if (empName) {
+      const selectedNames = employees.filter(e => selectedEmps.includes(e._id)).map(e => (e.name || "").toLowerCase().trim()).filter(Boolean);
+      if (selectedNames.includes(empName.toLowerCase().trim())) return true;
+    }
+    return false;
+  };
 
-  const filteredTests = types.tests ? data.tests.filter(t => {
-    if (!inRange(t.date || t._at)) return false;
-    if (!matchEmp(t.employeeId || t._by, t.employeeName || t._byName)) return false;
-    return true;
-  }) : [];
+  // Coleta completa de todos os eventos de produção no app
+  const allEvents = useMemo(() => {
+    const list = [];
 
-  const items = [
-    ...filteredRepairs.map(r => ({
-      at: r._at || r.date,
-      who: r._byName || employees.find(e => e._id === r.employeeId || e._id === r._by)?.name || "?",
-      empId: r.employeeId || r._by,
-      type: r.type,
-      sn: r.hashSN,
-      model: r.model,
-      text: `Consertou HASH ${r.hashSN || "SEM SN"} (${r.model || ""}) — ${r.type === "already_good" ? "já estava boa" : "conserto"}`
-    })),
-    ...filteredTests.map(t => ({
-      at: t._at || t.date,
-      who: t.employeeName || t._byName || employees.find(e => e._id === t.employeeId || e._id === t._by)?.name || "?",
-      empId: t.employeeId || t._by,
-      type: "test",
-      sn: t.machineSN,
-      model: t.model,
-      text: `Testou máquina ${t.machineSN || "SEM SN"} (${t.model || ""}) — ${t.overallResult === "good" ? "BOA" : "RUIM/pendente"}`
-    }))
-  ].sort((a, b) => (a.at || "") < (b.at || "") ? 1 : -1);
+    // 1. Consertos de HASH
+    (data.repairs || []).forEach(r => {
+      const dateStr = r.date || r._at;
+      if (!inRange(dateStr)) return;
+      if (!matchEmpFull(r.employeeId || r._by, r._byName, r.employeeCode)) return;
+      const isGood = r.type === "already_good";
+      const isRemove = r.type?.startsWith("remove");
+      if (isRemove) return;
+      const who = r._byName || employees.find(e => e._id === (r.employeeId || r._by))?.name || "Técnico";
 
-  const totalRepairs = filteredRepairs.filter(r => r.type !== "already_good").length;
-  const totalAlreadyGood = filteredRepairs.filter(r => r.type === "already_good").length;
-  const totalTests = filteredTests.length;
+      list.push({
+        id: "rep_" + r._id,
+        category: "repairs",
+        categoryLabel: "CONSERTO",
+        categoryColor: isGood ? C.green : C.accent,
+        icon: isGood ? "✅" : "🔧",
+        sn: r.hashSN || "SEM SN",
+        model: r.model || "—",
+        at: r._at || (r.date ? r.date + "T12:00:00" : ""),
+        date: normDate(dateStr),
+        who,
+        empId: r.employeeId || r._by,
+        title: isGood ? `HASH já estava boa — ${r.hashSN || "SEM SN"}` : `Conserto de HASH — ${r.hashSN || "SEM SN"}`,
+        from: null,
+        to: isGood ? "Já Estava Boa" : (r.status || "Consertada"),
+        detail: `Chips: ${r.chips || 0} · Sens: ${r.sensores || 0} · LDOs: ${r.ldos || 0}${r.obsManual ? ` · ${r.obsManual}` : ""}`
+      });
+    });
 
-  const activeEmployees = employees.filter(e => e.code !== "019" && (selectedEmps.length === 0 || selectedEmps.includes(e._id)));
-  const empStats = activeEmployees.map(e => {
-    const eNormName = (e.name || "").toLowerCase().trim();
-    const empR = filteredRepairs.filter(r => (r.employeeId === e._id || r._by === e._id || (r._byName && eNormName && r._byName.toLowerCase().trim() === eNormName)));
-    const empT = filteredTests.filter(t => (t.employeeId === e._id || t._by === e._id || (t.employeeName && eNormName && t.employeeName.toLowerCase().trim() === eNormName) || (t._byName && eNormName && t._byName.toLowerCase().trim() === eNormName)));
-    const repairs = empR.filter(r => r.type !== "already_good").length;
-    const alreadyGood = empR.filter(r => r.type === "already_good").length;
-    const tests = empT.length;
-    const grandTotal = repairs + alreadyGood + tests;
-    return { emp: e, repairs, alreadyGood, tests, grandTotal, repList: empR, testList: empT };
-  }).sort((a, b) => b.grandTotal - a.grandTotal);
+    // 2. Testes de Máquina
+    (data.tests || []).forEach(t => {
+      const dateStr = t.date || t._at;
+      if (!inRange(dateStr)) return;
+      if (!matchEmpFull(t.employeeId || t._by, t.employeeName || t._byName, t.employeeCode)) return;
+      const who = t.employeeName || t._byName || employees.find(e => e._id === (t.employeeId || t._by))?.name || "Técnico";
+      const isGood = t.overallResult === "good";
+      const isBad = t.overallResult === "bad";
 
-  // Modal para ver todas as máquinas/placas com SN, Modelo e Data que o usuário consertou
-  const openTechDetailsModal = (st) => {
-    const handleTransferRepair = async (rep, currentTechId) => {
-      const activeEmployees = data.employees.filter(e => e._id !== currentTechId && e.code !== "019");
-      if (activeEmployees.length === 0) {
-        alert("Nenhum outro funcionário cadastrado para transferência.");
-        return;
-      }
-      const selection = prompt(
-        `🔄 TRANSFERIR CONSERTO\n\nPlaca: ${rep.hashSN}\nTipo: ${rep.type === "already_good" ? "Já Boa" : "Conserto"}\n\nSelecione o novo responsável digitando o código dele a seguir:\n\n${activeEmployees.map(e => `[${e.code}] - ${e.name}`).join("\n")}`
-      );
-      if (!selection) return;
-      const targetEmp = activeEmployees.find(e => e.code.trim() === selection.trim());
-      if (!targetEmp) {
-        alert("Código inválido! Transferência cancelada.");
-        return;
-      }
+      list.push({
+        id: "test_" + t._id,
+        category: "tests",
+        categoryLabel: "TESTE",
+        categoryColor: isGood ? C.green : isBad ? C.red : C.blue,
+        icon: "🧪",
+        sn: t.machineSN || "SEM SN",
+        model: t.model || "—",
+        at: t._at || (t.date ? t.date + "T12:00:00" : ""),
+        date: normDate(dateStr),
+        who,
+        empId: t.employeeId || t._by,
+        title: `Teste de Máquina — ${t.machineSN || "SEM SN"} (${t.model || ""})`,
+        from: null,
+        to: isGood ? "Aprovado (BOA)" : isBad ? "Reprovado (RUIM)" : (t.status || "Pendente"),
+        detail: `Resultado: ${isGood ? "BOA" : isBad ? "RUIM" : t.status}${t.notes ? ` · Obs: ${t.notes}` : ""}`,
+        photoKey: t.testPhoto
+      });
+    });
 
-      if (!confirm(`Deseja realmente transferir este conserto de ${st.emp.name} para ${targetEmp.name}?`)) {
-        return;
-      }
-
-      const { employeeCode, employeeName, ...cleanRep } = rep;
-      const updatedRep = {
-        ...cleanRep,
-        employeeId: targetEmp._id,
-        _by: targetEmp._id,
-        _byName: targetEmp.name,
-        ...audit(user)
-      };
-
-      const hashDoc = data.hashes.find(h => h.sn === rep.hashSN);
-      let updatedHash = null;
-      if (hashDoc && hashDoc.repairedBy === currentTechId) {
-        updatedHash = {
-          ...hashDoc,
-          repairedBy: targetEmp._id,
-          repairedByName: targetEmp.name,
-          ...audit(user)
-        };
-      }
-
-      const resRep = await fbSet("repairs", rep._id, updatedRep);
-      if (!resRep.ok) {
-        alert("Erro ao transferir conserto no banco de dados.");
-        return;
-      }
-
-      if (updatedHash) {
-        const resHash = await fbSet("hashes", hashDoc._id, updatedHash);
-        if (!resHash.ok) {
-          alert("Erro ao atualizar técnico na placa HASH.");
-        } else {
-          mutate("hashes", arr => arr.map(x => x._id === hashDoc._id ? updatedHash : x));
+    // 3. Máquinas: Cadastro Inicial
+    (data.machines || []).forEach(m => {
+      const addDate = m.added_at || m.addedAt || m._at || m.at;
+      if (addDate && inRange(addDate)) {
+        const creatorName = m.by_name || m.by || m._byName;
+        const creatorId = m.by_id || m._by;
+        if (matchEmpFull(creatorId, creatorName, m.ref)) {
+          const who = creatorName || employees.find(e => e._id === creatorId)?.name || "Sistema";
+          list.push({
+            id: "m_add_" + m._id,
+            category: "machines",
+            categoryLabel: "CADASTRO MÁQUINA",
+            categoryColor: C.green,
+            icon: "🖥️➕",
+            sn: m.sn || "SEM SN",
+            model: m.model || "—",
+            at: addDate,
+            date: normDate(addDate),
+            who,
+            empId: creatorId,
+            title: `Nova Máquina Cadastrada — ${m.sn || "SEM SN"} (${m.model || ""})`,
+            from: null,
+            to: m.situacao || "STOCK",
+            detail: `Situação: ${m.situacao || "—"} · Destino: ${m.destino || "Estoque"}`
+          });
         }
       }
 
-      mutate("repairs", arr => arr.map(x => x._id === rep._id ? updatedRep : x));
-      
-      alert(`🎉 Conserto da placa ${rep.hashSN} transferido com sucesso para ${targetEmp.name}!`);
-      setModal(null);
-    };
+      // 3.1 Máquinas: Modificações em changeLog (a mesma máquina aparece tantas vezes quantas foram alteradas!)
+      if (Array.isArray(m.changeLog)) {
+        m.changeLog.forEach((log, lIdx) => {
+          if (!log.at || !inRange(log.at)) return;
+          if (!matchEmpFull(log.by_id || log.employeeId, log.by, log.byCode)) return;
+          const who = log.by || employees.find(e => e._id === log.by_id)?.name || "Usuário";
+          const fieldLabel = log.label || log.field || "Campo";
+          let color = C.amber;
+          if (log.field === "situacao") {
+            color = log.to === "BOA" ? C.green : log.to === "RUIM" ? C.red : C.blue;
+          } else if (log.field === "destino") {
+            color = "#8b5cf6";
+          }
 
-    const isAdmin = user.code === "019" || user.permissions?.admin || user.role === "admin";
+          list.push({
+            id: `m_mod_${m._id}_${lIdx}`,
+            category: "machines",
+            categoryLabel: `MODIF. MÁQUINA (${fieldLabel.toUpperCase()})`,
+            categoryColor: color,
+            icon: "🖥️✏️",
+            sn: m.sn || "SEM SN",
+            model: m.model || "—",
+            at: log.at,
+            date: normDate(log.at),
+            who,
+            empId: log.by_id,
+            title: `Alterou ${fieldLabel} — ${m.sn || "SEM SN"} (${m.model || ""})`,
+            from: log.from ?? "—",
+            to: log.to ?? "—",
+            detail: `Campo "${fieldLabel}" alterado de "${log.from ?? "—"}" para "${log.to ?? "—"}"`
+          });
+        });
+      }
+    });
 
-    setModal(
-      <Modal title={`👷 Produção Detalhada — ${st.emp.name} (#${st.emp.code})`} onClose={() => setModal(null)}>
-        <div style={{padding: 4}}>
-          <div style={{display: 'flex', gap: 8, marginBottom: 14}}>
-            <div style={{background: C.card2, borderRadius: 10, padding: 12, flex: 1, textAlign: 'center', border:`1px solid ${C.green}44`}}>
-              <div style={{fontSize: 24, fontWeight: 900, color: C.green}}>{st.repairs}</div>
-              <div style={{fontSize: 10, color: C.muted, fontWeight: 700}}>🔧 CONSERTOS</div>
-            </div>
-            {st.alreadyGood > 0 && <div style={{background: C.card2, borderRadius: 10, padding: 12, flex: 1, textAlign: 'center', border:`1px solid ${C.accent}44`}}>
-              <div style={{fontSize: 24, fontWeight: 900, color: C.accent}}>{st.alreadyGood}</div>
-              <div style={{fontSize: 10, color: C.muted, fontWeight: 700}}>✅ JÁ BOAS</div>
-            </div>}
-            {st.tests > 0 && <div style={{background: C.card2, borderRadius: 10, padding: 12, flex: 1, textAlign: 'center', border:`1px solid ${C.blue}44`}}>
-              <div style={{fontSize: 24, fontWeight: 900, color: C.blue}}>{st.tests}</div>
-              <div style={{fontSize: 10, color: C.muted, fontWeight: 700}}>🧪 TESTES</div>
-            </div>}
-          </div>
+    // 4. HASHboards: Cadastro Inicial
+    (data.hashes || []).forEach(h => {
+      const addDate = h.added_at || h.addedAt || h._at || h.at;
+      if (addDate && inRange(addDate)) {
+        const creatorName = h.by_name || h.by || h.tecnico || h._byName;
+        const creatorId = h.by_id || h._by || h.repairedBy;
+        if (matchEmpFull(creatorId, creatorName, null)) {
+          const who = creatorName || employees.find(e => e._id === creatorId)?.name || "Sistema";
+          list.push({
+            id: "h_add_" + h._id,
+            category: "hashes",
+            categoryLabel: "CADASTRO HASH",
+            categoryColor: "#a78bfa",
+            icon: "⚡➕",
+            sn: h.sn || "SEM SN",
+            model: h.model || "—",
+            at: addDate,
+            date: normDate(addDate),
+            who,
+            empId: creatorId,
+            title: `Nova HASH Cadastrada — ${h.sn || "SEM SN"} (${h.model || ""})`,
+            from: null,
+            to: h.status || "STOCK",
+            detail: `Status: ${h.status || "—"} · Local: ${h.location || "—"}`
+          });
+        }
+      }
 
-          <div style={{fontWeight: 900, fontSize: 14, color: C.accent, marginBottom: 10, letterSpacing: 0.5}}>
-            📋 RELAÇÃO COMPLETA DE PLACAS & MÁQUINAS TRABALHADAS ({st.grandTotal})
-          </div>
+      // 4.1 HASHboards: Modificações em changeLog
+      if (Array.isArray(h.changeLog)) {
+        h.changeLog.forEach((log, lIdx) => {
+          if (!log.at || !inRange(log.at)) return;
+          if (!matchEmpFull(log.by_id || log.employeeId, log.by, log.byCode)) return;
+          const who = log.by || employees.find(e => e._id === log.by_id)?.name || "Usuário";
+          const fieldLabel = log.label || log.field || "Campo";
 
-          <div style={{maxHeight: 400, overflowY: 'auto', paddingRight: 4}}>
-            {st.grandTotal === 0 ? (
-              <div style={{textAlign: 'center', color: C.muted, padding: 24, background: C.card2, borderRadius: 10}}>
-                Nenhuma movimentação registrada para este técnico no período selecionado.
-              </div>
-            ) : (
-              [
-                ...st.repList.map(r => ({
-                  originalRepair: r,
-                  at: r._at || r.date,
-                  sn: r.hashSN,
-                  model: r.model,
-                  tag: r.type === "already_good" ? "✅ JÁ OK" : "🔧 CONSERTO",
-                  color: r.type === "already_good" ? C.accent : C.green,
-                  title: `HASH: ${r.hashSN || "SEM SN"}`,
-                  modelText: r.model ? `Modelo: ${r.model}` : "Modelo não especificado"
-                })),
-                ...st.testList.map(t => ({
-                  at: t._at || t.date,
-                  sn: t.machineSN,
-                  model: t.model,
-                  tag: "🧪 TESTE",
-                  color: C.blue,
-                  title: `MÁQUINA: ${t.machineSN || "SEM SN"}`,
-                  modelText: `Modelo: ${t.model || "—"} · Resultado: ${t.overallResult === "good" ? "BOA" : "RUIM"}`
-                }))
-              ].sort((a,b) => (a.at||"") < (b.at||"") ? 1 : -1).map((item, idx) => (
-                <div key={idx} style={{background: C.card2, borderRadius: 12, padding: 12, marginBottom: 8, border: `1px solid ${C.border}`}}>
-                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                    <div style={{fontWeight: 900, fontSize: 14, color: '#fff'}}>
-                      {item.title}
-                    </div>
-                    <Tag color={item.color} small>{item.tag}</Tag>
-                  </div>
-                  <div style={{fontSize: 12, color: C.accent, fontWeight: 700, marginTop: 4}}>
-                    {item.modelText}
-                  </div>
-                  <div style={{fontSize: 11, color: C.subtle, marginTop: 4, display: "flex", justifyContent: "space-between", alignItems: "center"}}>
-                    <span>📅 Data/Hora: {fmtTS(item.at)}</span>
-                    {isAdmin && item.originalRepair && (
-                      <button 
-                        onClick={() => handleTransferRepair(item.originalRepair, st.emp._id)}
-                        style={{
-                          background: C.accent,
-                          color: "#000",
-                          border: "none",
-                          borderRadius: 6,
-                          padding: "3px 8px",
-                          fontSize: 9,
-                          fontWeight: 900,
-                          cursor: "pointer"
-                        }}
-                      >
-                        🔄 Transferir
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </Modal>
-    );
+          list.push({
+            id: `h_mod_${h._id}_${lIdx}`,
+            category: "hashes",
+            categoryLabel: `MODIF. HASH (${fieldLabel.toUpperCase()})`,
+            categoryColor: "#a78bfa",
+            icon: "⚡✏️",
+            sn: h.sn || "SEM SN",
+            model: h.model || "—",
+            at: log.at,
+            date: normDate(log.at),
+            who,
+            empId: log.by_id,
+            title: `Alterou ${fieldLabel} — ${h.sn || "SEM SN"} (${h.model || ""})`,
+            from: log.from ?? "—",
+            to: log.to ?? "—",
+            detail: `Campo "${fieldLabel}" alterado de "${log.from ?? "—"}" para "${log.to ?? "—"}"`
+          });
+        });
+      }
+    });
+
+    return list.sort((a, b) => {
+      const cmp = (b.at || "").localeCompare(a.at || "");
+      return sortOrder === "desc" ? cmp : -cmp;
+    });
+  }, [data.repairs, data.tests, data.machines, data.hashes, employees, startDate, endDate, selectedEmps, sortOrder]);
+
+  // Contagens por categoria
+  const countRepairs = allEvents.filter(x => x.category === "repairs").length;
+  const countTests = allEvents.filter(x => x.category === "tests").length;
+  const countMachines = allEvents.filter(x => x.category === "machines").length;
+  const countHashes = allEvents.filter(x => x.category === "hashes").length;
+
+  // Itens filtrados para exibição
+  const displayedItems = allEvents.filter(it => {
+    if (activeCategory !== "all" && it.category !== activeCategory) return false;
+    if (searchQ) {
+      const q = searchQ.toUpperCase();
+      return (it.sn && it.sn.toUpperCase().includes(q)) || 
+             (it.model && it.model.toUpperCase().includes(q)) || 
+             (it.who && it.who.toUpperCase().includes(q)) ||
+             (it.title && it.title.toUpperCase().includes(q));
+    }
+    return true;
+  });
+
+  // Agrupamento por funcionário para ranking
+  const activeEmployees = employees.filter(e => e.code !== "019" && (selectedEmps.length === 0 || selectedEmps.includes(e._id)));
+  const empStats = activeEmployees.map(e => {
+    const eNormName = (e.name || "").toLowerCase().trim();
+    const myEvents = allEvents.filter(it => {
+      if (it.empId && (it.empId === e._id || it.empId === e.id)) return true;
+      if (it.who && it.who.toLowerCase().trim() === eNormName) return true;
+      return false;
+    });
+    const rep = myEvents.filter(x => x.category === "repairs").length;
+    const tst = myEvents.filter(x => x.category === "tests").length;
+    const mac = myEvents.filter(x => x.category === "machines").length;
+    const hsh = myEvents.filter(x => x.category === "hashes").length;
+    const grandTotal = myEvents.length;
+    return { emp: e, rep, tst, mac, hsh, grandTotal, events: myEvents };
+  }).sort((a, b) => b.grandTotal - a.grandTotal);
+
+  // Copiar relatório formatado para WhatsApp
+  const copyWhatsAppReport = () => {
+    const periodLabel = !startDate && !endDate ? "Todo o Histórico" : startDate === endDate ? `Dia ${fmtDate(startDate)}` : `De ${fmtDate(startDate)} até ${fmtDate(endDate)}`;
+    const lines = [
+      `📊 *HASHSTOCK — LOG DE PRODUÇÃO*`,
+      `📅 *Período:* ${periodLabel}`,
+      `👷 *Funcionários:* ${selectedEmps.length === 0 ? "Todos da Equipe" : employees.filter(e=>selectedEmps.includes(e._id)).map(e=>e.name).join(", ")}`,
+      ``,
+      `📈 *TOTAIS GERAIS DO PERÍODO:*`,
+      `• 🔧 Consertos de HASH: ${countRepairs}`,
+      `• 🧪 Testes de Máquina: ${countTests}`,
+      `• 🖥️ Máquinas (Cadastros & Modificações): ${countMachines}`,
+      `• ⚡ HASHboards (Cadastros & Modificações): ${countHashes}`,
+      `• 📋 *TOTAL DE AÇÕES REALIZADAS:* ${allEvents.length}`,
+      ``,
+      `🏆 *RESUMO POR FUNCIONÁRIO:*`,
+      ...empStats.filter(st=>st.grandTotal>0).map(st => 
+        `• *${st.emp.name} (#${st.emp.code})*: ${st.grandTotal} ações (${st.rep} consertos, ${st.tst} testes, ${st.mac} macs, ${st.hsh} hashes)`
+      ),
+      ``,
+      `📝 *ÚLTIMAS MOVIMENTAÇÕES (TOP 30):*`,
+      ...displayedItems.slice(0, 30).map((it, idx) => {
+        const timeStr = fmtLargeDate(it.at).time;
+        const changeStr = it.from !== null ? ` "${it.from}" ➔ "${it.to}"` : ` (${it.to})`;
+        return `${idx + 1}. [${timeStr || "—"}] ${it.who} — ${it.title}${changeStr}`;
+      })
+    ];
+    navigator.clipboard.writeText(lines.join("\n"));
+    alert("✓ Relatório de produção copiado com sucesso! Pronto para colar no WhatsApp.");
   };
 
+  // Download PDF
   const downloadAdvancedPDF = async () => {
     try {
       const { jsPDF } = await import('jspdf');
       const doc = new jsPDF();
-      const earliestDate = items.length > 0 ? (normDate(items[items.length - 1].at) || "") : "";
-      
-      let periodStr = "";
-      if (!startDate && !endDate) {
-        periodStr = `Todo o Histórico (${earliestDate ? 'desde ' + earliestDate : 'início'} até hoje)`;
-      } else if (!startDate) {
-        periodStr = `Desde ${earliestDate || 'início'} até ${endDate || 'Hoje'}`;
-      } else {
-        periodStr = `${startDate} até ${endDate || 'Hoje'}`;
-      }
-
-      const filterEmpName = selectedEmps.length === 0 ? "Todos os Funcionários" : employees.filter(e => selectedEmps.includes(e._id)).map(e => e.name).join(", ");
-      const selectedTypesStr = Object.entries(types).filter(([_, v]) => v).map(([k]) => k === "repairs" ? "Consertos" : k === "tests" ? "Testes" : "Já Boas").join(", ");
-
-      const activeCols = [];
-      if (types.repairs) activeCols.push({ key: 'repairs', label: 'CONSERTOS', color: [76, 175, 80] });
-      if (types.alreadyGood) activeCols.push({ key: 'alreadyGood', label: 'JÁ OK', color: [240, 185, 11] });
-      if (types.tests) activeCols.push({ key: 'tests', label: 'TESTES', color: [33, 150, 243] });
-
-      const startX = 95;
-      const endX = 160;
-      const colStep = activeCols.length > 1 ? (endX - startX) / (activeCols.length - 1) : 0;
-      activeCols.forEach((col, i) => {
-        col.posX = activeCols.length === 1 ? 125 : Math.round(startX + i * colStep);
-      });
+      const periodLabel = !startDate && !endDate ? "Todo o Histórico" : startDate === endDate ? `Dia ${fmtDate(startDate)}` : `De ${fmtDate(startDate)} até ${fmtDate(endDate)}`;
 
       doc.setFillColor(18, 20, 26);
       doc.rect(0, 0, 210, 297, 'F');
-
       doc.setFillColor(240, 185, 11);
       doc.rect(0, 0, 210, 8, 'F');
 
@@ -13132,7 +13149,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(13);
       doc.setFont("helvetica", "normal");
-      doc.text("RELATÓRIO PERSONALIZADO DE PRODUTIVIDADE DA EQUIPE", 105, 30, { align: 'center' });
+      doc.text("RELATÓRIO COMPLETO DE PRODUÇÃO E MOVIMENTAÇÃO", 105, 30, { align: 'center' });
 
       doc.setDrawColor(240, 185, 11);
       doc.setLineWidth(0.5);
@@ -13140,56 +13157,42 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
       doc.setFontSize(9);
       doc.setTextColor(180, 180, 180);
-      doc.text(`Período: ${periodStr}`, 20, 42);
-      doc.text(`Técnicos: ${filterEmpName.substring(0, 70)}`, 20, 47);
-      doc.text(`Filtros: ${selectedTypesStr}`, 20, 52);
+      doc.text(`Período: ${periodLabel}`, 20, 42);
+      doc.text(`Funcionários: ${selectedEmps.length === 0 ? "Todos" : employees.filter(e=>selectedEmps.includes(e._id)).map(e=>e.name).join(", ").substring(0, 70)}`, 20, 47);
+      doc.text(`Categoria: ${activeCategory.toUpperCase()}`, 20, 52);
       doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 190, 42, { align: 'right' });
 
       let y = 60;
-
       doc.setFillColor(28, 32, 42);
-      doc.roundedRect(20, y, 170, 24, 3, 3, 'F');
-
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(240, 185, 11);
-      doc.text("TOTAIS ACUMULADOS NO PERÍODO:", 26, y + 8);
+      doc.roundedRect(20, y, 170, 22, 3, 3, 'F');
 
       doc.setFontSize(9.5);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(240, 185, 11);
+      doc.text("TOTAIS NO PERÍODO:", 24, y + 8);
+
       doc.setFont("helvetica", "normal");
       doc.setTextColor(255, 255, 255);
+      doc.text(`Consertos: ${countRepairs}  |  Testes: ${countTests}  |  Máquinas: ${countMachines}  |  HASHs: ${countHashes}  |  TOTAL: ${allEvents.length}`, 24, y + 16);
 
-      let summaryX = 26;
-      const summaryStep = activeCols.length > 0 ? 160 / Math.max(1, activeCols.length) : 50;
-      activeCols.forEach(col => {
-        const val = col.key === 'repairs' ? totalRepairs
-          : col.key === 'alreadyGood' ? totalAlreadyGood
-          : totalTests;
-        doc.text(`${col.label}: ${val}`, summaryX, y + 17);
-        summaryX += summaryStep;
-      });
-
-      y += 34;
-
+      y += 32;
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
-      doc.text("PRODUTIVIDADE INDIVIDUAL DA SELEÇÃO", 20, y);
+      doc.text("PRODUTIVIDADE POR FUNCIONÁRIO", 20, y);
       y += 6;
 
       doc.setFillColor(38, 44, 58);
-      doc.rect(20, y, 170, 8, 'F');
-      doc.setFontSize(8.5);
+      doc.rect(20, y, 170, 7, 'F');
+      doc.setFontSize(8);
       doc.setTextColor(240, 185, 11);
-      doc.text("FUNCIONÁRIO", 24, y + 5.5);
-      doc.text("CÓD", 75, y + 5.5);
-
-      activeCols.forEach(col => {
-        doc.text(col.label, col.posX, y + 5.5);
-      });
-
-      doc.text("TOTAL", 188, y + 5.5, { align: 'right' });
-      y += 8;
+      doc.text("FUNCIONÁRIO", 24, y + 5);
+      doc.text("CONSERTOS", 80, y + 5);
+      doc.text("TESTES", 110, y + 5);
+      doc.text("MÁQUINAS", 135, y + 5);
+      doc.text("HASHS", 160, y + 5);
+      doc.text("TOTAL", 188, y + 5, { align: 'right' });
+      y += 7;
 
       empStats.forEach((st, idx) => {
         if (y > 265) {
@@ -13198,34 +13201,25 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
           doc.rect(0, 0, 210, 297, 'F');
           y = 20;
         }
-
         if (idx % 2 === 0) {
           doc.setFillColor(24, 28, 36);
-          doc.rect(20, y, 170, 7, 'F');
+          doc.rect(20, y, 170, 6.5, 'F');
         }
-
-        doc.setFontSize(8.5);
-        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
         doc.setTextColor(255, 255, 255);
-        doc.text(st.emp.name.substring(0, 20), 24, y + 5);
-        doc.setTextColor(180, 180, 180);
-        doc.text(`#${st.emp.code}`, 75, y + 5);
-
-        activeCols.forEach(col => {
-          const val = st[col.key] || 0;
-          doc.setTextColor(col.color[0], col.color[1], col.color[2]);
-          doc.text(String(val), col.posX, y + 5);
-        });
-
+        doc.text(st.emp.name.substring(0, 25), 24, y + 4.5);
+        doc.text(String(st.rep), 85, y + 4.5);
+        doc.text(String(st.tst), 115, y + 4.5);
+        doc.text(String(st.mac), 140, y + 4.5);
+        doc.text(String(st.hsh), 165, y + 4.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(240, 185, 11);
-        doc.text(String(st.grandTotal), 188, y + 5, { align: 'right' });
-
-        y += 7;
+        doc.text(String(st.grandTotal), 188, y + 4.5, { align: 'right' });
+        doc.setFont("helvetica", "normal");
+        y += 6.5;
       });
 
       y += 10;
-
       if (y > 240) {
         doc.addPage();
         doc.setFillColor(18, 20, 26);
@@ -13236,30 +13230,30 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(240, 185, 11);
-      doc.text(`LOG DE MOVIMENTAÇÕES SELECIONADAS (${items.length} ITENS)`, 20, y);
+      doc.text(`LOG DETALHADO DE ATIVIDADES (${displayedItems.length} ITENS)`, 20, y);
       y += 6;
 
-      const pdfItems = items.slice(0, 60);
-      pdfItems.forEach((it) => {
+      const pdfList = displayedItems.slice(0, 120);
+      pdfList.forEach(it => {
         if (y > 270) {
           doc.addPage();
           doc.setFillColor(18, 20, 26);
           doc.rect(0, 0, 210, 297, 'F');
           y = 20;
         }
-
-        doc.setFontSize(8);
+        const timeStr = fmtLargeDate(it.at).time;
+        doc.setFontSize(7.5);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(240, 185, 11);
-        doc.text(`[${it.who}]`, 20, y);
+        doc.text(`[${timeStr || "—"}] ${it.who.substring(0, 15)}`, 20, y);
 
         doc.setFont("helvetica", "normal");
         doc.setTextColor(255, 255, 255);
-        doc.text(String(it.text).substring(0, 65), 55, y);
+        const changeTxt = it.from !== null ? `"${it.from}" -> "${it.to}"` : (it.to || "");
+        doc.text(`${it.title.substring(0, 50)} | ${changeTxt}`.substring(0, 68), 65, y);
 
         doc.setTextColor(140, 140, 140);
-        doc.text(fmtTS(it.at) || "", 190, y, { align: 'right' });
-
+        doc.text(normDate(it.at) || "", 190, y, { align: 'right' });
         y += 5.5;
       });
 
@@ -13270,119 +13264,307 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
         doc.rect(0, 293, 210, 4, 'F');
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
-        doc.text("HashStock Farm Management System — Relatório Personalizado de Produção", 20, 290);
+        doc.text("HashStock Farm Management — Log Completo de Produção", 20, 290);
         doc.text(`Página ${i} de ${pageCount}`, 190, 290, { align: 'right' });
       }
 
-      doc.save(`HashStock_Relatorio_Personalizado_${periodStr.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`);
-    } catch (err) {
-      alert("Erro ao gerar PDF: " + err.message);
+      doc.save(`HashStock_Log_Producao_${startDate || 'tudo'}_${endDate || 'tudo'}.pdf`);
+    } catch(e) {
+      alert("Erro ao baixar PDF: " + e.message);
     }
   };
 
   return <div>
-    {/* PAINEL DE FILTROS MULTI-SELEÇÃO */}
-    <div style={{ background: C.card, borderRadius: 14, padding: 14, marginBottom: 16, border: `1px solid ${C.border}` }}>
-      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 10, letterSpacing: 1 }}>📅 PERÍODO DO RELATÓRIO</div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-        <div style={{ flex: 1, minWidth: 130 }}><DateInp label="DATA INICIAL" value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
-        <div style={{ flex: 1, minWidth: 130 }}><DateInp label="DATA FINAL" value={endDate} onChange={e => setEndDate(e.target.value)} /></div>
-      </div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-        <button onClick={() => { setStartDate(TODAY()); setEndDate(TODAY()) }} style={{ background: startDate === TODAY() && endDate === TODAY() ? C.accent : C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>📅 Hoje</button>
-        <button onClick={() => { const d = new Date(); d.setDate(d.getDate() - 30); setStartDate(d.toISOString().slice(0, 10)); setEndDate(TODAY()) }} style={{ background: C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>🗓️ Últimos 30 Dias</button>
-        <button onClick={() => { setStartDate(""); setEndDate("") }} style={{ background: !startDate && !endDate ? C.accent : C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>📜 Todo o Histórico</button>
+    {/* PAINEL DE CONTROLE E FILTROS */}
+    <div style={{ background: C.card, borderRadius: 16, padding: 18, marginBottom: 18, border: `1px solid ${C.border}` }}>
+      
+      {/* 1. SELETOR DE DATAS */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ color: C.accent, fontSize: 13, fontWeight: 900, letterSpacing: 0.5 }}>
+          📅 FILTRAR POR DATA / PERÍODO
+        </div>
+        <div style={{ fontSize: 11, color: C.muted }}>
+          O que aconteceu no app naquele dia inteiro
+        </div>
       </div>
 
-      {/* MULTI-SELEÇÃO DE FUNCIONÁRIOS */}
-      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>👷 SELECIONAR FUNCIONÁRIOS</div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-        <button onClick={() => setSelectedEmps([])} style={{ background: selectedEmps.length === 0 ? C.accent : C.card2, color: "#fff", border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 140 }}>
+          <DateInp label="DATA INICIAL" value={startDate} onChange={e => setStartDate(e.target.value)} />
+        </div>
+        <div style={{ flex: 1, minWidth: 140 }}>
+          <DateInp label="DATA FINAL" value={endDate} onChange={e => setEndDate(e.target.value)} />
+        </div>
+      </div>
+
+      {/* Botões rápidos de data */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        <button 
+          onClick={() => { setStartDate(TODAY()); setEndDate(TODAY()); }} 
+          style={{ background: startDate === TODAY() && endDate === TODAY() ? C.accent : C.card2, color: startDate === TODAY() && endDate === TODAY() ? "#000" : "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}
+        >
+          📅 Hoje
+        </button>
+        <button 
+          onClick={() => { 
+            const d = new Date(); d.setDate(d.getDate() - 1); 
+            const yest = d.toISOString().slice(0, 10);
+            setStartDate(yest); setEndDate(yest); 
+          }} 
+          style={{ background: C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+        >
+          📅 Ontem
+        </button>
+        <button 
+          onClick={() => { 
+            const d = new Date(); d.setDate(d.getDate() - 7); 
+            setStartDate(d.toISOString().slice(0, 10)); setEndDate(TODAY()); 
+          }} 
+          style={{ background: C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+        >
+          🗓️ Últimos 7 Dias
+        </button>
+        <button 
+          onClick={() => { 
+            const d = new Date(); d.setDate(d.getDate() - 30); 
+            setStartDate(d.toISOString().slice(0, 10)); setEndDate(TODAY()); 
+          }} 
+          style={{ background: C.card2, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+        >
+          🗓️ Últimos 30 Dias
+        </button>
+        <button 
+          onClick={() => { setStartDate(""); setEndDate(""); }} 
+          style={{ background: !startDate && !endDate ? C.accent : C.card2, color: !startDate && !endDate ? "#000" : "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}
+        >
+          📜 Todo o Histórico
+        </button>
+      </div>
+
+      {/* 2. FILTRAR POR FUNCIONÁRIO */}
+      <div style={{ color: C.accent, fontSize: 13, fontWeight: 900, marginBottom: 8, letterSpacing: 0.5 }}>
+        👷 FILTRAR POR FUNCIONÁRIO
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        <button 
+          onClick={() => setSelectedEmps([])} 
+          style={{ background: selectedEmps.length === 0 ? C.accent : C.card2, color: selectedEmps.length === 0 ? "#000" : "#fff", border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}
+        >
           {selectedEmps.length === 0 ? "✓ Todos os Funcionários" : "Marcar Todos"}
         </button>
         {employees.filter(e => e.code !== "019").map(e => {
           const isSel = selectedEmps.includes(e._id);
-          return <button key={e._id} onClick={() => toggleEmp(e._id)} style={{ background: isSel ? C.green : C.card2, color: "#fff", border: `1px solid ${isSel ? C.green : C.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-            <span>{isSel ? "✓" : "+"}</span> {e.name}
-          </button>;
+          return (
+            <button 
+              key={e._id} 
+              onClick={() => toggleEmp(e._id)} 
+              style={{ background: isSel ? C.green : C.card2, color: "#fff", border: `1px solid ${isSel ? C.green : C.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <span>{isSel ? "✓" : "+"}</span> {e.name} <span style={{fontSize:10,opacity:0.8}}>#{e.code}</span>
+            </button>
+          );
         })}
       </div>
 
-      {/* FILTRO DE TIPOS DE HISTÓRICO */}
-      <div style={{ color: C.accent, fontSize: 12, fontWeight: 900, marginBottom: 6, letterSpacing: 1 }}>🔍 CATEGORIAS DE ATIVIDADE</div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+      {/* 3. FILTRAR POR CATEGORIA (ABAS) */}
+      <div style={{ color: C.accent, fontSize: 13, fontWeight: 900, marginBottom: 8, letterSpacing: 0.5 }}>
+        🏷️ FILTRAR POR CATEGORIA
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         {[
-          ["repairs", "🔧 Consertos", C.green],
-          ["alreadyGood", "✅ Já Boas", C.accent],
-          ["tests", "🧪 Testes", C.blue]
-        ].map(([key, label, color]) => {
-          const isAct = types[key];
-          return <button key={key} onClick={() => toggleType(key)} style={{ background: isAct ? color + "22" : C.card2, color: isAct ? color : C.muted, border: `1px solid ${isAct ? color : C.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-            <span>{isAct ? "☑" : "☐"}</span> {label}
-          </button>;
-        })}
+          { id: "all", label: "📋 Todos", count: allEvents.length },
+          { id: "repairs", label: "🔧 Consertos", count: countRepairs, color: C.accent },
+          { id: "tests", label: "🧪 Testes", count: countTests, color: C.blue },
+          { id: "machines", label: "🖥️ Máquinas", count: countMachines, color: C.green },
+          { id: "hashes", label: "⚡ HASHboards", count: countHashes, color: "#a78bfa" }
+        ].map(cat => (
+          <button
+            key={cat.id}
+            onClick={() => setActiveCategory(cat.id)}
+            style={{
+              background: activeCategory === cat.id ? (cat.color || C.accent) : C.card2,
+              color: activeCategory === cat.id ? "#000" : C.text,
+              border: `1px solid ${activeCategory === cat.id ? (cat.color || C.accent) : C.border}`,
+              borderRadius: 20,
+              padding: "7px 16px",
+              fontSize: 12,
+              fontWeight: activeCategory === cat.id ? 800 : 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6
+            }}
+          >
+            <span>{cat.label}</span>
+            <span style={{
+              background: activeCategory === cat.id ? "rgba(0,0,0,0.25)" : C.card,
+              color: activeCategory === cat.id ? "#000" : C.muted,
+              borderRadius: 10,
+              padding: "1px 7px",
+              fontSize: 10,
+              fontWeight: 800
+            }}>
+              {cat.count}
+            </span>
+          </button>
+        ))}
       </div>
 
-      <Btn v="g" onClick={downloadAdvancedPDF} style={{ width: "100%", padding: "12px 0", fontSize: 13, fontWeight: 900 }}>📄 BAIXAR PDF PROFISSIONAL DE PRODUTIVIDADE</Btn>
+      {/* 4. BUSCA POR TEXTO / SN */}
+      <div style={{ marginBottom: 16 }}>
+        <input 
+          value={searchQ} 
+          onChange={e => setSearchQ(e.target.value)} 
+          placeholder="🔍 Buscar por SN da Máquina/HASH, Funcionário ou Ação..." 
+          style={{ ...inp, width: "100%", padding: "10px 14px", fontSize: 13 }}
+        />
+      </div>
+
+      {/* BOTÕES DE BAIXAR E COPIAR RELATÓRIO */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Btn v="g" onClick={downloadAdvancedPDF} style={{ flex: 1, minWidth: 220, padding: "12px 0", fontSize: 13, fontWeight: 900 }}>
+          📄 BAIXAR RELATÓRIO COMPLETO (PDF)
+        </Btn>
+        <Btn v="s" onClick={copyWhatsAppReport} style={{ flex: 1, minWidth: 220, padding: "12px 0", fontSize: 13, fontWeight: 800 }}>
+          📤 COPIAR RESUMO P/ WHATSAPP
+        </Btn>
+      </div>
     </div>
 
-    {/* RESUMO GERAL DA EQUIPE */}
-    <div style={{ fontWeight: 900, fontSize: 15, color: C.accent, marginBottom: 8 }}>📊 TOTAIS SELECIONADOS NO PERÍODO</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8, marginBottom: 16 }}>
-      {types.repairs && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center", border: `1px solid ${C.green}44` }}><div style={{ fontSize: 22, fontWeight: 900, color: C.green }}>{totalRepairs}</div><div style={{ fontSize: 10, color: C.muted }}>Consertos</div></div>}
-      {types.alreadyGood && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center", border: `1px solid ${C.accent}44` }}><div style={{ fontSize: 22, fontWeight: 900, color: C.accent }}>{totalAlreadyGood}</div><div style={{ fontSize: 10, color: C.muted }}>Já Boas</div></div>}
-      {types.tests && <div style={{ background: C.card2, borderRadius: 10, padding: 10, textAlign: "center", border: `1px solid ${C.blue}44` }}><div style={{ fontSize: 22, fontWeight: 900, color: C.blue }}>{totalTests}</div><div style={{ fontSize: 10, color: C.muted }}>Testes</div></div>}
+    {/* RESUMO DE TOTAIS EM CARDS */}
+    <div style={{ fontWeight: 900, fontSize: 16, color: C.accent, marginBottom: 10 }}>
+      📊 TOTAIS NO PERÍODO SELECIONADO
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 18 }}>
+      <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: `1px solid ${C.accent}44` }}>
+        <div style={{ fontSize: 26, fontWeight: 900, color: C.accent }}>{countRepairs}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>🔧 Consertos</div>
+      </div>
+      <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: `1px solid ${C.blue}44` }}>
+        <div style={{ fontSize: 26, fontWeight: 900, color: C.blue }}>{countTests}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>🧪 Testes</div>
+      </div>
+      <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: `1px solid ${C.green}44` }}>
+        <div style={{ fontSize: 26, fontWeight: 900, color: C.green }}>{countMachines}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>🖥️ Máquinas</div>
+      </div>
+      <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: "1px solid #a78bfa44" }}>
+        <div style={{ fontSize: 26, fontWeight: 900, color: "#a78bfa" }}>{countHashes}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>⚡ HASHboards</div>
+      </div>
+      <div style={{ background: C.card2, borderRadius: 12, padding: 12, textAlign: "center", border: `1px solid ${C.border}` }}>
+        <div style={{ fontSize: 26, fontWeight: 900, color: "#fff" }}>{allEvents.length}</div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>📋 Total de Ações</div>
+      </div>
     </div>
 
-    {/* CARDS DOS FUNCIONÁRIOS REENQUADRADOS COM NOMES GRANDES */}
-    <div style={{ fontWeight: 900, fontSize: 15, color: C.accent, marginBottom: 8 }}>👷 PRODUTIVIDADE POR FUNCIONÁRIO (CLIQUE NO CARD PARA VER TUDO)</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 16 }}>
-      {empStats.map(st => (
-        <Card 
-          key={st.emp._id} 
-          onClick={() => openTechDetailsModal(st)}
-          style={{ padding: 16, cursor: 'pointer', border: `1px solid ${st.grandTotal > 0 ? C.accent : C.border}`, background: 'linear-gradient(135deg, #181d28 0%, #10131c 100%)' }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: C.card2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: C.accent, fontSize: 20, border: `1px solid ${C.accent}` }}>
-                {st.emp.name[0]}
+    {/* SELETOR DE ORDENAÇÃO E TÍTULO DO LOG */}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+      <div style={{ fontWeight: 900, fontSize: 16, color: C.accent }}>
+        📋 LOG COMPLETO DE PRODUÇÃO ({displayedItems.length} registros)
+      </div>
+      <button 
+        onClick={() => setSortOrder(s => s === "desc" ? "asc" : "desc")} 
+        style={{ background: C.card2, border: `1px solid ${C.border}`, color: C.accent, borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}
+      >
+        {sortOrder === "desc" ? "⬇️ Mais recentes primeiro" : "⬆️ Mais antigas primeiro"}
+      </button>
+    </div>
+
+    {/* CARDS GRANDES DO LOG DE PRODUÇÃO */}
+    {displayedItems.length === 0 ? (
+      <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 32, background: C.card2, borderRadius: 14 }}>
+        Nenhuma movimentação encontrada com os filtros selecionados.
+      </div>
+    ) : (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {displayedItems.map(it => {
+          const dateObj = fmtLargeDate(it.at);
+          return (
+            <div 
+              key={it.id} 
+              onClick={() => {
+                if (it.category === "machines" || it.category === "tests") {
+                  setModal(<Modal title={`🖥️ Histórico: ${it.sn}`} wide onClose={()=>setModal(null)}><MachineHistoryFullView ctx={ctx} sn={it.sn} onBack={()=>setModal(null)}/></Modal>);
+                } else if (it.category === "hashes" || it.category === "repairs") {
+                  setModal(<Modal title={`⚡ Histórico: ${it.sn}`} wide onClose={()=>setModal(null)}><HashHistoryFullView ctx={ctx} sn={it.sn} onBack={()=>setModal(null)}/></Modal>);
+                }
+              }}
+              style={{
+                background: C.card2,
+                borderRadius: 14,
+                padding: "16px 20px",
+                border: `1px solid ${C.border}`,
+                borderLeft: `6px solid ${it.categoryColor || C.accent}`,
+                boxShadow: "0 4px 15px rgba(0,0,0,0.25)",
+                cursor: "pointer",
+                transition: "all 0.15s ease"
+              }}
+            >
+              {/* Linha superior: DATA GRANDE e HORÁRIO */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.border}`, paddingBottom: 10, marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 26 }}>{it.icon}</span>
+                  <div>
+                    {/* DATA GRANDE */}
+                    <div style={{ fontSize: 18, fontWeight: 900, color: C.accent, letterSpacing: 0.5 }}>
+                      📅 {dateObj.date}
+                    </div>
+                    {dateObj.time && (
+                      <div style={{ fontSize: 13, color: "#fff", fontWeight: 700, marginTop: 2 }}>
+                        ⏰ Horário: <span style={{ color: "#ffd700", fontWeight: 800 }}>{dateObj.time}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ textAlign: "right" }}>
+                  <Tag color={it.categoryColor || C.blue}>{it.categoryLabel}</Tag>
+                  <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
+                    Feito por: <strong style={{ color: "#fff", fontSize: 13 }}>{it.who}</strong>
+                  </div>
+                </div>
               </div>
+
+              {/* Detalhes da Ação */}
               <div>
-                {/* NOME DO USUÁRIO BEM GRANDE COMO SOLICITADO */}
-                <div style={{ fontWeight: 900, fontSize: 20, color: '#fff', letterSpacing: 0.5 }}>
-                  {st.emp.name} <Tag color={C.accent} small style={{fontSize:11}}>#{st.emp.code}</Tag>
+                <div style={{ fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 6 }}>
+                  {it.title}
                 </div>
-                <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginTop: 2 }}>
-                  🔍 Clique para ver lista de máquinas ➔
+
+                {it.from !== null ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
+                    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `1px solid ${C.border}`, minWidth: 130 }}>
+                      <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", display: "block", fontWeight: 700 }}>Valor Anterior</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.red }}>{it.from || "—"}</span>
+                    </div>
+                    <span style={{ fontSize: 22, color: C.accent, fontWeight: 900 }}>➔</span>
+                    <div style={{ background: C.card, borderRadius: 8, padding: "8px 14px", border: `1px solid ${C.border}`, minWidth: 130 }}>
+                      <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", display: "block", fontWeight: 700 }}>Novo Valor</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.green }}>{it.to || "—"}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: C.subtle, marginTop: 4, background: C.card, padding: "6px 12px", borderRadius: 8, display: "inline-block" }}>
+                    {it.detail}
+                  </div>
+                )}
+
+                {it.photoKey && (
+                  <div style={{ marginTop: 10 }}>
+                    <PhotoView photoKey={it.photoKey} style={{ maxHeight: 150, borderRadius: 8 }} />
+                  </div>
+                )}
+
+                <div style={{ fontSize: 11, color: C.accent, marginTop: 8, fontWeight: 700 }}>
+                  🔍 Toque para abrir histórico completo deste item ➔
                 </div>
               </div>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 28, fontWeight: 900, color: st.grandTotal > 0 ? C.green : C.muted }}>{st.grandTotal}</div>
-              <div style={{ fontSize: 9, color: C.subtle, fontWeight: 700 }}>TOTAL AÇÕES</div>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", fontSize: 11 }}>
-            {types.repairs && <Tag color={C.green} small>🔧 {st.repairs} consertos</Tag>}
-            {types.alreadyGood && st.alreadyGood > 0 && <Tag color={C.accent} small>✅ {st.alreadyGood} já ok</Tag>}
-            {types.tests && st.tests > 0 && <Tag color={C.blue} small>🧪 {st.tests} testes</Tag>}
-          </div>
-        </Card>
-      ))}
-    </div>
-
-    {/* LOG DETALHADO */}
-    <div style={{ color: C.muted, fontSize: 12, marginBottom: 8, fontWeight: 700 }}>📋 LOG COMPLETO DE PRODUÇÃO ({items.length})</div>
-    {items.length === 0 ? <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: 24, background: C.card2, borderRadius: 10 }}>Nenhuma movimentação encontrada com os filtros selecionados.</div>
-      : items.map((it, i) => <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-          <div style={{ background: C.card2, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700, color: C.accent, whiteSpace: "nowrap", flexShrink: 0 }}>{it.who}</div>
-          <div style={{ fontSize: 12, flex: 1 }}>{it.text}</div>
-          <div style={{ fontSize: 10, color: C.muted, whiteSpace: "nowrap" }}>{fmtTS(it.at)}</div>
-        </div>
-      </div>)}
+          );
+        })}
+      </div>
+    )}
   </div>;
 }
 
