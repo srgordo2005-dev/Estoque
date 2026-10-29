@@ -1257,7 +1257,7 @@ const DateInp=({label,...p})=>{
 };
 const Sel=({label,children,...p})=><div style={{marginBottom:12}}>{label&&<div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>{label}</div>}<select {...p} style={{...inp,...p.style}}>{children}</select></div>;
 const Btn=({v="o",children,...p})=>{const vs={o:{bg:`linear-gradient(135deg, #ffd700, #b8860b)`,c:"#000",b:`0 0 15px rgba(255,215,0,0.4)`},s:{bg:`linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05))`,c:C.text,b:`0 0 10px rgba(255,255,255,0.1)`},d:{bg:`linear-gradient(135deg, #ef4444, #991b1b)`,c:"#fff",b:`0 0 10px rgba(239,68,68,0.4)`},g:{bg:`linear-gradient(135deg, #22c55e, #14532d)`,c:"#fff",b:`0 0 10px rgba(34,197,94,0.4)`},b:{bg:`linear-gradient(135deg, #0ea5e9, #075985)`,c:"#fff",b:`0 0 10px rgba(14,165,233,0.4)`},p:{bg:`linear-gradient(135deg, #a855f7, #581c87)`,c:"#fff",b:`0 0 10px rgba(168,85,247,0.4)`},y:{bg:`linear-gradient(135deg, #fbbf24, #b45309)`,c:"#000",b:`0 0 10px rgba(251,191,36,0.4)`}};const st=vs[v]||vs.o;return<button className="premium-btn" {...p} style={{background:st.bg,color:st.c,border:"1px solid rgba(255,255,255,0.2)",boxShadow:st.b,borderRadius:12,padding:"12px 20px",fontWeight:800,fontSize:14,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",gap:8,textTransform:"uppercase",letterSpacing:1,backdropFilter:"blur(5px)",transition:"all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",opacity:p.disabled?.5:1,...p.style}}>{children}</button>};
-const Modal=({title,onClose,children})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",zIndex:300,display:"flex",alignItems:"flex-end"}}><div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:640,margin:"0 auto",maxHeight:"92vh",overflow:"auto",padding:20,boxSizing:"border-box"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><div style={{fontWeight:800,fontSize:16,color:C.text}}>{title}</div><button onClick={onClose} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:18}}>✕</button></div>{children}</div></div>;
+const Modal=({title,onClose,children,wide})=><div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.8)",zIndex:300,display:"flex",alignItems:"flex-end"}}><div style={{background:C.card,borderRadius:"18px 18px 0 0",width:"100%",maxWidth:wide?880:640,margin:"0 auto",maxHeight:"92vh",overflow:"auto",padding:20,boxSizing:"border-box"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><div style={{fontWeight:800,fontSize:16,color:C.text}}>{title}</div><button onClick={onClose} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:18}}>✕</button></div>{children}</div></div>;
 const Card=({accent,onClick,children,style})=><div className="card-3d" onClick={onClick} style={{background:C.card,borderRadius:16,padding:20,marginBottom:16,cursor:onClick?"pointer":"default",border:accent?`1px solid ${accent}`:`1px solid rgba(255,215,0,0.1)`,borderLeft:accent?`4px solid ${accent}`:undefined,...style}}>{children}</div>;
 const Tag=({color,children,small})=><span style={{background:color,color:"#fff",borderRadius:6,padding:small?"1px 7px":"3px 9px",fontSize:small?10:11,fontWeight:700,whiteSpace:"nowrap"}}>{children}</span>;
 const SL=({children,mt})=><div style={{color:C.subtle,fontSize:10,fontWeight:800,letterSpacing:1,marginBottom:8,marginTop:mt||0}}>{children}</div>;
@@ -4223,6 +4223,7 @@ function MacPage({ctx}){
       {selMode&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <button onClick={()=>{const all=new Set(filtered.map(m=>m._id));setSelected(prev=>prev.size===filtered.length?new Set():all)}} style={{background:selected.size===filtered.length&&filtered.length>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{selected.size===filtered.length&&filtered.length>0?"✅ Todos selecionados":"Selecionar tudo ("+filtered.length+")"}</button>
         {selected.size>0&&<><Tag color={C.accent}>{selected.size} selecionadas</Tag>
+        <Btn v="o" onClick={()=>setBulkAction("report")} style={{fontSize:11,padding:"6px 12px",fontWeight:900,background:`linear-gradient(135deg, #ffd700, #b8860b)`,color:"#000",boxShadow:"0 0 14px rgba(255,215,0,0.5)"}}>📊 Gerar Relatório</Btn>
         <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🛠️ Mudar Status</Btn>
         <Btn v="p" onClick={()=>setBulkAction("pallet")} style={{fontSize:11,padding:"6px 10px"}}>📦 Mover p/ Palete</Btn>
         <Btn v="y" onClick={()=>setBulkAction("client")} style={{fontSize:11,padding:"6px 10px"}}>🚚 Enviar p/ Cliente</Btn>
@@ -4244,8 +4245,8 @@ function MacPage({ctx}){
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}><div><div style={{fontWeight:800,fontSize:14,color:!m.sn?C.red:C.text}}>{m.sn||"SEM SN"}{m.sheetRow&&<span style={{fontSize:11,color:C.muted,fontWeight:500,marginLeft:6}}>(Linha {m.sheetRow})</span>}</div><div style={{color:C.muted,fontSize:12}}>{m.model} · {m.th}TH</div><By by={m._byName} at={m._at}/><LastMove log={m.changeLog}/></div><SP s={m.situacao}/></div>
         <div style={{display:"flex",gap:5,flexWrap:"wrap"}}><HP s={m.hash0}/><HP s={m.hash1}/><HP s={m.hash2}/>{m.controladora&&<span style={{fontSize:10,color:C.subtle}}>CTR:{m.controladora}</span>}{m.fans&&<span style={{fontSize:10,color:C.subtle}}>FAN:{m.fans}</span>}</div>
       </Card></div>)}
-    {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="pallet"?"📦 Mover p/ Palete":bulkAction==="client"?"👤 Enviar p/ Cliente":bulkAction==="slots"?"🔌 Alterar Slots em Lote":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
-      <BulkMachineAction ctx={ctx} action={bulkAction} machines={selMachines} onDone={()=>{setBulkAction(null);setSelected(new Set());setSelMode(false)}}/>
+    {bulkAction&&<Modal wide={bulkAction==="report"} title={bulkAction==="report"?"📊 Relatório Profissional de Máquinas":bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="pallet"?"📦 Mover p/ Palete":bulkAction==="client"?"👤 Enviar p/ Cliente":bulkAction==="slots"?"🔌 Alterar Slots em Lote":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
+      {bulkAction==="report"?<MachineReportModal ctx={ctx} machines={selMachines} onClose={()=>setBulkAction(null)}/>:<BulkMachineAction ctx={ctx} action={bulkAction} machines={selMachines} onDone={()=>{setBulkAction(null);setSelected(new Set());setSelMode(false)}}/>}
     </Modal>}
   </div>;
 }
@@ -4433,6 +4434,635 @@ function BulkMachineAction({ctx,action,machines,onDone}){
 
     <Btn v={action==="remove"?"d":"g"} onClick={apply} disabled={saving||(action==="pallet"&&!palletId)||(action==="client"&&!clientId)} style={{width:"100%"}}>{saving?"Processando...":action==="remove"?"🗑️ Remover "+machines.length+" máquina(s)":"✓ Aplicar a "+machines.length}</Btn>
   </div>;
+}
+
+
+
+/* ═══ RELATÓRIOS PROFISSIONAIS (MÁQUINAS E HASHBOARDS) ══════════════ */
+
+function MachineReportModal({ ctx, machines, onClose }) {
+  const { data, user } = ctx;
+  const [filterText, setFilterText] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const getExitDate = (item) => {
+    if (item.changeLog && Array.isArray(item.changeLog)) {
+      const exitLog = item.changeLog.find(l => 
+        String(l.to || "").toUpperCase().includes("SAIDA") ||
+        String(l.to || "").toUpperCase().includes("VENDID") ||
+        String(l.field || "").toLowerCase() === "destino" ||
+        String(l.label || "").toLowerCase().includes("cliente") ||
+        String(l.label || "").toLowerCase().includes("situa")
+      );
+      if (exitLog?.at) return fmtTS(exitLog.at);
+      if (item.changeLog[0]?.at) return fmtTS(item.changeLog[0].at);
+    }
+    if (item.reviewed_at) return fmtTS(item.reviewed_at);
+    if (item._at || item.at) return fmtTS(item._at || item.at);
+    if (item.created_at || item.added_at) return fmtTS(item.created_at || item.added_at);
+    return "—";
+  };
+
+  const getMachineHashes = (m) => {
+    const mSN = normSNField(m.sn);
+    const colHashes = (data.hashes || []).filter(h => normSNField(h.machineSN) === mSN && mSN !== "");
+    return [0, 1, 2].map(idx => {
+      const directSN = m[`hash_sn${idx}`] || m[`hashSN${idx}`] || "";
+      const directSt = m[`hash${idx}`] || "";
+      const matched = colHashes.find(h => 
+        Number(h.slot) === idx || 
+        (directSN && normSNField(h.sn) === normSNField(directSN))
+      );
+      return {
+        slot: idx + 1,
+        sn: matched?.sn || directSN || "—",
+        status: matched?.status || directSt || "—",
+        model: matched?.model || m.model || "—",
+        chips: matched?.chips || (m[`hash_np${idx}`] ? `NP: ${m[`hash_np${idx}`]}` : ""),
+        material: matched?.material || ""
+      };
+    });
+  };
+
+  const getMachinePallet = (m) => {
+    const pl = (data.pallets || []).find(p => (p.machinesSN || []).some(sn => normSNField(sn) === normSNField(m.sn)));
+    if (pl) return pl.name;
+    if (m.location && m.location.toLowerCase().includes("palet")) return m.location;
+    return "—";
+  };
+
+  const getMachineClient = (m) => {
+    if (m.destino && m.destino.trim()) return m.destino;
+    const cl = (data.clients || []).find(c => (c.machinesSN || []).some(sn => normSNField(sn) === normSNField(m.sn)));
+    if (cl) return cl.name;
+    if (m.situacao === "SAIDA" || m.situacao === "VENDIDA") return "Saída (Cliente)";
+    return "Em Estoque";
+  };
+
+  const totalMacs = machines.length;
+  const totalTH = machines.reduce((acc, m) => acc + (parseFloat(m.th) || 0), 0);
+  
+  let totalHashesInstalled = 0;
+  machines.forEach(m => {
+    const hs = getMachineHashes(m);
+    hs.forEach(s => {
+      if (s.sn !== "—" || (s.status && s.status !== "—" && s.status !== "OFF")) totalHashesInstalled++;
+    });
+  });
+
+  const countSaida = machines.filter(m => m.situacao === "SAIDA" || m.situacao === "VENDIDA" || m.destino).length;
+  const countPallet = machines.filter(m => getMachinePallet(m) !== "—").length;
+  const countBoa = machines.filter(m => m.situacao === "BOA").length;
+
+  const q = filterText.toLowerCase().trim();
+  const filteredMachines = machines.filter(m => {
+    if (!q) return true;
+    const snMatch = (m.sn || "").toLowerCase().includes(q);
+    const modelMatch = (m.model || "").toLowerCase().includes(q);
+    const plMatch = getMachinePallet(m).toLowerCase().includes(q);
+    const clMatch = getMachineClient(m).toLowerCase().includes(q);
+    const sitMatch = (m.situacao || "").toLowerCase().includes(q);
+    return snMatch || modelMatch || plMatch || clMatch || sitMatch;
+  });
+
+  const downloadPDF = () => {
+    const doc = new jsPDF();
+    let y = 18;
+
+    // Header decorativo
+    doc.setFillColor(15, 25, 35);
+    doc.rect(10, 10, 190, 24, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(249, 115, 22);
+    doc.text("HASHSTOCK - RELATORIO DE MAQUINAS", 15, 20);
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(226, 232, 240);
+    doc.text(`Gerado em: ${new Date().toLocaleString("pt-BR")} | Operador: ${user?.name || "Operador"} #${user?.code || ""}`, 15, 28);
+
+    y = 42;
+    // Box Resumo
+    doc.setFillColor(245, 247, 250);
+    doc.rect(10, y - 4, 190, 16, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`RESUMO EXECUTIVO:`, 14, y + 2);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text(`${totalMacs} Maquinas | ${totalTH.toFixed(1)} TH/s | ${totalHashesInstalled} HASHs Instaladas | ${countSaida} Saidas/Clientes | ${countPallet} em Palete | ${countBoa} Boas`, 14, y + 8);
+
+    y += 22;
+
+    machines.forEach((m, idx) => {
+      if (y > 248) {
+        doc.addPage();
+        y = 20;
+      }
+      const pl = getMachinePallet(m);
+      const dest = getMachineClient(m);
+      const dtSaida = getExitDate(m);
+      const hSlots = getMachineHashes(m);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(15, 25, 35);
+      doc.text(`${idx + 1}. SN: ${m.sn || "SEM SN"}  —  ${m.model || "—"} (${m.th || 0} TH/s)`, 14, y);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      y += 5;
+      doc.text(`Situacao: ${m.situacao || "BOA"}   |   Palete: ${pl}   |   Destino/Cliente: ${dest}   |   Data Saida: ${dtSaida}`, 18, y);
+
+      y += 4.5;
+      const hDesc = hSlots.map(s => `Slot ${s.slot}: ${s.sn} [${s.status}${s.chips ? " · " + s.chips : ""}]`).join("   |   ");
+      doc.text(`Placas HASH: ${hDesc}`, 18, y);
+
+      y += 6;
+      doc.setDrawColor(220, 226, 235);
+      doc.line(14, y - 1, 196, y - 1);
+      y += 3;
+    });
+
+    doc.save(`Relatorio-Maquinas-${Date.now()}.pdf`);
+  };
+
+  const copyWhatsApp = () => {
+    let txt = `📊 *RELATÓRIO DE MÁQUINAS — HASHSTOCK*\n`;
+    txt += `📅 *Gerado em:* ${new Date().toLocaleString("pt-BR")}\n`;
+    txt += `👤 *Operador:* ${user?.name || "Operador"} #${user?.code || ""}\n\n`;
+    txt += `📈 *RESUMO EXECUTIVO:*\n`;
+    txt += `• Total de Máquinas: *${totalMacs}*\n`;
+    txt += `• Potência Total: *${totalTH.toFixed(1)} TH/s*\n`;
+    txt += `• HASHboards Instaladas: *${totalHashesInstalled}*\n`;
+    txt += `• Saída / Cliente: *${countSaida}* | Em Palete: *${countPallet}* | Boas: *${countBoa}*\n`;
+    txt += `━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    txt += `🖥️ *DETALHAMENTO DAS MÁQUINAS:*\n\n`;
+
+    machines.forEach((m, idx) => {
+      const pl = getMachinePallet(m);
+      const dest = getMachineClient(m);
+      const dtSaida = getExitDate(m);
+      const hSlots = getMachineHashes(m);
+
+      txt += `*${idx + 1}. 🖥️ ${m.sn || "SEM SN"}* — ${m.model || ""} (${m.th || 0}TH)\n`;
+      txt += `   • *Situação:* ${m.situacao || "BOA"}\n`;
+      txt += `   • *Palete:* ${pl}\n`;
+      txt += `   • *Destino / Cliente:* ${dest}\n`;
+      txt += `   • *Data Saída:* ${dtSaida}\n`;
+      txt += `   • *HASHs Internas:*\n`;
+      hSlots.forEach(s => {
+        txt += `     ⚡ Slot ${s.slot}: ${s.sn} (${s.status}${s.chips ? " · " + s.chips : ""})\n`;
+      });
+      txt += `\n`;
+    });
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(txt).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      }).catch(() => alert(txt));
+    } else {
+      alert(txt);
+    }
+  };
+
+  const handlePrint = () => {
+    const printContent = document.getElementById("hs-machine-report-printable");
+    if (!printContent) return window.print();
+    const w = window.open("", "_blank");
+    w.document.write(`<html><head><title>Relatório de Máquinas - HashStock</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 24px; color: #1e293b; background: #fff; }
+        h1 { font-size: 20px; color: #ea580c; margin-bottom: 4px; }
+        .meta { font-size: 12px; color: #64748b; margin-bottom: 18px; border-bottom: 2px solid #ea580c; padding-bottom: 10px; }
+        .summary { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 20px; font-size: 13px; }
+        .card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 12px; page-break-inside: avoid; }
+        .card-header { font-weight: bold; font-size: 14px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+        .card-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px; color: #475569; margin-bottom: 8px; }
+        .slots { background: #f1f5f9; padding: 8px; border-radius: 6px; font-size: 11px; }
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #e2e8f0; }
+      </style>
+    </head><body>${printContent.innerHTML}</body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); w.close(); }, 350);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Barra de Ações Topo */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", background: C.card2, padding: "12px 16px", borderRadius: 14, border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 24 }}>📊</span>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 15, color: C.text }}>Relatório Completo de Estoque</div>
+            <div style={{ fontSize: 11, color: C.muted }}>{machines.length} máquinas selecionadas · {totalTH.toFixed(1)} TH/s</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={downloadPDF} style={{ background: "linear-gradient(135deg, #0ea5e9, #0284c7)", border: "none", color: "#fff", padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: "0 2px 8px rgba(14,165,233,0.3)" }}>
+            📥 Baixar PDF
+          </button>
+          <button onClick={copyWhatsApp} style={{ background: copied ? "linear-gradient(135deg, #22c55e, #16a34a)" : "linear-gradient(135deg, #25d366, #128c7e)", border: "none", color: "#fff", padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, boxShadow: "0 2px 8px rgba(37,211,102,0.3)" }}>
+            {copied ? "✓ Copiado!" : "📋 Copiar WhatsApp"}
+          </button>
+          <button onClick={handlePrint} style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, padding: "8px 12px", borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            🖨️ Imprimir
+          </button>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+        <div style={{ background: C.card, border: `1px solid rgba(255,215,0,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "#ffd700" }}>{totalMacs}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>Máquinas</div>
+        </div>
+        <div style={{ background: C.card, border: `1px solid rgba(14,165,233,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.blue }}>{totalTH.toFixed(1)}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>TH/s Total</div>
+        </div>
+        <div style={{ background: C.card, border: `1px solid rgba(34,197,94,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.green }}>{totalHashesInstalled}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>HASHs Internas</div>
+        </div>
+        <div style={{ background: C.card, border: `1px solid rgba(239,68,68,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.red }}>{countSaida}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>Saídas / Clientes</div>
+        </div>
+        <div style={{ background: C.card, border: `1px solid rgba(168,85,247,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.purple }}>{countPallet}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>Em Paletes</div>
+        </div>
+      </div>
+
+      {/* Busca Rápida */}
+      <div style={{ background: C.card2, borderRadius: 10, padding: "8px 12px", display: "flex", gap: 10, alignItems: "center", border: `1px solid ${C.border}` }}>
+        <span style={{ fontSize: 16 }}>🔍</span>
+        <input 
+          value={filterText} 
+          onChange={e => setFilterText(e.target.value)} 
+          placeholder="Filtrar por SN, modelo, palete, cliente ou situação..." 
+          style={{ background: "none", border: "none", color: C.text, fontSize: 13, flex: 1, outline: "none", fontWeight: 600 }}
+        />
+        {filterText && <button onClick={() => setFilterText("")} style={{ background: "none", border: "none", color: C.subtle, cursor: "pointer", fontSize: 12 }}>✕ Limpar</button>}
+      </div>
+
+      {/* Container com a Lista de Máquinas (Visualização rica e formato para impressão) */}
+      <div id="hs-machine-report-printable" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="printable-only" style={{ display: "none" }}>
+          <h1>HASHSTOCK — RELATÓRIO OFICIAL DE MÁQUINAS</h1>
+          <div className="meta">Gerado em: {new Date().toLocaleString("pt-BR")} | Responsável: {user?.name || "Operador"} #{user?.code || ""}</div>
+          <div className="summary">
+            <b>Resumo:</b> {totalMacs} Máquinas | {totalTH.toFixed(1)} TH/s | {totalHashesInstalled} HASHboards Instaladas | {countSaida} Saídas / Clientes | {countPallet} em Paletes
+          </div>
+        </div>
+
+        {filteredMachines.map((m, idx) => {
+          const pl = getMachinePallet(m);
+          const dest = getMachineClient(m);
+          const dtSaida = getExitDate(m);
+          const hSlots = getMachineHashes(m);
+
+          return (
+            <div key={m._id || m.sn || idx} style={{ background: C.card, borderRadius: 14, border: `1px solid rgba(255,215,0,0.15)`, borderLeft: `4px solid ${SIT_C[m.situacao] || C.accent}`, padding: 16, boxShadow: "0 4px 14px rgba(0,0,0,0.25)" }}>
+              {/* Linha Principal da Máquina */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 16, color: C.accent, fontWeight: 900 }}>#{idx + 1}</span>
+                    <span style={{ fontWeight: 900, fontSize: 16, color: m.sn ? "#fff" : C.red }}>{m.sn || "SEM SN"}</span>
+                    {m.sheetRow && <span style={{ fontSize: 11, color: C.muted }}>(Linha {m.sheetRow})</span>}
+                  </div>
+                  <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>{m.model || "Modelo não especificado"} · <span style={{ color: C.blue, fontWeight: 800 }}>{m.th || 0} TH/s</span></div>
+                </div>
+
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <SP s={m.situacao} />
+                </div>
+              </div>
+
+              {/* Informações Logísticas: Palete, Cliente/Destino, Data de Saída */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8, background: C.card2, padding: "10px 14px", borderRadius: 10, marginBottom: 12, border: `1px solid ${C.border}` }}>
+                <div>
+                  <div style={{ fontSize: 10, color: C.subtle, fontWeight: 800, textTransform: "uppercase" }}>📦 Palete</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: pl !== "—" ? C.purple : C.text, marginTop: 2 }}>{pl}</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10, color: C.subtle, fontWeight: 800, textTransform: "uppercase" }}>🚚 Destino / Cliente</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: dest !== "Em Estoque" ? C.accent : C.text, marginTop: 2 }}>{dest}</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10, color: C.subtle, fontWeight: 800, textTransform: "uppercase" }}>📅 Data de Saída / Movimentação</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: dtSaida !== "—" ? C.green : C.muted, marginTop: 2 }}>{dtSaida}</div>
+                </div>
+              </div>
+
+              {/* Sub-bloco de HASHboards internas */}
+              <div style={{ background: "rgba(0,0,0,0.25)", border: `1px solid rgba(255,255,255,0.06)`, borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: C.subtle, marginBottom: 8, letterSpacing: 1, textTransform: "uppercase", display: "flex", justifyContent: "space-between" }}>
+                  <span>⚡ HASHboards Instaladas</span>
+                  <span style={{ color: C.muted, fontSize: 10 }}>Slot 1, 2 e 3</span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
+                  {hSlots.map(s => {
+                    const hasSN = s.sn && s.sn !== "—";
+                    return (
+                      <div key={s.slot} style={{ background: C.card, border: `1px solid ${hasSN ? C.border : "rgba(255,255,255,0.05)"}`, borderRadius: 8, padding: "8px 10px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <span style={{ fontSize: 10, fontWeight: 900, color: C.accent }}>SLOT {s.slot}</span>
+                          <HP s={s.status} />
+                        </div>
+                        <div style={{ fontWeight: 800, fontSize: 12, color: hasSN ? C.text : C.muted, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+                          {hasSN ? s.sn : "— Vazio —"}
+                        </div>
+                        {s.chips && <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{s.chips} chips</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ textAlign: "right", marginTop: 8 }}>
+        <Btn v="s" onClick={onClose} style={{ padding: "8px 20px" }}>Fechar Relatório</Btn>
+      </div>
+    </div>
+  );
+}
+
+function HashReportModal({ ctx, hashes, onClose }) {
+  const { data, user } = ctx;
+  const [filterText, setFilterText] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const getExitDate = (item) => {
+    if (item.changeLog && Array.isArray(item.changeLog)) {
+      const exitLog = item.changeLog.find(l => 
+        String(l.to || "").toUpperCase().includes("SAIDA") ||
+        String(l.to || "").toUpperCase().includes("VENDID") ||
+        String(l.field || "").toLowerCase() === "destino" ||
+        String(l.label || "").toLowerCase().includes("cliente") ||
+        String(l.label || "").toLowerCase().includes("status")
+      );
+      if (exitLog?.at) return fmtTS(exitLog.at);
+      if (item.changeLog[0]?.at) return fmtTS(item.changeLog[0].at);
+    }
+    if (item.reviewed_at) return fmtTS(item.reviewed_at);
+    if (item._at || item.at) return fmtTS(item._at || item.at);
+    if (item.created_at || item.added_at) return fmtTS(item.created_at || item.added_at);
+    return "—";
+  };
+
+  const getHashPallet = (h) => {
+    const pl = (data.pallets || []).find(p => (p.hashesSN || []).some(sn => normSNField(sn) === normSNField(h.sn)));
+    if (pl) return pl.name;
+    if (h.location && h.location.toLowerCase().includes("palet")) return h.location;
+    return "—";
+  };
+
+  const getHashClient = (h) => {
+    if (h.location && h.location.includes("Vendida:")) return h.location.replace("Vendida:", "").trim();
+    const cl = (data.clients || []).find(c => (c.hashesSN || []).some(sn => normSNField(sn) === normSNField(h.sn)));
+    if (cl) return cl.name;
+    if (h.status === "SAIDA") return "Saída (Cliente)";
+    return "Em Estoque";
+  };
+
+  const totalHashes = hashes.length;
+  const totalChips = hashes.reduce((acc, h) => acc + (parseInt(h.chips) || 0), 0);
+  const countON = hashes.filter(h => h.status === "ON").length;
+  const countReparo = hashes.filter(h => h.status === "TESTAR" || h.status === "REPARO").length;
+  const countNaMaquina = hashes.filter(h => h.status === "NA MAQUINA" || (h.machineSN && h.machineSN.trim())).length;
+  const countSaida = hashes.filter(h => h.status === "SAIDA" || (h.location && h.location.toLowerCase().includes("vendid"))).length;
+
+  const q = filterText.toLowerCase().trim();
+  const filteredHashes = hashes.filter(h => {
+    if (!q) return true;
+    const snMatch = (h.sn || "").toLowerCase().includes(q);
+    const modelMatch = (h.model || "").toLowerCase().includes(q);
+    const stMatch = (h.status || "").toLowerCase().includes(q);
+    const macMatch = (h.machineSN || "").toLowerCase().includes(q);
+    const plMatch = getHashPallet(h).toLowerCase().includes(q);
+    const clMatch = getHashClient(h).toLowerCase().includes(q);
+    return snMatch || modelMatch || stMatch || macMatch || plMatch || clMatch;
+  });
+
+  const downloadPDF = () => {
+    const doc = new jsPDF();
+    let y = 18;
+
+    doc.setFillColor(15, 25, 35);
+    doc.rect(10, 10, 190, 24, "F");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(14, 165, 233);
+    doc.text("HASHSTOCK - RELATORIO DE HASHBOARDS", 15, 20);
+
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(226, 232, 240);
+    doc.text(`Gerado em: ${new Date().toLocaleString("pt-BR")} | Operador: ${user?.name || "Operador"} #${user?.code || ""}`, 15, 28);
+
+    y = 42;
+    doc.setFillColor(245, 247, 250);
+    doc.rect(10, y - 4, 190, 16, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`RESUMO:`, 14, y + 2);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text(`${totalHashes} Placas HASH | ${totalChips} Chips Totais | ${countON} ON | ${countReparo} Em Reparo/Teste | ${countNaMaquina} Em Maquinas | ${countSaida} Saidas`, 14, y + 8);
+
+    y += 22;
+
+    hashes.forEach((h, idx) => {
+      if (y > 250) {
+        doc.addPage();
+        y = 20;
+      }
+      const mac = data.machines.find(m => normSNField(m.sn) === normSNField(h.machineSN));
+      const macText = mac ? `Maquina: ${mac.sn} (${mac.model})` : (h.machineSN ? `Maquina: ${h.machineSN}` : "Avulsa / Solta");
+      const pl = getHashPallet(h);
+      const dest = getHashClient(h);
+      const dt = getExitDate(h);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(15, 25, 35);
+      doc.text(`${idx + 1}. SN: ${h.sn || "SEM SN"}  —  ${h.model || "—"} [${h.status || "—"}]`, 14, y);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      y += 5;
+      doc.text(`Chips: ${h.chips || "—"}   |   ${macText}   |   Palete: ${pl}   |   Destino: ${dest}   |   Data: ${dt}`, 18, y);
+
+      y += 6;
+      doc.setDrawColor(220, 226, 235);
+      doc.line(14, y - 1, 196, y - 1);
+      y += 3;
+    });
+
+    doc.save(`Relatorio-HASHboards-${Date.now()}.pdf`);
+  };
+
+  const copyWhatsApp = () => {
+    let txt = `📊 *RELATÓRIO DE HASHBOARDS — HASHSTOCK*\n`;
+    txt += `📅 *Gerado em:* ${new Date().toLocaleString("pt-BR")}\n`;
+    txt += `👤 *Operador:* ${user?.name || "Operador"} #${user?.code || ""}\n\n`;
+    txt += `📈 *RESUMO EXECUTIVO:*\n`;
+    txt += `• Total de HASHboards: *${totalHashes}*\n`;
+    txt += `• Total de Chips: *${totalChips}*\n`;
+    txt += `• Status ON: *${countON}* | Em Teste/Reparo: *${countReparo}*\n`;
+    txt += `• Instaladas em Máquinas: *${countNaMaquina}* | Saída/Vendidas: *${countSaida}*\n`;
+    txt += `━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    txt += `⚡ *DETALHAMENTO DAS PLACAS:*\n\n`;
+
+    hashes.forEach((h, idx) => {
+      const mac = data.machines.find(m => normSNField(m.sn) === normSNField(h.machineSN));
+      const macText = mac ? `${mac.sn} (${mac.model})` : (h.machineSN || "Avulsa / Solta");
+      const pl = getHashPallet(h);
+      const dest = getHashClient(h);
+      const dt = getExitDate(h);
+
+      txt += `*${idx + 1}. ⚡ ${h.sn || "SEM SN"}* — ${h.model || ""} [${h.status || ""}]\n`;
+      txt += `   • *Chips:* ${h.chips || "—"} | *Material:* ${h.material || "—"}\n`;
+      txt += `   • *Instalação:* ${macText}\n`;
+      txt += `   • *Palete:* ${pl} | *Destino:* ${dest}\n`;
+      txt += `   • *Data Saída/Movimentação:* ${dt}\n\n`;
+    });
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(txt).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      }).catch(() => alert(txt));
+    } else {
+      alert(txt);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Barra de Ações Topo */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", background: C.card2, padding: "12px 16px", borderRadius: 14, border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 24 }}>⚡</span>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 15, color: C.text }}>Relatório de HASHboards</div>
+            <div style={{ fontSize: 11, color: C.muted }}>{hashes.length} placas selecionadas · {totalChips} chips</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={downloadPDF} style={{ background: "linear-gradient(135deg, #0ea5e9, #0284c7)", border: "none", color: "#fff", padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            📥 Baixar PDF
+          </button>
+          <button onClick={copyWhatsApp} style={{ background: copied ? "linear-gradient(135deg, #22c55e, #16a34a)" : "linear-gradient(135deg, #25d366, #128c7e)", border: "none", color: "#fff", padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            {copied ? "✓ Copiado!" : "📋 Copiar WhatsApp"}
+          </button>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+        <div style={{ background: C.card, border: `1px solid rgba(14,165,233,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.blue }}>{totalHashes}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>Total HASHs</div>
+        </div>
+        <div style={{ background: C.card, border: `1px solid rgba(34,197,94,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.green }}>{countON}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>Status ON</div>
+        </div>
+        <div style={{ background: C.card, border: `1px solid rgba(217,119,6,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: C.amber }}>{countReparo}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>Em Reparo/Teste</div>
+        </div>
+        <div style={{ background: C.card, border: `1px solid rgba(255,215,0,0.3)`, borderRadius: 12, padding: 12, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "#ffd700" }}>{countNaMaquina}</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>Em Máquinas</div>
+        </div>
+      </div>
+
+      {/* Busca Rápida */}
+      <div style={{ background: C.card2, borderRadius: 10, padding: "8px 12px", display: "flex", gap: 10, alignItems: "center", border: `1px solid ${C.border}` }}>
+        <span style={{ fontSize: 16 }}>🔍</span>
+        <input 
+          value={filterText} 
+          onChange={e => setFilterText(e.target.value)} 
+          placeholder="Filtrar por SN, modelo, status, máquina, palete..." 
+          style={{ background: "none", border: "none", color: C.text, fontSize: 13, flex: 1, outline: "none", fontWeight: 600 }}
+        />
+        {filterText && <button onClick={() => setFilterText("")} style={{ background: "none", border: "none", color: C.subtle, cursor: "pointer", fontSize: 12 }}>✕ Limpar</button>}
+      </div>
+
+      {/* Lista de HASHboards */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {filteredHashes.map((h, idx) => {
+          const mac = data.machines.find(m => normSNField(m.sn) === normSNField(h.machineSN));
+          const pl = getHashPallet(h);
+          const dest = getHashClient(h);
+          const dt = getExitDate(h);
+
+          return (
+            <div key={h._id || h.sn || idx} style={{ background: C.card, borderRadius: 14, border: `1px solid rgba(14,165,233,0.15)`, borderLeft: `4px solid ${HST_C[h.status] || C.blue}`, padding: 14, boxShadow: "0 4px 14px rgba(0,0,0,0.25)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 15, color: C.blue, fontWeight: 900 }}>#{idx + 1}</span>
+                    <span style={{ fontWeight: 900, fontSize: 15, color: "#fff" }}>⚡ {h.sn || "SEM SN"}</span>
+                  </div>
+                  <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>{h.model || "—"} {h.chips ? `· ${h.chips} chips` : ""} {h.material ? `· ${h.material}` : ""}</div>
+                </div>
+
+                <HP s={h.status} />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, background: C.card2, padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}` }}>
+                <div>
+                  <div style={{ fontSize: 10, color: C.subtle, fontWeight: 800 }}>🖥️ INSTALAÇÃO</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: mac ? C.accent : C.muted, marginTop: 2 }}>
+                    {mac ? `${mac.sn} (${mac.model})` : (h.machineSN ? h.machineSN : "📦 Avulsa / Solta")}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10, color: C.subtle, fontWeight: 800 }}>📦 PALETE / LOCAL</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: pl !== "—" ? C.purple : C.text, marginTop: 2 }}>{pl}</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10, color: C.subtle, fontWeight: 800 }}>🚚 CLIENTE / DATA</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: dest !== "Em Estoque" ? C.accent : C.text, marginTop: 2 }}>
+                    {dest} {dt !== "—" ? `· ${dt}` : ""}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ textAlign: "right", marginTop: 8 }}>
+        <Btn v="s" onClick={onClose} style={{ padding: "8px 20px" }}>Fechar Relatório</Btn>
+      </div>
+    </div>
+  );
 }
 
 
@@ -7884,6 +8514,7 @@ function HashPage({ctx}){
       {selMode&&<div style={{background:C.card2,border:`1px solid ${C.accent}`,borderRadius:10,padding:10,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <button onClick={()=>{const all=new Set(filtered.map(h=>h._id));setSelected(prev=>prev.size===filtered.length?new Set():all)}} style={{background:selected.size===filtered.length&&filtered.length>0?C.accent:C.card,border:`1px solid ${C.accent}`,color:"#fff",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{selected.size===filtered.length&&filtered.length>0?"✅ Todas selecionadas":"Selecionar tudo ("+filtered.length+")"}</button>
         {selected.size>0&&<><Tag color={C.accent}>{selected.size} selecionadas</Tag>
+        <Btn v="o" onClick={()=>setBulkAction("report")} style={{fontSize:11,padding:"6px 12px",fontWeight:900,background:`linear-gradient(135deg, #ffd700, #b8860b)`,color:"#000",boxShadow:"0 0 14px rgba(255,215,0,0.5)"}}>📊 Gerar Relatório</Btn>
         <Btn v="b" onClick={()=>setBulkAction("status")} style={{fontSize:11,padding:"6px 10px"}}>🛠️ Mudar Status</Btn>
         <Btn v="d" onClick={()=>setBulkAction("remove")} style={{fontSize:11,padding:"6px 10px"}}>🗑️ Remover</Btn></> }
       </div>}
@@ -7903,8 +8534,8 @@ function HashPage({ctx}){
         <div style={{display:"flex",gap:10,fontSize:11,color:C.muted,marginTop:5}}>{mac?<span style={{color:C.accent}}>🖥️ {mac.sn||"SEM SN"} · Slot {h.slot>=0?h.slot+1:"?"}</span>:<span>📦 Solta</span>}{repName&&<span>👷 {repName}</span>}</div>
         <By by={h._byName} at={h._at}/><LastMove log={h.changeLog}/>
       </Card></div>})}
-    {bulkAction&&<Modal title={bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="location"?"📍 Mudar Local em Lote":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
-      <BulkHashAction ctx={ctx} action={bulkAction} hashes={selHashes} onDone={()=>{setBulkAction(null);setSelected(new Set());setSelMode(false)}}/>
+    {bulkAction&&<Modal wide={bulkAction==="report"} title={bulkAction==="report"?"📊 Relatório Profissional de HASHboards":bulkAction==="status"?"🏷️ Mudar Status em Lote":bulkAction==="location"?"📍 Mudar Local em Lote":"🗑️ Remover em Lote"} onClose={()=>setBulkAction(null)}>
+      {bulkAction==="report"?<HashReportModal ctx={ctx} hashes={selHashes} onClose={()=>setBulkAction(null)}/>:<BulkHashAction ctx={ctx} action={bulkAction} hashes={selHashes} onDone={()=>{setBulkAction(null);setSelected(new Set());setSelMode(false)}}/>}
     </Modal>}
   </div>;
 }
