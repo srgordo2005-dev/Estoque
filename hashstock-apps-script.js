@@ -163,8 +163,22 @@ function getReparoSheet(ss) {
 // --- DIRETIVAS DO DOPOST ---
 function doPost(e) {
   try {
-    const json = JSON.parse(e.postData.contents);
-    const batch = json.batch || [];
+    let json = {};
+    try {
+      json = JSON.parse(e.postData.contents);
+    } catch(parseErr) {
+      return ContentService.createTextOutput(JSON.stringify({ status: "error", error: "JSON inválido: " + parseErr.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    let batch = [];
+    if (Array.isArray(json)) {
+      batch = json;
+    } else if (json && json.batch && Array.isArray(json.batch)) {
+      batch = json.batch;
+    } else if (json && json.action) {
+      batch = [json];
+    }
     
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheetMac = getMachinesSheet(ss);
@@ -172,61 +186,71 @@ function doPost(e) {
     const sheetReparo = getSheetByNameRobust(ss, "REPARO DE HASH") || getSheetByNameRobust(ss, "REPARO HASH") || ss.getSheetByName("REPARO DE HASH");
     const sheetTestes = getSheetByNameRobust(ss, "TESTES") || ss.getSheetByName("TESTES");
     
+    const results = [];
     // Processa o lote (batch) de forma rápida
     for (let i = 0; i < batch.length; i++) {
       const item = batch[i];
+      if (!item) continue;
       const action = item.action;
       const payload = item.payload || {};
+      let res = { ok: true, action: action };
       
-      if (action === "updateMachine") {
-        updateMachineRow(sheetMac, payload);
-      } else if (action === "addMachine") {
-        addMachineRow(sheetMac, payload);
-      } else if (action === "syncMachinesBulk") {
-        addMachinesBulk(sheetMac, payload);
-      } else if (action === "syncHashesBulk") {
-        addHashesBulk(sheetHash, payload);
-      } else if (action === "deleteMachineRow") {
-        deleteMachineRow(sheetMac, payload);
-      } else if (action === "updateHash") {
-        updateHashRow(sheetHash, payload);
-      } else if (action === "addHash") {
-        addHashRow(sheetHash, payload);
-      } else if (action === "deleteHashRow") {
-        deleteHashRow(sheetHash, payload);
-      } else if (action === "deleteRepairRow") {
-        deleteRepairRow(sheetReparo, payload);
-      } else if (action === "transferRepair") {
-        transferRepairRow(sheetReparo, payload);
-      } else if (action === "machineToClient") {
-        machineToClientRow(sheetMac, payload);
-      } else if (action === "machineFromClient") {
-        machineFromClientRow(sheetMac, payload);
-      } else if (action === "hashSaida") {
-        hashSaidaRow(sheetHash, payload);
-      } else if (action === "hashApproved") {
-        hashApprovedRow(sheetMac, sheetHash, sheetReparo, payload);
-      } else if (action === "hashBad") {
-        hashBadRow(sheetHash, payload);
-      } else if (action === "updateHashChips") {
-        // No-op: aba HASH não tem coluna de Chips
-      } else if (action === "updateHashTecnico") {
-        // No-op: aba HASH não tem coluna de Técnico
-      } else if (action === "repair") {
-        addRepairRow(sheetReparo, sheetHash, payload);
-      } else if (action === "alreadyGood") {
-        addAlreadyGoodRow(sheetHash, payload);
-      } else if (action === "test") {
-        addTestRow(sheetTestes, payload);
-      } else if (action === "exportScanResults") {
-        exportScanResults(ss, payload);
+      try {
+        if (action === "updateMachine") {
+          updateMachineRow(sheetMac, payload);
+        } else if (action === "addMachine") {
+          addMachineRow(sheetMac, payload);
+        } else if (action === "syncMachinesBulk") {
+          addMachinesBulk(sheetMac, payload);
+        } else if (action === "syncHashesBulk") {
+          addHashesBulk(sheetHash, payload);
+        } else if (action === "deleteMachineRow") {
+          res = deleteMachineRow(sheetMac, payload);
+        } else if (action === "updateHash") {
+          updateHashRow(sheetHash, payload);
+        } else if (action === "addHash") {
+          addHashRow(sheetHash, payload);
+        } else if (action === "deleteHashRow") {
+          res = deleteHashRow(sheetHash, payload);
+        } else if (action === "deleteRepairRow") {
+          res = deleteRepairRow(sheetReparo, payload);
+        } else if (action === "transferRepair") {
+          transferRepairRow(sheetReparo, payload);
+        } else if (action === "machineToClient") {
+          machineToClientRow(sheetMac, payload);
+        } else if (action === "machineFromClient") {
+          machineFromClientRow(sheetMac, payload);
+        } else if (action === "hashSaida") {
+          hashSaidaRow(sheetHash, payload);
+        } else if (action === "hashApproved") {
+          hashApprovedRow(sheetMac, sheetHash, sheetReparo, payload);
+        } else if (action === "hashBad") {
+          hashBadRow(sheetHash, payload);
+        } else if (action === "updateHashChips") {
+          // No-op: aba HASH não tem coluna de Chips
+        } else if (action === "updateHashTecnico") {
+          // No-op: aba HASH não tem coluna de Técnico
+        } else if (action === "repair") {
+          addRepairRow(sheetReparo, sheetHash, payload);
+        } else if (action === "alreadyGood") {
+          addAlreadyGoodRow(sheetHash, payload);
+        } else if (action === "test") {
+          addTestRow(sheetTestes, payload);
+        } else if (action === "exportScanResults") {
+          exportScanResults(ss, payload);
+        } else {
+          res = { ok: false, error: "Ação desconhecida: " + action };
+        }
+      } catch(actionErr) {
+        res = { ok: false, action: action, error: actionErr.message };
       }
+      results.push(res);
       SpreadsheetApp.flush();
     }
-    return ContentService.createTextOutput(JSON.stringify({ status: "ok" }))
+    return ContentService.createTextOutput(JSON.stringify({ status: "ok", results: results }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ error: err.toString() }))
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", error: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
@@ -564,42 +588,80 @@ function addMachineRow(sheet, p) {
   sheet.appendRow(rowData);
 }
 
+function findRowBySNAnyColumn(sheet, sn) {
+  if (!sheet || !sn) return -1;
+  const data = sheet.getDataRange().getValues();
+  const searchSN = sn.toString().trim().toUpperCase();
+  for (let r = 1; r < data.length; r++) {
+    const row = data[r];
+    for (let c = 0; c < row.length; c++) {
+      if (String(row[c] || "").trim().toUpperCase() === searchSN) {
+        return r + 1;
+      }
+    }
+  }
+  return -1;
+}
+
 function archiveToLixeira(ss, originalSheetName, sn, model, ref, employeeName) {
   try {
+    if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheetLixeira = ss.getSheetByName("LIXEIRA");
     if (!sheetLixeira) {
       sheetLixeira = ss.insertSheet("LIXEIRA");
       sheetLixeira.appendRow(["DATA REMOCAO", "QUEM REMOVEU", "ABA ORIGINAL", "SN / MAC", "MODELO", "REF"]);
+      sheetLixeira.getRange(1, 1, 1, 6)
+        .setBackground("#c0392b")
+        .setFontColor("#ffffff")
+        .setFontWeight("bold");
     }
-    const todayStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss");
+    const tz = ss.getSpreadsheetTimeZone() || Session.getScriptTimeZone() || "America/Sao_Paulo";
+    const todayStr = Utilities.formatDate(new Date(), tz, "dd/MM/yyyy HH:mm:ss");
     sheetLixeira.appendRow([
       todayStr,
-      employeeName || "Sistema",
+      employeeName || "019",
       originalSheetName,
-      sn || "",
+      sn || "SEM SN",
       model || "",
       ref || ""
     ]);
+    SpreadsheetApp.flush();
   } catch (err) {
     Logger.log("Erro ao arquivar na lixeira: " + err.message);
   }
 }
 
 function deleteMachineRow(sheet, p) {
+  const ss = sheet ? sheet.getParent() : SpreadsheetApp.getActiveSpreadsheet();
   let row = -1;
-  if (p.row) {
+  let model = p.model || "";
+  let ref = p.ref || "";
+  let sn = p.sn || "";
+
+  if (p.row && sheet && p.row > 0 && p.row <= sheet.getLastRow()) {
     row = p.row;
-  } else {
+  } else if (sheet && p.sn) {
     row = findRowBySN(sheet, COL_MAC_SN, p.sn);
+    if (row === -1) {
+      row = findRowBySNAnyColumn(sheet, p.sn);
+    }
   }
-  if (row !== -1) {
-    const model = sheet.getRange(row, COL_MAC_MODEL).getValue();
-    const ref = sheet.getRange(row, COL_MAC_REF).getValue();
-    const sn = sheet.getRange(row, COL_MAC_SN).getValue();
-    const ss = sheet.getParent();
-    archiveToLixeira(ss, "MÁQUINAS", sn, model, ref, p.employeeName);
-    sheet.deleteRow(row);
+
+  if (sheet && row !== -1) {
+    try {
+      model = sheet.getRange(row, COL_MAC_MODEL).getValue() || model;
+      ref = sheet.getRange(row, COL_MAC_REF).getValue() || ref;
+      sn = sheet.getRange(row, COL_MAC_SN).getValue() || sn;
+      sheet.deleteRow(row);
+    } catch(e) {
+      Logger.log("deleteMachineRow erro: " + e.message);
+    }
   }
+
+  // SEMPRE ARQUIVA NA LIXEIRA
+  archiveToLixeira(ss, "MÁQUINAS", sn || p.sn, model, ref, p.employeeName);
+  SpreadsheetApp.flush();
+  return { ok: true, action: "deleted", sn: sn || p.sn, inSheet: row !== -1 };
 }
 
 function updateHashRow(sheet, p) {
@@ -640,15 +702,34 @@ function addHashRow(sheet, p) {
 
 // O POST de exclusão usa o row se SN estiver em branco, caso contrário busca pelo SN
 function deleteHashRow(sheet, p) {
-  if (!sheet) return;
-  const row = findRowBySN(sheet, COL_HASH_SN, p.sn);
-  if (row !== -1) {
-    const model = sheet.getRange(row, COL_HASH_MODEL).getValue();
-    const sn = sheet.getRange(row, COL_HASH_SN).getValue();
-    const ss = sheet.getParent();
-    archiveToLixeira(ss, "HASH", sn, model, "", p.employeeName);
-    sheet.deleteRow(row);
+  const ss = sheet ? sheet.getParent() : SpreadsheetApp.getActiveSpreadsheet();
+  let row = -1;
+  let model = p.model || "";
+  let sn = p.sn || "";
+
+  if (p.row && sheet && p.row > 0 && p.row <= sheet.getLastRow()) {
+    row = p.row;
+  } else if (sheet && p.sn) {
+    row = findRowBySN(sheet, COL_HASH_SN, p.sn);
+    if (row === -1) {
+      row = findRowBySNAnyColumn(sheet, p.sn);
+    }
   }
+
+  if (sheet && row !== -1) {
+    try {
+      model = sheet.getRange(row, COL_HASH_MODEL).getValue() || model;
+      sn = sheet.getRange(row, COL_HASH_SN).getValue() || sn;
+      sheet.deleteRow(row);
+    } catch(e) {
+      Logger.log("deleteHashRow erro: " + e.message);
+    }
+  }
+
+  // SEMPRE ARQUIVA NA LIXEIRA
+  archiveToLixeira(ss, "HASH", sn || p.sn, model, "", p.employeeName);
+  SpreadsheetApp.flush();
+  return { ok: true, action: "deleted", sn: sn || p.sn, inSheet: row !== -1 };
 }
 
 function findRepairRow(sheet, sn, tecnico, dateStr) {
