@@ -647,7 +647,7 @@ async function hashPwd(pwd){
 }
 const audit=(u,e={})=>({...e,_by:u._id,_byName:u.name,_at:stamp()});
 const checkIsAdmin = (u) => Boolean(u && (u.permissions?.admin || u.role === "admin" || u.code === "019" || u.code === "00" || String(u.code).replace(/^0+/, "") === "19"));
-const is019Admin = (u) => Boolean(u && (u.code === "019" || String(u.code).replace(/^0+/, "") === "19"));
+const is019Admin = (u) => Boolean(u && (u.code === "019" || String(u.code).replace(/^0+/, "") === "19" || u.code === "070" || String(u.code).replace(/^0+/, "") === "70"));
 
 /* ═══ STORAGE ════════════════════════════════════════════════════ */
 // Fotos agora vão pro Google Drive de vocês (via Apps Script), não mais pro
@@ -2800,14 +2800,15 @@ export default function App(){
         {tab==="conserto"&&p.repairs&&<SafeTab><ConsertaPage ctx={ctx}/></SafeTab>}
         {tab==="teste"&&p.testing&&<SafeTab><TestePage ctx={ctx}/></SafeTab>}
         {tab==="guia"&&<SafeTab><div style={{display:"flex",flexDirection:"column",gap:16}}>
-          <div style={{background:C.card,borderRadius:16,padding:16,border:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
-            <div>
-              <div style={{fontWeight:900,fontSize:18,color:C.accent}}>📅 Relatório Diário & Atividades</div>
-              <div style={{fontSize:12,color:C.muted,marginTop:2}}>Lance manualmente o que foi feito no dia a dia pelo colaborador e acompanhe o relatório de produção</div>
-            </div>
-            <Btn v="g" onClick={()=>setModal(<Modal title="➕ Lançar Atividade do Dia" onClose={()=>setModal(null)}><ManualActivityForm ctx={ctx} initialEmp={isAdmin?null:user} initialDate={TODAY()} onClose={()=>setModal(null)}/></Modal>)} style={{fontSize:13,padding:"10px 18px"}}>➕ Lançar Atividade do Dia</Btn>
+          <div style={{background:C.card,borderRadius:16,padding:16,border:`1px solid ${C.border}`}}>
+            <div style={{fontWeight:900,fontSize:18,color:C.accent,marginBottom:4}}>📅 Meu Relatório Diário — {user.name} (#{user.code})</div>
+            <div style={{fontSize:12,color:C.muted,marginBottom:14}}>Registre aqui o que você fez no seu dia a dia</div>
+            <ManualActivityForm ctx={ctx} initialEmp={user} initialDate={TODAY()} lockEmp={true}/>
           </div>
-          <DailyTeamReport ctx={ctx} initEmp={isAdmin?"":user._id} employees={isAdmin?data.employees:data.employees.filter(e=>e._id===user._id||canSeeEmp(e._id))}/>
+          <div style={{background:C.card,borderRadius:16,padding:16,border:`1px solid ${C.border}`}}>
+            <div style={{fontWeight:900,fontSize:16,color:C.text,marginBottom:12}}>📋 Minhas Atividades Registradas</div>
+            <EmpHistory ctx={ctx} emp={user}/>
+          </div>
         </div></SafeTab>}
         {tab==="pedidos"&&(p.orders||isAdmin)&&<SafeTab><OrdersPage ctx={ctx}/></SafeTab>}
         {tab==="hist"&&(p.repairs||p.testing)&&!isAdmin&&<HistPage ctx={ctx} canSeeEmp={canSeeEmp}/>}
@@ -12323,16 +12324,16 @@ function ApprovalsPage({ctx}){
         <div style={{display:"flex",gap:8,marginTop:8}}>
           <Btn v="d" onClick={()=>reject(appr)} disabled={processing===appr._id} style={{flex:1}}>✗ Reprovar</Btn><Btn v="g" onClick={()=>approve(appr)} disabled={processing===appr._id} style={{flex:1}}>{processing===appr._id?"...":appr.machineBad?"✓ Aprovar → RUIM":appr.orderRef?"✓ Aprovar → Enviar pro Cliente":appr.prepShipment?"✓ Aprovar → PREPARANDO":"✓ Aprovar → BOA"}</Btn></div>
       </Card>})}
-    {data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>{user.code==="019"&&<button onClick={async()=>{if(!confirm("Apagar essa revisão do histórico? Não dá pra desfazer."))return;await fbDel("pendingApprovals",a._id);mutate("approvals",arr=>arr.filter(x=>x._id!==a._id));await markChanged("approvals")}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></div>)}</>}
+    {data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).length>0&&<><SL mt={16}>PROCESSADAS</SL>{data.approvals.filter(a=>a.status!=="pending"&&(!a.type||a.type==="machine")).slice(-5).reverse().map(a=><div key={a._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><span>🖥️ {a.machineSN||"SEM SN"}</span><div style={{display:"flex",gap:6,alignItems:"center"}}><Tag color={a.status==="approved"?C.green:C.red} small>{a.status==="approved"?"Aprovada":"Reprovada"}</Tag><button onClick={()=>setModal(<Modal title={`📋 ${a.machineSN||"SEM SN"}`} onClose={()=>setModal(null)}><ApprovalDetail ctx={ctx} appr={a}/></Modal>)} style={{background:C.card2,border:"none",color:C.subtle,borderRadius:6,padding:"3px 8px",cursor:"pointer",fontSize:11}}>Ver mais</button>{is019Admin(user)&&<button onClick={async()=>{if(!confirm("Apagar essa revisão do histórico? Não dá pra desfazer."))return;await fbDel("pendingApprovals",a._id);mutate("approvals",arr=>arr.filter(x=>x._id!==a._id));await markChanged("approvals")}} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16}}>✕</button>}</div></div>)}</>}
   </div>;
 }
 
 /* ═══ TEAM ══════════════════════════════════════════════════════ */
-function ManualActivityForm({ctx,initialEmp,initialDate,onClose}){
+function ManualActivityForm({ctx,initialEmp,initialDate,lockEmp=false,onClose}){
   const{data,mutate,user,webhookUrl,allModels,gTH,gChips}=ctx;
   const models=allModels();
-  const isAdmin=checkIsAdmin(user);
-  const availableEmps=(data.employees||[]).filter(e=>isAdmin||e._id===user._id);
+  const canPickAnyEmp=!lockEmp&&user?.code==="019";
+  const availableEmps=canPickAnyEmp?(data.employees||[]):(initialEmp?[initialEmp]:[user]);
   const[empId,setEmpId]=useState(initialEmp?._id||user._id||availableEmps[0]?._id||"");
   const[date,setDate]=useState(initialDate||TODAY());
   const[actType,setActType]=useState("task"); // "task" | "repair" | "test"
@@ -12349,6 +12350,7 @@ function ManualActivityForm({ctx,initialEmp,initialDate,onClose}){
   const[notes,setNotes]=useState("");
   const[photoKey,setPhotoKey]=useState(null);
   const[saving,setSaving]=useState(false);
+  const[savedOk,setSavedOk]=useState(false);
 
   const presets=[
     "🧹 Limpeza de Máquinas",
@@ -12360,7 +12362,7 @@ function ManualActivityForm({ctx,initialEmp,initialDate,onClose}){
   ];
 
   const save=async()=>{
-    const emp=(data.employees||[]).find(e=>e._id===empId)||user;
+    const emp=canPickAnyEmp?((data.employees||[]).find(e=>e._id===empId)||user):(initialEmp||user);
     if(!emp)return;
     if(actType==="task"&&!taskTitle.trim()&&!notes.trim()){
       alert("Informe o título ou a descrição da atividade realizada.");
@@ -12460,16 +12462,37 @@ function ManualActivityForm({ctx,initialEmp,initialDate,onClose}){
       }
     }
     setSaving(false);
-    onClose();
+    if(onClose){
+      onClose();
+    } else {
+      setSn("");
+      setNotes("");
+      setPhotoKey(null);
+      setChips("");
+      setSensores("");
+      setLdos("");
+      setSavedOk(true);
+      setTimeout(()=>setSavedOk(false),3500);
+    }
   };
 
+  const targetEmp=canPickAnyEmp?((data.employees||[]).find(e=>e._id===empId)||user):(initialEmp||user);
+
   return<div>
-    <div style={{display:"flex",gap:8,marginBottom:10}}>
-      <div style={{flex:1}}>
-        <Sel label="👷 COLABORADOR" value={empId} onChange={e=>setEmpId(e.target.value)}>
-          {availableEmps.map(e=><option key={e._id} value={e._id}>{e.name} (#{e.code})</option>)}
-        </Sel>
-      </div>
+    {savedOk&&<Alrt type="ok">✓ Atividade registrada com sucesso no seu Relatório Diário!</Alrt>}
+    <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"flex-end"}}>
+      {canPickAnyEmp ? (
+        <div style={{flex:1}}>
+          <Sel label="👷 COLABORADOR" value={empId} onChange={e=>setEmpId(e.target.value)}>
+            {availableEmps.map(e=><option key={e._id} value={e._id}>{e.name} (#{e.code})</option>)}
+          </Sel>
+        </div>
+      ) : (
+        <div style={{flex:1,marginBottom:12}}>
+          <div style={{color:C.subtle,fontSize:10,fontWeight:800,marginBottom:4,letterSpacing:1}}>👷 COLABORADOR</div>
+          <div style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",fontSize:13,fontWeight:800,color:C.accent}}>{targetEmp?.name} (#{targetEmp?.code})</div>
+        </div>
+      )}
       <div style={{flex:1}}>
         <DateInp label="📅 DATA" value={date} onChange={e=>setDate(e.target.value)}/>
       </div>
@@ -12553,8 +12576,8 @@ function ManualActivityForm({ctx,initialEmp,initialDate,onClose}){
     <PhotoCapture label="📸 Foto Comprovante (opcional)" photoKey={photoKey} onChange={setPhotoKey} folder="atividades-manuais" snHint={sn||taskTitle}/>
 
     <div style={{display:"flex",gap:8,marginTop:8}}>
-      <Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
-      <Btn v="g" onClick={save} disabled={saving} style={{flex:2}}>{saving?"Salvando...":"💾 Salvar Atividade"}</Btn>
+      {onClose&&<Btn v="s" onClick={onClose} style={{flex:1}}>Cancelar</Btn>}
+      <Btn v="g" onClick={save} disabled={saving} style={{flex:2}}>{saving?"Salvando...":"💾 Salvar no Relatório Diário"}</Btn>
     </div>
   </div>;
 }
@@ -13989,7 +14012,7 @@ function DailyTeamReport({ctx,initEmp="",employees=[]}){
 
 function EmpProfile({ctx,emp}){
   const{data,mutate,setModal,user}=ctx;const[dateFilter,setDateFilter]=useState(TODAY());
-  const isSuper=user.code==="019";
+  const isSuper=is019Admin(user);
   const allR=data.repairs.filter(r=>r.employeeId===emp._id||r._by===emp._id);const allT=data.tests.filter(t=>t.employeeId===emp._id||t._by===emp._id);
   const fdbs=data.feedbacks.filter(f=>!f.resolved&&f.originalRepairerId===emp._id);
   const dayR=allR.filter(r=>r.date===dateFilter);const dayT=allT.filter(t=>t.date===dateFilter);
@@ -15574,7 +15597,7 @@ function OrderCard({ctx,order:o,hideClient}){
   // aba Teste, que qualquer testador vê, e lá ele NÃO pode cancelar pedido.
   // Depois que o pedido fica COMPLETO (todas as máquinas já aprovadas), só o
   // admin 019 pode cancelar/apagar — ninguém mais mexe num pedido pronto.
-  const canManage=complete?user.code==="019":!!(user.permissions?.admin||user.permissions?.orders);
+  const canManage=complete?is019Admin(user):!!(user.permissions?.admin||user.permissions?.orders);
   const client=data.clients.find(c=>c._id===o.clientId);
   const cancelOrder=async()=>{
     if(!confirm(`Cancelar o Pedido #${o.number}? Não dá pra desfazer.`))return;
